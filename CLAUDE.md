@@ -16,6 +16,637 @@ This enterprise-grade solution enables:
 - **Multi-Server Management** with database-driven configuration
 - **User Authentication** with periodic credential validation
 
+## Integration with CARE Healthcare Service
+
+The CARE Radiology DICOM Enabler is a critical bridge component in the CARE Healthcare ecosystem, connecting Windows-based medical imaging devices to the modern Django-based CARE EMR (Electronic Medical Records) system.
+
+### Overall Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ Hospital Network (Windows Environment)                                          │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                   │
+│  Medical Imaging Devices (CT, MRI, X-Ray, Ultrasound)                           │
+│         │                                 │                                       │
+│         │ C-FIND (Worklist Query)        │ C-STORE (Send Images)                │
+│         │ Port 2008                       │ Port 2007                            │
+│         ↓                                 ↓                                       │
+│  ┌──────────────────────────┐   ┌──────────────────────────┐                   │
+│  │ CARE_MWL_Service         │   │ CARE_StoreSCP_Service    │                   │
+│  │ Modality Worklist SCP    │   │ DICOM Image Receiver     │                   │
+│  │ AE: MODALITYSCP          │   │ AE: STORAGESCP           │                   │
+│  │ Port: 2008               │   │ Port: 2007               │                   │
+│  └──────────────────────────┘   └──────────────────────────┘                   │
+│         │                                 │                                       │
+│         │ HTTP GET (Static API Key)      │ Saves to ./SCP folder                │
+│         │ /dicom/worklist/                │                                       │
+│         ↓                                 ↓                                       │
+│  ┌────────────────────────────────────────────────────────────┐                │
+│  │ CARE_SCU_Service (Store SCU - Uploader)                    │                │
+│  │ • Monitors ./SCP folder (every 5 seconds)                  │                │
+│  │ • Uploads DICOM files to Django backend                    │                │
+│  └────────────────────────────────────────────────────────────┘                │
+│         │                                                                         │
+│         │ HTTP POST (JWT Token)                                                  │
+│         │ /dicom/upload/ (multipart/form-data)                                  │
+│         ↓                                                                         │
+└─────────┼─────────────────────────────────────────────────────────────────────┘
+          │ HTTPS
+          ↓
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ Cloud/On-Premise CARE Backend (Django/Python)                                   │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                   │
+│  ┌───────────────────────────────────────────────────────────────────────────┐ │
+│  │ CARE Radiology Plugin (care_radiology)                                    │ │
+│  │ Plugin-based Django REST API                                              │ │
+│  ├───────────────────────────────────────────────────────────────────────────┤ │
+│  │ API Endpoints:                                                            │ │
+│  │ • GET  /api/plugin/care_radiology/dicom/worklist/     ← MWL Service     │ │
+│  │ • POST /api/plugin/care_radiology/dicom/upload/       ← SCU Service     │ │
+│  │ • GET  /api/plugin/care_radiology/dicom/studies/      ← Web UI          │ │
+│  │ • POST /api/plugin/care_radiology/webhooks/study/     ← DCM4CHEE        │ │
+│  │ • POST /api/plugin/care_radiology/study_report/       ← Radiologist UI  │ │
+│  │ • GET  /api/plugin/care_radiology/study-report-audits/ ← Compliance     │ │
+│  └───────────────────────────────────────────────────────────────────────────┘ │
+│         │                          │                        │                     │
+│         │                          │                        │                     │
+│         ↓                          ↓                        ↓                     │
+│  ┌───────────┐            ┌───────────┐          ┌─────────────────────────┐   │
+│  │PostgreSQL │            │   Redis   │          │ DCM4CHEE PACS           │   │
+│  │ Metadata  │            │   Cache   │          │ (Archive 5.34.1)        │   │
+│  │ - Patient │            │ - Studies │          ├─────────────────────────┤   │
+│  │ - Service │            │ - Auth    │          │ • STOW-RS (Upload)      │   │
+│  │   Request │            └───────────┘          │ • QIDO-RS (Query)       │   │
+│  │ - Reports │                                   │ • WADO-RS (Retrieve)    │   │
+│  └───────────┘                                   │ • OHIF Viewer (Web)     │   │
+│                                                   │ • MinIO S3 Storage      │   │
+│                                                   └─────────────────────────┘   │
+│                                                                                   │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Technology Stack Comparison
+
+| Component | Windows DICOM Enabler | CARE Backend | PACS |
+|-----------|----------------------|--------------|------|
+| **Language** | C# (.NET 4.7.2) | Python 3.13 | Java (WildFly) |
+| **Framework** | Windows Forms | Django 6.0 + DRF | DCM4CHEE 5.34.1 |
+| **DICOM Library** | fo-dicom 5.0.2 | pydicom 3.0.2 | dcm4che |
+| **Database** | MySQL 8.0 | PostgreSQL | PostgreSQL + LDAP |
+| **Storage** | Local filesystem | S3 (MinIO) | MinIO S3 |
+| **Authentication** | Static API Key + JWT | JWT + RBAC | Nginx proxy auth |
+| **UI** | MaterialSkin 2.3.1 | React | OHIF Viewer v3.9.2 |
+
+### Key Integration Points
+
+#### 1. Worklist API Integration
+**Windows Service:** `CARE_MWL_Service` (Port 2008)
+**Django Endpoint:** `GET /api/plugin/care_radiology/dicom/worklist/`
+**File:** `Sample_ModalitySCP/Model/WorklistItemsProvider.cs:230+`
+
+**How it works:**
+1. Medical device (CT/MRI) sends DICOM C-FIND request to port 2008
+2. MWL Service receives request with modality filter (e.g., modality="CT")
+3. Service makes HTTP GET to Django backend with Static API Key authentication
+4. Django queries `ServiceRequest` model for active orders matching criteria
+5. Returns JSON with patient demographics, exam details, scheduled date/time
+6. MWL Service converts JSON to DICOM worklist format
+7. Returns DICOM C-FIND response to imaging device
+
+**Request:**
+```http
+GET /api/plugin/care_radiology/dicom/worklist/?modality=CT&from=2026-05-14&to=2026-05-15
+Authorization: <STATIC_API_KEY>
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "results": [
+    {
+      "service_request": {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "name": "CT Chest with Contrast",
+        "date": "2026-05-14T10:30:00Z"
+      },
+      "facility": {
+        "id": "660e8400-e29b-41d4-a716-446655440001",
+        "name": "Central Hospital"
+      },
+      "patient": {
+        "name": "John Doe",
+        "address": "123 Main St",
+        "phone_number": "+1234567890",
+        "gender": "M",
+        "age": 45
+      }
+    }
+  ]
+}
+```
+
+**Code Reference:** `src/care_radiology/api/dicom.py:85-107`
+
+#### 2. DICOM Image Upload Integration
+**Windows Service:** `CARE_SCU_Service` (Uploader)
+**Django Endpoint:** `POST /api/plugin/care_radiology/dicom/upload/`
+**File:** `CARE_SCU_Service/Plexus_SCU_Service.cs`
+
+**How it works:**
+1. Store SCP Service receives images and saves to `./SCP/{StudyUID}/{SeriesUID}/{InstanceUID}.dcm`
+2. SCU Service monitors `./SCP` folder every 5 seconds
+3. For each DICOM file, SCU creates multipart/form-data HTTP POST
+4. Django receives DICOM file, extracts metadata using pydicom
+5. Django re-encodes as multipart/related and forwards to DCM4CHEE via STOW-RS
+6. DCM4CHEE stores in MinIO S3 and returns StudyInstanceUID
+7. Django creates/updates `DicomStudy` record linking patient to study
+8. Django returns success response to Windows service
+9. Windows service deletes local file after successful upload
+
+**Request:**
+```http
+POST /api/plugin/care_radiology/dicom/upload/
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: multipart/form-data
+
+Form Data:
+  - patient_id: 550e8400-e29b-41d4-a716-446655440000
+  - file: [DICOM binary data]
+```
+
+**Response (201 Created):**
+```json
+{
+  "status": "success",
+  "message": "DICOM uploaded successfully",
+  "study_uid": "1.2.840.113619.2.55.3.2609.2.1.1",
+  "dicom_response": {
+    "00081199": {
+      "Value": [{
+        "00081155": {"Value": ["1.2.840.113619..."]}
+      }]
+    }
+  }
+}
+```
+
+**Code Reference:** `src/care_radiology/api/dicom.py:110-223`
+
+#### 3. DCM4CHEE PACS Integration
+**Communication:** Django Backend ↔ DCM4CHEE
+**Protocol:** DICOMweb (REST API over HTTP)
+**Base URL:** `http://arc:8080/dcm4chee-arc/rs/`
+
+**STOW-RS (Store):**
+```http
+POST /rs/studies HTTP/1.1
+Content-Type: multipart/related; type="application/dicom"; boundary=DICOMBOUNDARY-{uuid}
+Accept: application/dicom+json
+
+--DICOMBOUNDARY-{uuid}
+Content-Type: application/dicom
+Content-Length: 123456
+
+[DICOM binary data]
+--DICOMBOUNDARY-{uuid}--
+```
+
+**QIDO-RS (Query):**
+```http
+GET /rs/studies?StudyInstanceUID=1.2.840.113619.2.55.3.2609.2.1.1
+Accept: application/dicom+json
+```
+
+**WADO-RS (Retrieve):**
+```http
+GET /rs/studies/{StudyUID}/series/{SeriesUID}/instances/{InstanceUID}/frames/1
+Accept: image/jpeg
+```
+
+**Code Reference:** `src/care_radiology/api/dicom.py:396-479`
+
+#### 4. Study Completion Webhook
+**Source:** DCM4CHEE PACS
+**Django Endpoint:** `POST /api/plugin/care_radiology/webhooks/study/`
+**Authentication:** Static API Key
+
+**How it works:**
+1. DCM4CHEE configured with webhook URL pointing to Django
+2. When study finalized (all series uploaded), DCM4CHEE triggers webhook
+3. Django receives StudyInstanceUID + ServiceRequest ID
+4. Creates `RadiologyServiceRequest` junction record linking service request to DICOM study
+5. Logs webhook in `RadiologyWebhookLogs` for audit
+6. Updates `DicomStudy` with metadata from DCM4CHEE
+7. Busts Redis cache for study
+
+**Request:**
+```http
+POST /api/plugin/care_radiology/webhooks/study/
+Authorization: <STATIC_API_KEY>
+Content-Type: application/json
+
+{
+  "service_request_id": "550e8400-e29b-41d4-a716-446655440000",
+  "study_id": "1.2.840.113619.2.55.3.2609.2.1.1"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "detail": "Webhook received and saved successfully",
+  "record": {
+    "external_id": "770e8400-e29b-41d4-a716-446655440002",
+    "data": { ... }
+  }
+}
+```
+
+**Code Reference:** `src/care_radiology/api/webhooks.py:31-116`
+
+### Complete Radiology Workflow
+
+#### End-to-End Process Flow
+
+```
+1. ORDER PLACEMENT (Django Backend)
+   Doctor creates ServiceRequest via CARE EMR UI
+   └─ POST /api/facility/{facility_id}/service_request/
+   └─ Fields: title, code (SNOMED CT), body_site, patient, encounter, healthcare_service
+   └─ Status: "draft" → "active"
+
+2. WORKLIST QUERY (Windows MWL Service)
+   Imaging device queries for patient worklist
+   └─ C-FIND request to port 2008
+   └─ MWL Service → GET /dicom/worklist/?modality=CT
+   └─ Returns patient demographics + exam details
+   └─ Device displays worklist to technician
+
+3. IMAGE ACQUISITION (Medical Device)
+   Technician selects patient from worklist
+   └─ Performs CT/MRI/X-Ray scan
+   └─ Device generates DICOM images
+   └─ Embeds patient ID, Study UID, Service Request ID
+
+4. IMAGE TRANSMISSION (Windows Store SCP)
+   Device sends images to CARE_StoreSCP_Service
+   └─ C-STORE request to port 2007
+   └─ Service validates AE Title
+   └─ Saves to ./SCP/{StudyUID}/{SeriesUID}/{InstanceUID}.dcm
+   └─ Updates MySQL database with metadata
+
+5. IMAGE UPLOAD (Windows Store SCU)
+   CARE_SCU_Service monitors ./SCP folder
+   └─ Detects new files every 5 seconds
+   └─ POST /dicom/upload/ (multipart/form-data)
+   └─ Django receives and validates JWT token
+   └─ Django → DCM4CHEE STOW-RS upload
+   └─ Success → deletes local file
+
+6. PACS STORAGE (DCM4CHEE)
+   DCM4CHEE stores DICOM in MinIO S3
+   └─ Indexes metadata in PostgreSQL
+   └─ Triggers webhook → POST /webhooks/study/
+   └─ Django creates DicomStudy + RadiologyServiceRequest records
+
+7. IMAGE VIEWING (Web UI)
+   Radiologist opens OHIF viewer in browser
+   └─ GET /api/plugin/care_radiology/dicom/studies/?patient_id={id}
+   └─ Returns list of studies with has_report annotation
+   └─ OHIF loads images via WADO-RS from DCM4CHEE
+
+8. REPORT CREATION (Django Backend)
+   Radiologist dictates/types report
+   └─ POST /api/plugin/care_radiology/study_report/
+   └─ Fields: study, modality, body_part, technique, findings, impression
+   └─ Creates StudyReport record
+   └─ Automatically creates StudyReportAudit for HIPAA compliance
+
+9. REPORT APPROVAL (Django Backend)
+   Senior radiologist reviews and approves
+   └─ PATCH /api/plugin/care_radiology/study_report/{id}/
+   └─ Updates status to "final"
+   └─ Audit trail tracks all changes (old_value → new_value)
+
+10. ORDER COMPLETION (Django Backend)
+    System updates ServiceRequest status
+    └─ PATCH /api/facility/{id}/service_request/{id}/
+    └─ Status: "active" → "completed"
+    └─ Referring physician notified
+```
+
+### Database Models and Relationships
+
+#### CARE Backend (Django/PostgreSQL)
+
+**Core EMR Models:**
+```python
+Patient
+├── external_id: UUID (primary key)
+├── name, gender, date_of_birth
+├── phone_number, address
+└── instance_identifiers: JSONField (MRN, etc.)
+
+Encounter
+├── external_id: UUID
+├── patient: FK(Patient)
+├── facility: FK(Facility)
+├── status: draft|active|completed
+└── encounter_class: ambulatory|emergency|inpatient
+
+ServiceRequest (Radiology Order)
+├── external_id: UUID
+├── patient: FK(Patient)
+├── encounter: FK(Encounter)
+├── title: "CT Chest with Contrast"
+├── code: JSONField (SNOMED CT coding)
+├── body_site: JSONField (anatomical location)
+├── status: draft|active|completed|cancelled
+├── healthcare_service: FK(HealthcareService)
+├── activity_definition: FK(ActivityDefinition)
+└── requester: FK(User)
+```
+
+**Radiology Plugin Models:**
+```python
+DicomStudy (Links Patient to DICOM)
+├── external_id: UUID
+├── patient: FK(Patient)
+├── dicom_study_uid: CharField (DICOM StudyInstanceUID)
+├── UNIQUE (patient, dicom_study_uid)
+└── Annotated: has_report (Exists subquery)
+
+RadiologyServiceRequest (Junction Table)
+├── external_id: UUID
+├── service_request: FK(ServiceRequest)
+├── dicom_study: FK(DicomStudy)
+└── raw_data: JSONField (webhook payload)
+
+StudyReport
+├── external_id: UUID
+├── study: FK(DicomStudy)
+├── modality: FK(ModalityType)
+├── body_part: FK(BodyPart)
+├── scan_protocol: FK(ScanProtocol)
+├── technique: TextField (imaging parameters)
+├── findings: TextField (clinical observations)
+├── impression: TextField (radiologist conclusion)
+├── created_datetime: DateTimeField
+└── last_modified_datetime: DateTimeField(auto_now)
+
+StudyReportAudit (HIPAA Compliance)
+├── external_id: UUID
+├── study_report: FK(StudyReport)
+├── action: "Created"|"Updated"
+├── field_name: CharField
+├── old_value: JSONField
+├── new_value: JSONField
+└── created_datetime: DateTimeField
+
+ModalityType (CT, MRI, X-Ray, Ultrasound)
+├── external_id: UUID
+├── display_name: CharField
+└── coding: JSONField (HL7/SNOMED codes)
+
+BodyPart (Chest, Abdomen, Head, etc.)
+├── external_id: UUID
+├── display_name: CharField
+├── modality_types: M2M(ModalityType)
+└── coding: JSONField (SNOMED CT codes)
+
+ScanProtocol (Specific protocols per modality/body part)
+├── external_id: UUID
+├── modality_type: FK(ModalityType)
+├── body_part: FK(BodyPart)
+├── display_name: CharField
+└── default_parameters: JSONField
+
+RadiologyWebhookLogs (Audit Trail)
+├── external_id: UUID
+├── webhook_type: CharField (e.g., "SR-STUDY-INSERT")
+├── payload: JSONField
+└── created_datetime: DateTimeField
+```
+
+#### Windows Enabler (MySQL)
+
+```sql
+-- Study table
+study
+├── id: INT AUTO_INCREMENT
+├── study_uid: VARCHAR(500)
+├── patient_id: INT
+├── service_request_id: VARCHAR(100)
+├── study_date: DATE
+├── study_time: TIME
+├── modality_codes: VARCHAR(100)
+├── num_instances: INT
+└── created_at: TIMESTAMP
+
+-- Series table
+series
+├── id: INT AUTO_INCREMENT
+├── series_uid: VARCHAR(500)
+├── study_id: INT (FK to study)
+├── modality: VARCHAR(20)
+├── series_number: INT
+└── num_instances: INT
+
+-- Instance table
+instance
+├── id: INT AUTO_INCREMENT
+├── sop_instance_uid: VARCHAR(500)
+├── series_id: INT (FK to series)
+├── instance_number: INT
+├── file_path: VARCHAR(500)
+└── upload_status: ENUM('pending','success','failed')
+
+-- Server configuration
+servers
+├── id: INT AUTO_INCREMENT
+├── ae_title: VARCHAR(100)
+├── host: VARCHAR(255)
+├── port: INT
+├── description: VARCHAR(500)
+└── is_active: BOOLEAN
+```
+
+### Authentication & Authorization
+
+#### Windows Enabler Authentication
+1. **Static API Key** (Worklist endpoint)
+   - Header: `Authorization: <STATIC_API_KEY>`
+   - Configured via `CARE_RADIOLOGY_WEBHOOK_SECRET` env var
+   - Used by: MWL Service for worklist queries
+
+2. **JWT Token** (Upload endpoint)
+   - Header: `Authorization: Bearer <JWT_TOKEN>`
+   - Obtained from: Django `/api/token/` endpoint
+   - Contains: user_id, username, exp, facility context
+   - Used by: SCU Service for image uploads
+
+3. **Periodic Validation** (Auth Service)
+   - External API: `https://{CARE_BACKEND}/users/login-api`
+   - Frequency: Every 24 hours
+   - Action on failure: Stops MWL/SCP/SCU services
+
+#### Django Backend Authorization (RBAC)
+
+**Permission Checks:**
+```python
+# Patient-level permissions
+can_read_patient_obj(user, patient)
+can_write_patient_obj(user, patient)
+
+# Service Request permissions
+can_read_service_request(user, service_request)
+can_write_service_request_in_encounter(user, encounter)
+can_list_location_service_request(user, location)
+
+# Radiology Report permissions
+can_read_radiology_report(user, study_report)
+can_write_radiology_report(user, study_report)
+```
+
+**Authorization Scopes:**
+- **Facility-Wide:** User role within facility organization
+- **Location-Specific:** Limited to specific departments (e.g., Radiology)
+- **Encounter-Specific:** Access tied to patient encounters
+- **Resource-Specific:** Explicit ownership or care team membership
+
+### Configuration Management
+
+#### Windows Enabler (App.config)
+```xml
+<appSettings>
+  <!-- CARE Backend Integration -->
+  <add key="careBackendURL" value="https://care.hospital.org" />
+  <add key="authURL" value="https://care.hospital.org/api/token/" />
+  <add key="worklistURL" value="/api/plugin/care_radiology/dicom/worklist/" />
+  <add key="uploadURL" value="/api/plugin/care_radiology/dicom/upload/" />
+
+  <!-- Static API Key -->
+  <add key="staticAPIKey" value="your-secret-api-key-here" />
+
+  <!-- JWT Token (if required) -->
+  <add key="jwtToken" value="" />
+
+  <!-- Service Configuration -->
+  <add key="mwlaetitle" value="MODALITYSCP" />
+  <add key="mwlport" value="2008" />
+  <add key="sscpaetitle" value="STORAGESCP" />
+  <add key="sscpport" value="2007" />
+
+  <!-- Upload Schedule -->
+  <add key="scuTimerInterval" value="5000" />  <!-- milliseconds -->
+
+  <!-- Deployment Mode -->
+  <add key="deployType" value="1" />  <!-- 1=Hospital, 2=Central -->
+</appSettings>
+```
+
+#### Django Backend (.env)
+```bash
+# PostgreSQL Database
+POSTGRES_HOST=localhost
+POSTGRES_DB=care
+POSTGRES_USER=care_user
+POSTGRES_PASSWORD=secure_password
+
+# Redis Cache
+REDIS_URL=redis://localhost:6379/0
+
+# DCM4CHEE PACS
+CARE_RADIOLOGY_DCM4CHEE_DICOMWEB_BASEURL=http://arc:8080/dcm4chee-arc/aets/DCM4CHEE
+CARE_RADIOLOGY_DCM4CHEE_DICOMWEB_AUTH_TYPE=none  # or jwt
+DCM4CHEE_WEBHOOK_SECRET=your-webhook-secret
+
+# Static API Key for Windows Enabler
+CARE_RADIOLOGY_WEBHOOK_SECRET=your-static-api-key
+
+# OHIF Viewer
+OHIF_VIEWER_URL=http://localhost:3000
+
+# MinIO S3 Storage
+MINIO_ENDPOINT=minio:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_BUCKET_NAME=dicom-bucket
+
+# Celery (Async Tasks)
+CELERY_BROKER_URL=redis://localhost:6379/1
+```
+
+### Performance & Scalability
+
+#### Redis Caching Strategy
+```python
+# Cache DICOM study metadata (1 hour TTL)
+cache_key = f"radiology:dicom:study:{study_uid}"
+cache.set(cache_key, study_data, timeout=3600)
+
+# Cache worklist queries (5 minutes TTL)
+cache_key = f"radiology:worklist:{modality}:{date}"
+cache.set(cache_key, worklist_data, timeout=300)
+
+# Invalidation on upload
+cache.delete(f"radiology:dicom:study:{study_uid}")
+```
+
+#### Async Processing with Celery
+```python
+# Background task for DICOM metadata extraction
+@shared_task
+def extract_dicom_metadata(study_uid):
+    # Query DCM4CHEE for full study metadata
+    # Update DicomStudy record with series/instance counts
+    # Generate thumbnails
+    pass
+
+# Background task for report generation from templates
+@shared_task
+def generate_report_from_template(study_id, template_id):
+    # Apply template to findings/impression
+    # Notify radiologist
+    pass
+```
+
+#### Parallel Study Metadata Fetching
+```python
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+with ThreadPoolExecutor(max_workers=10) as executor:
+    future_to_study = {
+        executor.submit(fetch_dcm4chee_metadata, study): study
+        for study in studies
+    }
+    for future in as_completed(future_to_study):
+        result = future.result()
+```
+
+### Security Considerations
+
+#### Data Encryption
+- **Windows Enabler:** BouncyCastle.Crypto for connection strings
+- **Django Backend:** Encrypted fields via django-encrypted-model-fields (if configured)
+- **In Transit:** TLS 1.3 for all HTTP communication
+- **At Rest:** MinIO server-side encryption (SSE-S3)
+
+#### HIPAA Compliance
+- **Audit Trails:** `StudyReportAudit` tracks all report modifications
+- **Webhook Logs:** `RadiologyWebhookLogs` for complete event history
+- **Access Control:** Role-based with facility/location scoping
+- **PHI Protection:** Patient data never logged in plaintext
+
+#### Network Security
+- **Firewall Rules:** DICOM ports (2007, 2008) limited to hospital network
+- **API Gateway:** Nginx reverse proxy with rate limiting
+- **Authentication:** Multi-factor (JWT + static key) for critical endpoints
+- **Secrets Management:** Environment variables, never hardcoded
+
 ## Architecture
 
 ### Solution Structure
