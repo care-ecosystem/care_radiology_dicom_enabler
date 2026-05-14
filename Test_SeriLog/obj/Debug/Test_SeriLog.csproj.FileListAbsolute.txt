@@ -1,0 +1,34 @@
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Test_SeriLog.exe.config
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Test_SeriLog.exe
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Test_SeriLog.pdb
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\MaterialSkin.dll
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Serilog.dll
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Serilog.Sinks.File.dll
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Serilog.xml
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Serilog.Sinks.File.pdb
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Serilog.Sinks.File.xml
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.csproj.AssemblyReference.cache
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.ufrm_MainForm.resources
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.Properties.Resources.resources
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.csproj.GenerateResource.cache
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.csproj.CoreCompileInputs.cache
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_Ser.A26D587A.Up2Date
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.exe
+D:\Development\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.pdb
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Test_SeriLog.exe.config
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Test_SeriLog.exe
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Test_SeriLog.pdb
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\MaterialSkin.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Serilog.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Serilog.Sinks.File.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Serilog.xml
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Serilog.Sinks.File.pdb
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\bin\Debug\Serilog.Sinks.File.xml
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.csproj.AssemblyReference.cache
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.ufrm_MainForm.resources
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.Properties.Resources.resources
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.csproj.GenerateResource.cache
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.csproj.CoreCompileInputs.cache
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_Ser.A26D587A.Up2Date
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.exe
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\Test_SeriLog\obj\Debug\Test_SeriLog.pdb

@@ -1,0 +1,32 @@
+2026-05-11 08:47:11.221 +05:30 [INF] Updating DB with MWL Status failed for Accession No 846a64c01bc48b56 with exceptionError Updating Status for StudyInstanceID 846a64c01bc48b56 with expectionProcedure or function '`updatestatus_ascno`' cannot be found in database ''. Verify that user 'root'@'localhost' has enough privileges to execute.
+2026-05-11 08:47:11.225 +05:30 [INF] C-FIND response sent to AE MODALITY with IP: 127.0.0.1
+2026-05-11 08:47:20.221 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=xray&from=2025-01-01%2008%3A00%3A00&to=2026-05-11%2008%3A47%3A20
+2026-05-11 08:47:20.513 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-11 08:48:08.444 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=xray&from=2025-01-01%2008%3A00%3A00&to=2026-05-11%2008%3A48%3A08
+2026-05-11 08:48:11.313 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-11 08:48:13.509 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception Index was outside the bounds of the array.
+2026-05-11 08:48:28.429 +05:30 [INF] Received association request from AE: MODALITY with IP: 127.0.0.1 
+2026-05-11 08:48:28.438 +05:30 [INF] Accepted association request from MODALITY
+2026-05-11 08:48:30.922 +05:30 [INF] Received verification request from AE MODALITY with IP: 127.0.0.1
+2026-05-11 08:48:30.924 +05:30 [ERR] Configuraion Value to check for server in valid. Please check the Configuration from Server List Tab 
+2026-05-11 08:48:37.799 +05:30 [INF] Received association request from AE: MODALITY with IP: 127.0.0.1 
+2026-05-11 08:48:37.804 +05:30 [INF] Accepted association request from MODALITY
+2026-05-11 08:48:39.820 +05:30 [INF] Received C-FIND request from AE MODALITY with IP: 127.0.0.1
+2026-05-11 08:48:39.821 +05:30 [INF] CFIND : Validating Server with AETitle MODALITY with IP: 127.0.0.1
+2026-05-11 08:48:39.822 +05:30 [ERR] Configuraion Value to check for server in valid. Please check the Configuration from Server List Tab 
+2026-05-11 08:48:39.822 +05:30 [INF] Fetching Records from Pellucid Database
+2026-05-11 08:48:39.828 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=xray&from=2025-01-01%2008%3A00%3A00&to=2026-05-11%2008%3A48%3A39
+2026-05-11 08:48:39.830 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=xray&from=2025-01-01%2008%3A00%3A00&to=2026-05-11%2008%3A48%3A39
+2026-05-11 08:48:40.265 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-11 08:48:41.280 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception Index was outside the bounds of the array.
+2026-05-11 08:48:41.280 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-11 08:48:42.638 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception Index was outside the bounds of the array.
+2026-05-11 08:48:42.650 +05:30 [INF] C-FIND response sent to AE MODALITY with IP: 127.0.0.1
+2026-05-11 08:48:55.208 +05:30 [INF] Received association request from AE: MODALITY with IP: 127.0.0.1 
+2026-05-11 08:48:55.213 +05:30 [INF] Accepted association request from MODALITY
+2026-05-11 08:48:58.157 +05:30 [INF] Received C-FIND request from AE MODALITY with IP: 127.0.0.1
+2026-05-11 08:48:58.157 +05:30 [INF] CFIND : Validating Server with AETitle MODALITY with IP: 127.0.0.1
+2026-05-11 08:48:58.158 +05:30 [ERR] Configuraion Value to check for server in valid. Please check the Configuration from Server List Tab 
+2026-05-11 08:48:58.158 +05:30 [INF] Fetching Records from Pellucid Database
+2026-05-11 08:48:58.175 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=xray&from=2025-01-01%2008%3A00%3A00&to=2026-05-11%2008%3A48%3A58
+2026-05-11 08:48:58.450 +05:30 [INF] CARE Worklist API call successful. Returning the value

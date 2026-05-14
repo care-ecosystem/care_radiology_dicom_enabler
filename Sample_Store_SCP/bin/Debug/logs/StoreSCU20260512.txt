@@ -1,0 +1,16 @@
+2026-05-12 10:00:03.831 +05:30 [INF] Creating  Association to AE STORESERVER with IP: 127.0.0.1
+2026-05-12 10:00:03.833 +05:30 [INF]  Association Successfull to AE STORESERVER with IP: 127.0.0.1
+2026-05-12 10:00:03.834 +05:30 [INF]  Create C-Store Request to AE STORESERVER with IP: 127.0.0.1 for file : D:\FDE\TestP\2B286F8E_anon.dcm
+2026-05-12 10:00:03.860 +05:30 [INF] C-Store Request Added  for file D:\FDE\TestP\2B286F8E_anon.dcm
+2026-05-12 17:47:57.771 +05:30 [INF] Creating  Association to AE STORESERVER with IP: 127.0.0.1
+2026-05-12 17:47:57.902 +05:30 [INF]  Association Successfull to AE STORESERVER with IP: 127.0.0.1
+2026-05-12 17:47:57.903 +05:30 [INF]  Create C-Store Request to AE STORESERVER with IP: 127.0.0.1 for file : D:\FDE\TestP\2B286F8E_anon.dcm
+2026-05-12 17:47:58.127 +05:30 [INF] C-Store Request Added  for file D:\FDE\TestP\2B286F8E_anon.dcm
+2026-05-12 17:47:58.856 +05:30 [INF] C-Store Response Received, Status: Successfor file : D:\FDE\TestP\2B286F8E_anon.dcm
+2026-05-12 17:48:00.059 +05:30 [INF] C-Store send initiated for file D:\FDE\TestP\2B286F8E_anon.dcm
+2026-05-12 17:51:58.212 +05:30 [INF] Creating  Association to AE STORESERVER with IP: 127.0.0.1
+2026-05-12 17:51:58.218 +05:30 [INF]  Association Successfull to AE STORESERVER with IP: 127.0.0.1
+2026-05-12 17:51:58.218 +05:30 [INF]  Create C-Store Request to AE STORESERVER with IP: 127.0.0.1 for file : D:\FDE\TestP\4D708957_anon.dcm
+2026-05-12 17:51:58.226 +05:30 [INF] C-Store Request Added  for file D:\FDE\TestP\4D708957_anon.dcm
+2026-05-12 17:51:58.867 +05:30 [INF] C-Store Response Received, Status: Successfor file : D:\FDE\TestP\4D708957_anon.dcm
+2026-05-12 17:51:59.901 +05:30 [INF] C-Store send initiated for file D:\FDE\TestP\4D708957_anon.dcm

@@ -1,0 +1,41 @@
+2026-05-08 08:31:56.923 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:31:56.926 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-08 08:32:26.702 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-08%2008%3A32%3A26
+2026-05-08 08:32:26.911 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:32:26.913 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-08 08:32:56.705 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-08%2008%3A32%3A56
+2026-05-08 08:32:56.969 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:32:56.972 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-08 08:33:26.712 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-08%2008%3A33%3A26
+2026-05-08 08:33:26.923 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:33:26.925 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-08 08:33:56.719 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-08%2008%3A33%3A56
+2026-05-08 08:33:56.952 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:33:56.955 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-08 08:34:26.726 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-08%2008%3A34%3A26
+2026-05-08 08:34:26.972 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:34:26.974 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-08 08:34:56.732 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-08%2008%3A34%3A56
+2026-05-08 08:34:56.960 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:34:56.961 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-08 08:35:26.746 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-08%2008%3A35%3A26
+2026-05-08 08:35:27.239 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:35:27.241 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-08 08:35:56.752 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-08%2008%3A35%3A56
+2026-05-08 08:35:57.022 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:35:57.025 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-08 08:36:26.762 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-08%2008%3A36%3A26
+2026-05-08 08:36:26.971 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:36:26.975 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-08 08:36:56.780 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-08%2008%3A36%3A56
+2026-05-08 08:36:57.037 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:36:57.039 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-08 08:37:26.786 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-08%2008%3A37%3A26
+2026-05-08 08:37:27.030 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:37:27.032 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-08 08:37:56.804 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-08%2008%3A37%3A56
+2026-05-08 08:37:57.102 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:37:57.104 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-08 08:38:26.831 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-08%2008%3A38%3A26
+2026-05-08 08:38:27.040 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-08 08:38:27.042 +05:30 [INF] CARE worklist data fetched and populated successfully.

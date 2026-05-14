@@ -1,0 +1,22 @@
+2026-05-06 21:11:20.935 +05:30 [INF] Creating  Association to AE STORESERVER with IP: 127.0.0.1
+2026-05-06 21:11:20.950 +05:30 [INF]  Association Successfull to AE STORESERVER with IP: 127.0.0.1
+2026-05-06 21:11:20.952 +05:30 [INF]  Create C-Store Request to AE STORESERVER with IP: 127.0.0.1 for file : C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm
+2026-05-06 21:11:21.000 +05:30 [INF] C-Store Request Added  for file C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm
+2026-05-06 21:11:21.692 +05:30 [INF] C-Store Response Received, Status: Successfor file : C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm
+2026-05-06 21:14:44.628 +05:30 [INF] C-Store send initiated for file C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm
+2026-05-06 21:14:47.518 +05:30 [INF] Creating  Association to AE STORESERVER with IP: 127.0.0.1
+2026-05-06 21:14:47.525 +05:30 [INF]  Association Successfull to AE STORESERVER with IP: 127.0.0.1
+2026-05-06 21:14:47.525 +05:30 [INF]  Create C-Store Request to AE STORESERVER with IP: 127.0.0.1 for file : C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm
+2026-05-06 21:14:47.529 +05:30 [INF] C-Store Request Added  for file C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm
+2026-05-06 21:14:49.238 +05:30 [INF] C-Store Response Received, Status: Successfor file : C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm
+2026-05-06 21:14:59.726 +05:30 [INF] C-Store send initiated for file C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm
+2026-05-06 21:50:04.698 +05:30 [INF] Creating  Association to AE STORESERVER with IP: 127.0.0.1
+2026-05-06 21:50:04.791 +05:30 [INF]  Association Successfull to AE STORESERVER with IP: 127.0.0.1
+2026-05-06 21:50:04.793 +05:30 [INF]  Create C-Store Request to AE STORESERVER with IP: 127.0.0.1 for file : C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm
+2026-05-06 21:50:04.972 +05:30 [INF] C-Store Request Added  for file C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm
+2026-05-06 21:50:24.884 +05:30 [INF] Creating  Association to AE STORESERVER with IP: 127.0.0.1
+2026-05-06 21:50:24.892 +05:30 [INF]  Association Successfull to AE STORESERVER with IP: 127.0.0.1
+2026-05-06 21:50:24.893 +05:30 [INF]  Create C-Store Request to AE STORESERVER with IP: 127.0.0.1 for file : C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm
+2026-05-06 21:50:24.894 +05:30 [INF] C-Store Request Added  for file C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm
+2026-05-06 21:50:25.428 +05:30 [INF] C-Store Response Received, Status: Successfor file : C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm
+2026-05-06 21:50:29.112 +05:30 [INF] C-Store send initiated for file C:\\Temp\\TestP\Emergency 4272026_Chest-PA-Medium_2063.dcm

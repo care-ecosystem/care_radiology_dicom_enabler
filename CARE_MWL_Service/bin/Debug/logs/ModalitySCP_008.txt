@@ -1,0 +1,32 @@
+2026-05-07 14:41:00.323 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-07 14:41:00.328 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-07 14:41:30.118 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-07%2014%3A41%3A30
+2026-05-07 14:41:30.358 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-07 14:41:30.361 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-07 14:42:00.128 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-07%2014%3A42%3A00
+2026-05-07 14:42:00.357 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-07 14:42:00.358 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-07 14:42:30.132 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-07%2014%3A42%3A30
+2026-05-07 14:42:30.347 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-07 14:42:30.349 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-07 14:43:00.147 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-07%2014%3A43%3A00
+2026-05-07 14:43:00.399 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-07 14:43:00.400 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-07 14:43:30.157 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-07%2014%3A43%3A30
+2026-05-07 14:43:30.380 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-07 14:43:30.382 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-07 14:44:00.172 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-07%2014%3A44%3A00
+2026-05-07 14:44:00.370 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-07 14:44:00.373 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-07 14:44:30.176 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-07%2014%3A44%3A30
+2026-05-07 14:44:30.383 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-07 14:44:30.385 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-07 14:45:00.190 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-07%2014%3A45%3A00
+2026-05-07 14:45:00.422 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-07 14:45:00.424 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-07 14:45:30.195 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-07%2014%3A45%3A30
+2026-05-07 14:45:30.428 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-07 14:45:30.431 +05:30 [INF] CARE worklist data fetched and populated successfully.
+2026-05-07 14:47:01.298 +05:30 [INF] CARE Worklist URL: https://care.syncdigit.co.in:32316/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-07%2014%3A47%3A01
+2026-05-07 14:47:01.360 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-07 14:47:01.363 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.

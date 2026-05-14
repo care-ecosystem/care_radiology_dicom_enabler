@@ -1,0 +1,74 @@
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\GenerateConnectionString.exe.config
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\GenerateConnectionString.exe
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\GenerateConnectionString.pdb
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\BouncyCastle.Crypto.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Google.Protobuf.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\K4os.Compression.LZ4.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\K4os.Compression.LZ4.Streams.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\K4os.Hash.xxHash.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\MaterialSkin.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\MySql.Data.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Plexus.DAL.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Buffers.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Memory.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Numerics.Vectors.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Runtime.CompilerServices.Unsafe.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Ubiety.Dns.Core.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\ZstdNet.dll
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Plexus.DAL.pdb
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Plexus.DAL.dll.config
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Google.Protobuf.pdb
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Google.Protobuf.xml
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\K4os.Compression.LZ4.xml
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\K4os.Compression.LZ4.Streams.xml
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\K4os.Hash.xxHash.xml
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\MySql.Data.xml
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Buffers.xml
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Memory.xml
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Numerics.Vectors.xml
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Runtime.CompilerServices.Unsafe.xml
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.csproj.AssemblyReference.cache
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.ufrm_GenerateConCstring.resources
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.Properties.Resources.resources
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.csproj.GenerateResource.cache
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.csproj.CoreCompileInputs.cache
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\Generate.793338E1.Up2Date
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.exe
+D:\Development\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.pdb
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\GenerateConnectionString.exe.config
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\GenerateConnectionString.exe
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\GenerateConnectionString.pdb
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\BouncyCastle.Crypto.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Google.Protobuf.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\K4os.Compression.LZ4.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\K4os.Compression.LZ4.Streams.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\K4os.Hash.xxHash.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\MaterialSkin.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\MySql.Data.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Plexus.DAL.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Buffers.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Memory.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Numerics.Vectors.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Runtime.CompilerServices.Unsafe.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Ubiety.Dns.Core.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\ZstdNet.dll
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Plexus.DAL.pdb
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Plexus.DAL.dll.config
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Google.Protobuf.pdb
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\Google.Protobuf.xml
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\K4os.Compression.LZ4.xml
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\K4os.Compression.LZ4.Streams.xml
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\K4os.Hash.xxHash.xml
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\MySql.Data.xml
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Buffers.xml
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Memory.xml
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Numerics.Vectors.xml
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\bin\Debug\System.Runtime.CompilerServices.Unsafe.xml
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.csproj.AssemblyReference.cache
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.ufrm_GenerateConCstring.resources
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.Properties.Resources.resources
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.csproj.GenerateResource.cache
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.csproj.CoreCompileInputs.cache
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\Generate.793338E1.Up2Date
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.exe
+D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\GenerateConnectionString\obj\Debug\GenerateConnectionString.pdb

@@ -1,0 +1,19 @@
+2026-05-11 16:50:51.570 +05:30 [INF] Received Association request from AE STORESCU with IP: 127.0.0.1
+2026-05-11 16:50:51.592 +05:30 [ERR] Configuraion Value to check for server in valid. Please check the Configuration from Server List Tab 
+2026-05-11 16:50:51.592 +05:30 [INF] Sending Association Accept for AE STORESCU with IP: 127.0.0.1
+2026-05-11 16:50:52.247 +05:30 [INF] C-Store Request received for Study Instance Id : 1.2.826.0.1.3680043.2.1125.133
+2026-05-11 16:50:52.247 +05:30 [ERR] Configuraion Value to check for server in valid. Please check the Configuration from Server List Tab 
+2026-05-11 16:50:52.247 +05:30 [INF] C-Store Request received for Study Instance Id : 1.2.826.0.1.3680043.2.1125.133 and Image Instance ID : 1.2.826.0.1.3680043.2.1125.333
+2026-05-11 16:50:52.345 +05:30 [ERR] Read/Populate DB Failed for StudyInstanceid 1.2.826.0.1.3680043.2.1125.133 and ImageInstanceId 1.2.826.0.1.3680043.2.1125.333 with exception : Tag: (0008,103e) not found in dataset
+2026-05-11 16:50:52.345 +05:30 [INF] File Saved Successfully and C-Store Response Sent for ImageInstance ID : 1.2.826.0.1.3680043.2.1125.333
+2026-05-11 16:50:52.549 +05:30 [INF] C-Store Request received for Study Instance Id : 1.2.826.0.1.3680043.2.1125.111
+2026-05-11 16:50:52.551 +05:30 [ERR] Configuraion Value to check for server in valid. Please check the Configuration from Server List Tab 
+2026-05-11 16:50:52.551 +05:30 [INF] C-Store Request received for Study Instance Id : 1.2.826.0.1.3680043.2.1125.111 and Image Instance ID : 1.2.826.0.1.3680043.2.1125.311
+2026-05-11 16:50:52.626 +05:30 [ERR] Read/Populate DB Failed for StudyInstanceid 1.2.826.0.1.3680043.2.1125.111 and ImageInstanceId 1.2.826.0.1.3680043.2.1125.311 with exception : Tag: (0008,103e) not found in dataset
+2026-05-11 16:50:52.626 +05:30 [INF] File Saved Successfully and C-Store Response Sent for ImageInstance ID : 1.2.826.0.1.3680043.2.1125.311
+2026-05-11 16:50:52.763 +05:30 [INF] C-Store Request received for Study Instance Id : 1.2.826.0.1.3680043.2.1125.122
+2026-05-11 16:50:52.764 +05:30 [ERR] Configuraion Value to check for server in valid. Please check the Configuration from Server List Tab 
+2026-05-11 16:50:52.764 +05:30 [INF] C-Store Request received for Study Instance Id : 1.2.826.0.1.3680043.2.1125.122 and Image Instance ID : 1.2.826.0.1.3680043.2.1125.322
+2026-05-11 16:50:52.829 +05:30 [ERR] Read/Populate DB Failed for StudyInstanceid 1.2.826.0.1.3680043.2.1125.122 and ImageInstanceId 1.2.826.0.1.3680043.2.1125.322 with exception : Tag: (0008,103e) not found in dataset
+2026-05-11 16:50:52.829 +05:30 [INF] File Saved Successfully and C-Store Response Sent for ImageInstance ID : 1.2.826.0.1.3680043.2.1125.322
+2026-05-11 16:50:52.906 +05:30 [INF] Association Release Request from AE STORESCU with IP: 127.0.0.1

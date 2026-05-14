@@ -1,0 +1,12 @@
+2026-05-06 20:30:08.200 +05:30 [INF] Received Association request from AE ECHOSCU with IP: 127.0.0.1
+2026-05-06 20:30:08.221 +05:30 [INF] Application Path :  D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\CARE_StoreSCP_Service\bin\Debug
+2026-05-06 20:30:08.221 +05:30 [ERR] Configuraion Value to check for server in valid. Please check the Configuration from Server List Tab 
+2026-05-06 20:30:08.223 +05:30 [INF] Sending Association Accept for AE ECHOSCU with IP: 127.0.0.1 and port 60830
+2026-05-06 20:30:08.529 +05:30 [INF] Received verification request from AE ECHOSCU with IP: 127.0.0.1
+2026-05-06 20:30:08.672 +05:30 [INF] Association Release Request from AE ECHOSCU with IP: 127.0.0.1
+2026-05-06 21:06:57.318 +05:30 [INF] Received Association request from AE ECHOSCU with IP: 127.0.0.1
+2026-05-06 21:06:57.318 +05:30 [INF] Application Path :  D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\CARE_StoreSCP_Service\bin\Debug
+2026-05-06 21:06:57.318 +05:30 [ERR] Configuraion Value to check for server in valid. Please check the Configuration from Server List Tab 
+2026-05-06 21:06:57.318 +05:30 [INF] Sending Association Accept for AE ECHOSCU with IP: 127.0.0.1 and port 58809
+2026-05-06 21:06:57.319 +05:30 [INF] Received verification request from AE ECHOSCU with IP: 127.0.0.1
+2026-05-06 21:06:57.319 +05:30 [INF] Association Release Request from AE ECHOSCU with IP: 127.0.0.1
