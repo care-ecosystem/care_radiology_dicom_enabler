@@ -980,6 +980,1194 @@ K4os.Compression.LZ4 1.2.6
 - Windows Event Viewer for service errors
 - View Logs tab in UI for DICOM transaction logs
 
+---
+
+## Local Development Setup Guide
+
+This comprehensive guide will help you set up the complete CARE Radiology stack on your local machine for development and testing.
+
+### Prerequisites
+
+#### System Requirements
+- **Operating System:** Windows 10/11 (for DICOM Enabler) + macOS/Linux (for Django backend)
+- **RAM:** Minimum 16GB (recommended 32GB for smooth operation)
+- **Disk Space:** 50GB+ free space
+- **Network:** Stable internet connection for downloading dependencies
+
+#### Required Software
+
+**For Django Backend (macOS/Linux):**
+- Python 3.13+
+- Docker Desktop 24.0+
+- Docker Compose 2.20+
+- PostgreSQL 15+ (or use Docker)
+- Redis 7.0+ (or use Docker)
+- Git
+- Make (build tool)
+- Node.js 18+ (for OHIF viewer configuration)
+
+**For Windows DICOM Enabler:**
+- Windows 10/11 Pro
+- Visual Studio 2019 (Community Edition or higher)
+- .NET Framework 4.7.2 SDK
+- MySQL 8.0+ (or MariaDB 10.6+)
+- Git for Windows
+
+**For Testing:**
+- DICOM emulator tools (see DICOM Emulator Setup section)
+
+---
+
+### Part 1: Django CARE Backend Setup
+
+#### Step 1.1: Clone Repositories
+
+```bash
+# Create project directory
+mkdir -p ~/care-projects
+cd ~/care-projects
+
+# Clone main CARE repository
+git clone https://github.com/ohcnetwork/care.git
+cd care
+
+# Clone radiology plugin inside care directory
+git clone https://github.com/10bedicu/care_radiology.git
+```
+
+#### Step 1.2: Configure Plugin
+
+Create or edit `plug_config.py` in the care root directory:
+
+```python
+# plug_config.py
+from plugs.manager import Plug
+
+care_radiology_plugin = Plug(
+    name="care_radiology",
+    package_name="/app/care_radiology",  # Local development path
+    version="",  # Empty for local development
+    configs={
+        # DCM4CHEE DICOMweb API base URL
+        "DCM4CHEE_DICOMWEB_BASEURL": "http://arc:8080/dcm4chee-arc/aets/DCM4CHEE",
+
+        # Webhook secret for DCM4CHEE callbacks
+        "WEBHOOK_SECRET": "your-random-secret-key-here",
+    },
+)
+
+# Export plugs list
+plugs = [care_radiology_plugin]
+```
+
+#### Step 1.3: Enable Editable Plugin Installation
+
+Edit `plugs/manager.py` to install plugin in editable mode:
+
+```python
+# Find the subprocess.check_call line and add -e flag
+subprocess.check_call(
+    [sys.executable, "-m", "pip", "install", "-e", *packages]  # Added -e flag
+)
+```
+
+#### Step 1.4: Configure Environment Variables
+
+Create `.env` file in care root directory:
+
+```bash
+# Database Configuration
+POSTGRES_HOST=localhost
+POSTGRES_DB=care
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_PORT=5432
+
+# Redis Configuration
+REDIS_URL=redis://localhost:6379/0
+CELERY_BROKER_URL=redis://localhost:6379/1
+
+# Django Settings
+DJANGO_DEBUG=True
+DJANGO_SECRET_KEY=your-django-secret-key-change-in-production
+DJANGO_ALLOWED_HOSTS=["*"]
+
+# S3 / MinIO (for file uploads)
+BUCKET_PROVIDER=aws
+BUCKET_REGION=ap-south-1
+BUCKET_KEY=minioadmin
+BUCKET_SECRET=minioadmin
+BUCKET_ENDPOINT=http://localhost:9100
+FILE_UPLOAD_BUCKET=patient-bucket
+FACILITY_S3_BUCKET=facility-bucket
+
+# Radiology Plugin Configuration
+CARE_RADIOLOGY_DCM4CHEE_DICOMWEB_BASEURL=http://localhost:8080/dcm4chee-arc/aets/DCM4CHEE
+CARE_RADIOLOGY_WEBHOOK_SECRET=your-static-api-key-for-windows-enabler
+
+# OHIF Viewer URL
+OHIF_VIEWER_URL=http://localhost:3000
+
+# Optional: Sentry for error tracking
+# SENTRY_DSN=
+```
+
+#### Step 1.5: Update Makefile for Radiology Services
+
+Edit `Makefile` in care root to include radiology docker-compose:
+
+```makefile
+# Add this line near the top
+RADIOLOGY_DOCKER_COMPOSE := ./care_radiology/docker-compose.radiology.yaml
+
+# Modify up target
+up:
+	docker compose -f docker-compose.yaml -f $(RADIOLOGY_DOCKER_COMPOSE) up -d --wait
+
+# Modify down target
+down:
+	docker compose -f docker-compose.yaml -f $(RADIOLOGY_DOCKER_COMPOSE) down
+```
+
+#### Step 1.6: Start Docker Services
+
+```bash
+# Start PostgreSQL, Redis, MinIO, and Radiology stack
+make up
+
+# This will start:
+# - PostgreSQL (port 5432)
+# - Redis (port 6379)
+# - MinIO (port 9100)
+# - OpenLDAP (port 3890)
+# - DCM4CHEE Archive (port 8080)
+# - OHIF Viewer (port 3000)
+# - Nginx Proxy (port 32314)
+```
+
+#### Step 1.7: Setup DCM4CHEE Database
+
+```bash
+# Navigate to dcm4che directory
+cd care_radiology/docker/dcm4che
+
+# Create DICOM database in PostgreSQL
+docker exec -it care-db-1 psql -U postgres -c "CREATE DATABASE dicom;"
+
+# Run database setup scripts
+make setup-dicom-db
+
+# This will create:
+# - DICOM tables (study, series, instance, patient, etc.)
+# - Foreign key constraints
+# - Case-insensitive indexes for efficient queries
+```
+
+#### Step 1.8: Configure DCM4CHEE Storage (MinIO)
+
+```bash
+# Create MinIO bucket for DICOM storage
+docker exec -it care-minio-1 bash
+mc alias set local http://localhost:9000 minioadmin minioadmin
+mc mb local/dicom-bucket
+mc policy set public local/dicom-bucket
+exit
+
+# Import LDAP configuration for MinIO storage
+cd care_radiology/docker/dcm4che
+
+# Edit bucketconfig.ldif to match your setup (if needed)
+# Then import into LDAP
+make ldap-setup
+# When prompted, enter password: admin
+```
+
+**bucketconfig.ldif example:**
+```ldif
+dn: dcmStorageID=minio,dicomDeviceName=dcm4chee-arc,cn=Devices,cn=DICOM Configuration,dc=dcm4che,dc=org
+changetype: modify
+replace: dcmURI
+dcmURI: jclouds:s3:http://host.docker.internal:9100
+-
+replace: dcmProperty
+dcmProperty: jclouds.access-key-id=minioadmin
+dcmProperty: jclouds.secret-key=minioadmin
+dcmProperty: jclouds.s3.bucket-name=dicom-bucket
+dcmProperty: jclouds.s3.path-style-access=true
+```
+
+#### Step 1.9: Configure OHIF Viewer
+
+Edit `care_radiology/docker/ohif/app-config.js`:
+
+```javascript
+window.config = {
+  routerBasename: '/',
+  extensions: [],
+  modes: [],
+
+  // CRITICAL: These URLs must be accessible from browser
+  dataSources: [
+    {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: 'dicomweb',
+      configuration: {
+        friendlyName: 'DCM4CHEE',
+        name: 'DCM4CHEE',
+
+        // For local development, use localhost:32314 (nginx proxy)
+        wadoUriRoot: 'http://localhost:32314/dicomweb/dcm4chee-arc/aets/DCM4CHEE/wado',
+        qidoRoot: 'http://localhost:32314/dicomweb/dcm4chee-arc/aets/DCM4CHEE/rs',
+        wadoRoot: 'http://localhost:32314/dicomweb/dcm4chee-arc/aets/DCM4CHEE/rs',
+
+        qidoSupportsIncludeField: false,
+        imageRendering: 'wadors',
+        thumbnailRendering: 'wadors',
+        enableStudyLazyLoad: true,
+        supportsFuzzyMatching: true,
+        supportsWildcard: true,
+      },
+    },
+  ],
+};
+```
+
+**Important:** After editing, restart OHIF container:
+```bash
+docker compose -f docker-compose.radiology.yaml restart ohif
+```
+
+#### Step 1.10: Run Django Migrations
+
+```bash
+# Go back to care root
+cd ~/care-projects/care
+
+# Create Python virtual environment
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run migrations
+python manage.py migrate
+
+# Create superuser
+python manage.py createsuperuser
+# Enter username, email, password when prompted
+```
+
+#### Step 1.11: Start Django Development Server
+
+```bash
+# Start Django server
+python manage.py runserver 0.0.0.0:9000
+
+# In another terminal, start Celery worker (for background tasks)
+celery -A config.celery_app worker --loglevel=info
+```
+
+#### Step 1.12: Verify Django Setup
+
+Open browser and test endpoints:
+
+```bash
+# Django Admin
+http://localhost:9000/admin
+
+# API Root
+http://localhost:9000/api/
+
+# Radiology Plugin Endpoints
+http://localhost:9000/api/plugin/care_radiology/
+
+# DCM4CHEE Management UI
+http://localhost:8080/dcm4chee-arc/ui2
+
+# OHIF Viewer
+http://localhost:3000
+```
+
+**Create test data:**
+```bash
+# In Django shell
+python manage.py shell
+
+from care.emr.models import Patient, Facility
+from care.facility.models import FacilityOrganization
+
+# Create facility
+facility = Facility.objects.create(name="Test Hospital")
+
+# Create patient
+patient = Patient.objects.create(
+    name="John Doe",
+    gender="M",
+    date_of_birth="1980-01-01"
+)
+```
+
+---
+
+### Part 2: Windows DICOM Enabler Setup
+
+#### Step 2.1: Clone Windows Repository
+
+On your Windows machine:
+
+```powershell
+# Create project directory
+New-Item -ItemType Directory -Path C:\care-projects
+cd C:\care-projects
+
+# Clone repository
+git clone https://github.com/your-org/care_radiology_dicom_enabler.git
+cd care_radiology_dicom_enabler
+```
+
+#### Step 2.2: Install Visual Studio 2019
+
+1. Download Visual Studio 2019 Community Edition
+2. During installation, select:
+   - **.NET desktop development**
+   - **.NET Framework 4.7.2 SDK**
+   - **NuGet package manager**
+3. Complete installation and restart
+
+#### Step 2.3: Install MySQL Server
+
+```powershell
+# Download MySQL 8.0 Installer from https://dev.mysql.com/downloads/installer/
+
+# During installation:
+# - Choose "Server only" or "Custom"
+# - Set root password (e.g., "root123")
+# - Configure MySQL to start on boot
+# - Default port: 3306
+```
+
+Create DICOM enabler database:
+
+```sql
+-- Open MySQL Workbench or command line
+mysql -u root -p
+
+CREATE DATABASE plexus_mi2 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Create tables
+USE plexus_mi2;
+
+CREATE TABLE study (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    study_uid VARCHAR(500) NOT NULL,
+    patient_id INT,
+    service_request_id VARCHAR(100),
+    study_date DATE,
+    study_time TIME,
+    modality_codes VARCHAR(100),
+    num_instances INT DEFAULT 0,
+    upload_status ENUM('pending', 'success', 'failed') DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_study_uid (study_uid),
+    INDEX idx_upload_status (upload_status)
+);
+
+CREATE TABLE series (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    series_uid VARCHAR(500) NOT NULL,
+    study_id INT,
+    modality VARCHAR(20),
+    series_number INT,
+    num_instances INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (study_id) REFERENCES study(id) ON DELETE CASCADE,
+    INDEX idx_series_uid (series_uid)
+);
+
+CREATE TABLE instance (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    sop_instance_uid VARCHAR(500) NOT NULL,
+    series_id INT,
+    instance_number INT,
+    file_path VARCHAR(500),
+    upload_status ENUM('pending', 'success', 'failed') DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE,
+    INDEX idx_instance_uid (sop_instance_uid),
+    INDEX idx_upload_status (upload_status)
+);
+
+CREATE TABLE servers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ae_title VARCHAR(100) NOT NULL,
+    host VARCHAR(255) NOT NULL,
+    port INT NOT NULL,
+    description VARCHAR(500),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Insert default Django backend server
+INSERT INTO servers (ae_title, host, port, description, is_active)
+VALUES ('CAREBACKEND', 'localhost', 9000, 'Django CARE Backend', TRUE);
+```
+
+#### Step 2.4: Open Solution in Visual Studio
+
+1. Double-click `CARE_DICOM_Enabler.sln`
+2. Visual Studio will open with all 10 projects loaded
+3. Wait for NuGet package restore to complete
+
+#### Step 2.5: Restore NuGet Packages
+
+```powershell
+# In Visual Studio Package Manager Console
+Update-Package -reinstall
+
+# Or right-click solution → "Restore NuGet Packages"
+```
+
+Required packages (should auto-install):
+- fo-dicom 5.0.2
+- fo-dicom.Codecs 5.1.0
+- MySql.Data 8.0.29
+- Serilog 2.11.0
+- Serilog.Sinks.File 5.0.0
+- MaterialSkin 2.3.1
+- BouncyCastle.Crypto 1.8.5
+
+#### Step 2.6: Configure App.config
+
+Edit `App.config` in main project:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <appSettings>
+    <!-- Modality Worklist SCP Settings -->
+    <add key="mwlaetitle" value="MODALITYSCP" />
+    <add key="mwlhost" value="0.0.0.0" />  <!-- Listen on all interfaces -->
+    <add key="mwlport" value="2008" />
+
+    <!-- Store SCP Settings -->
+    <add key="sscpaetitle" value="STORAGESCP" />
+    <add key="sscphost" value="0.0.0.0" />
+    <add key="sscpport" value="2007" />
+
+    <!-- MySQL Database Connection -->
+    <add key="connectionstring" value="Server=localhost;Database=plexus_mi2;Uid=root;Pwd=root123;" />
+
+    <!-- Django CARE Backend URLs -->
+    <add key="careBackendURL" value="http://localhost:9000" />
+    <add key="authURL" value="http://localhost:9000/api/token/" />
+    <add key="worklistURL" value="/api/plugin/care_radiology/dicom/worklist/" />
+    <add key="uploadURL" value="/api/plugin/care_radiology/dicom/upload/" />
+
+    <!-- Static API Key for Worklist (matches Django WEBHOOK_SECRET) -->
+    <add key="staticAPIKey" value="your-static-api-key-for-windows-enabler" />
+
+    <!-- JWT Token (leave empty, will be obtained via login) -->
+    <add key="jwtToken" value="" />
+
+    <!-- SCU Upload Timer (milliseconds) -->
+    <add key="scuTimerInterval" value="5000" />  <!-- Upload every 5 seconds -->
+
+    <!-- Deployment Type: 1=Client (Hospital), 2=Server (Central) -->
+    <add key="deployType" value="1" />
+
+    <!-- Device Name -->
+    <add key="deviceName" value="CARE-DICOM-Enabler" />
+
+    <!-- Check server connectivity before operations -->
+    <add key="checkserver" value="true" />
+  </appSettings>
+</configuration>
+```
+
+#### Step 2.7: Generate Encrypted Connection String
+
+1. Build and run `GenerateConnectionString` project
+2. Enter database details:
+   - Server: `localhost`
+   - Database: `plexus_mi2`
+   - Username: `root`
+   - Password: `root123`
+3. Click "Test Connection" - should show success
+4. Click "Generate & Save"
+5. Connection string saved to `config/common.cfg` (encrypted XML)
+
+#### Step 2.8: Build Solution
+
+```powershell
+# In Visual Studio
+# Build → Rebuild Solution
+# Or press Ctrl+Shift+B
+
+# Verify no errors in Output window
+# All 10 projects should build successfully
+```
+
+Output directories:
+- Main App: `bin/Debug/CARE_DICOM_Enabler.exe`
+- Services: `CARE_*_Service/bin/Debug/*.exe`
+
+#### Step 2.9: Install Windows Services
+
+Open PowerShell as Administrator:
+
+```powershell
+cd C:\care-projects\care_radiology_dicom_enabler
+
+# Install Auth Service
+sc.exe create "CARE Auth Service" binPath= "C:\care-projects\care_radiology_dicom_enabler\CARE_Auth_Service\bin\Debug\CARE_Auth_Service.exe"
+
+# Install MWL Service
+sc.exe create "CARE MWL Service" binPath= "C:\care-projects\care_radiology_dicom_enabler\CARE_MWL_Service\bin\Debug\CARE_MWL_Service.exe"
+
+# Install Store SCP Service
+sc.exe create "CARE StoreSCP Service" binPath= "C:\care-projects\care_radiology_dicom_enabler\CARE_StoreSCP_Service\bin\Debug\CARE_StoreSCP_Service.exe"
+
+# Install Store SCU Service
+sc.exe create "CARE StoreSCU Service" binPath= "C:\care-projects\care_radiology_dicom_enabler\CARE_SCU_Service\bin\Debug\CARE_SCU_Service.exe"
+
+# Verify installation
+sc.exe query "CARE MWL Service"
+```
+
+**Alternative:** Use the WinForms UI:
+1. Run `CARE_DICOM_Enabler.exe`
+2. Login with credentials
+3. Go to "Server Manager" tab
+4. Click "Install All Services"
+5. Click "Start All Services"
+
+#### Step 2.10: Configure Windows Firewall
+
+```powershell
+# Allow DICOM ports through firewall
+New-NetFirewallRule -DisplayName "DICOM MWL SCP" -Direction Inbound -LocalPort 2008 -Protocol TCP -Action Allow
+New-NetFirewallRule -DisplayName "DICOM Store SCP" -Direction Inbound -LocalPort 2007 -Protocol TCP -Action Allow
+```
+
+#### Step 2.11: Start Services
+
+```powershell
+# Start services manually
+net start "CARE Auth Service"
+net start "CARE MWL Service"
+net start "CARE StoreSCP Service"
+net start "CARE StoreSCU Service"
+
+# Check status
+sc.exe query "CARE MWL Service"
+```
+
+Verify services in Windows Services (`services.msc`):
+- All should show "Running" status
+- Startup type: Automatic
+
+#### Step 2.12: Configure Server List
+
+1. Run `CARE_DICOM_Enabler.exe`
+2. Login with admin credentials
+3. Go to "Server List" tab
+4. Add Django backend server:
+   - **Name:** Django CARE Backend
+   - **AE Title:** CAREBACKEND
+   - **Host:** localhost
+   - **Port:** 9000 (HTTP) - Note: For HTTP upload, use special handler
+   - **Description:** Main CARE backend for DICOM upload
+   - **Active:** Yes
+5. Click "Save"
+
+For DICOM upload, you might need to add DCM4CHEE directly:
+   - **Name:** DCM4CHEE PACS
+   - **AE Title:** DCM4CHEE
+   - **Host:** localhost
+   - **Port:** 11112 (DICOM port, not HTTP 8080)
+   - **Description:** Direct DICOM upload to PACS
+   - **Active:** Yes
+
+---
+
+### Part 3: DICOM Emulator Setup (For Testing)
+
+When you don't have real medical devices, use DICOM emulators to test the complete workflow.
+
+#### Option 1: DCMTK Tools (Recommended)
+
+**Installation on Windows:**
+```powershell
+# Download DCMTK from https://dicom.offis.de/dcmtk
+# Or use Chocolatey
+choco install dcmtk
+```
+
+**Installation on macOS/Linux:**
+```bash
+# macOS
+brew install dcmtk
+
+# Ubuntu/Debian
+sudo apt-get install dcmtk
+
+# Verify installation
+storescu --version
+```
+
+**Test Worklist Query (C-FIND):**
+```bash
+# Query worklist from MWL SCP
+findscu -v -S -k 0008,0005=ISO_IR\ 100 \
+    -k 0008,0050= \
+    -k 0010,0010= \
+    -k 0010,0020= \
+    -k 0040,0100[0].0008,0060= \
+    localhost 2008 \
+    -aet TESTMODALITY \
+    -aec MODALITYSCP
+
+# Expected output: List of patients from Django worklist API
+```
+
+**Send Test DICOM Image (C-STORE):**
+```bash
+# First, get sample DICOM file
+wget https://github.com/dcm4che/dcm4chee-arc-light/raw/master/dcm4chee-arc-cdi/src/test/resources/test.dcm
+
+# Send to Store SCP
+storescu -v localhost 2007 \
+    -aet TESTMODALITY \
+    -aec STORAGESCP \
+    test.dcm
+
+# Expected output: C-STORE response with success status
+```
+
+**Verify Echo (C-ECHO):**
+```bash
+# Test connectivity to Store SCP
+echoscu -v localhost 2007 \
+    -aet TESTMODALITY \
+    -aec STORAGESCP
+
+# Expected output: Association accepted, echo successful
+```
+
+#### Option 2: dcm4che Tools
+
+```bash
+# Download dcm4che from https://github.com/dcm4che/dcm4che
+wget https://sourceforge.net/projects/dcm4che/files/dcm4che3/5.32.0/dcm4che-5.32.0-bin.zip
+unzip dcm4che-5.32.0-bin.zip
+cd dcm4che-5.32.0/bin
+
+# Test worklist query
+./findscu -c MODALITYSCP@localhost:2008 -m PatientName= -m PatientID=
+
+# Send DICOM file
+./storescu -c STORAGESCP@localhost:2007 test.dcm
+```
+
+#### Option 3: Weasis DICOM Viewer (GUI-based)
+
+1. Download Weasis from https://weasis.org/
+2. Install and launch
+3. Configure DICOM nodes:
+   - File → Preferences → DICOM
+   - Add node: `MODALITYSCP` at `localhost:2008`
+   - Add node: `STORAGESCP` at `localhost:2007`
+4. Test:
+   - Right-click node → C-ECHO to test connectivity
+   - Right-click node → C-FIND to query worklist
+   - Select files → Send to STORAGESCP
+
+#### Option 4: Orthanc (Full PACS Emulator)
+
+**Setup Orthanc:**
+```bash
+# Using Docker
+docker run -p 4242:4242 -p 8042:8042 jodogne/orthanc
+
+# Web UI: http://localhost:8042
+# DICOM port: 4242
+# Default credentials: orthanc / orthanc
+```
+
+**Configure Orthanc as Modality:**
+1. Login to Orthanc web UI
+2. Go to Configuration → Modalities
+3. Add:
+   - **Name:** CARE_DICOM
+   - **AET:** STORAGESCP
+   - **Host:** host.docker.internal (or your IP)
+   - **Port:** 2007
+4. Upload DICOM files via web UI
+5. Select studies → Send to CARE_DICOM
+
+#### Creating Test DICOM Files
+
+**Use DCMTK to create from scratch:**
+```bash
+# Create test DICOM file
+dump2dcm test.dump test.dcm
+
+# test.dump content:
+(0008,0005) CS [ISO_IR 100]
+(0008,0016) UI =CTImageStorage
+(0008,0018) UI [1.2.840.113619.2.55.3.2609.2.1.1]
+(0008,0020) DA [20260514]
+(0008,0030) TM [103000]
+(0008,0050) SH [ACC123456]
+(0008,0060) CS [CT]
+(0008,0070) LO [GE MEDICAL SYSTEMS]
+(0010,0010) PN [Test^Patient]
+(0010,0020) LO [PAT123456]
+(0010,0030) DA [19800101]
+(0010,0040) CS [M]
+(0020,000D) UI [1.2.840.113619.2.55.3.2609.2.1]
+(0020,000E) UI [1.2.840.113619.2.55.3.2609.2.1.1]
+(0020,0010) SH [STUDY001]
+(0020,0011) IS [1]
+(0020,0013) IS [1]
+(0028,0010) US [512]
+(0028,0011) US [512]
+(0028,0100) US [16]
+(0028,0101) US [16]
+(0028,0102) US [15]
+(0028,0103) US [0]
+(7FE0,0010) OW [0000000... pixel data ...]
+```
+
+**Download Sample DICOM Files:**
+```bash
+# OsiriX Sample Data
+wget https://www.osirix-viewer.com/resources/dicom-image-library/
+
+# Rubo Medical Imaging Sample Data
+https://github.com/NotAnonymousUser/Orthanc-medical-data
+
+# TCIA (Cancer Imaging Archive)
+https://www.cancerimagingarchive.net/
+```
+
+---
+
+### Part 4: External Device Integration Guide
+
+This section explains how to connect real medical imaging devices (CT, MRI, X-Ray machines) to the CARE DICOM Enabler.
+
+#### Prerequisites for Device Integration
+
+**Network Requirements:**
+- Windows DICOM Enabler and medical device on same network (or routable)
+- Fixed IP addresses for both systems (recommended)
+- No firewalls blocking ports 2007, 2008
+- Network latency < 50ms (preferred)
+
+**Device Requirements:**
+- DICOM-compliant imaging modality (CT, MRI, X-Ray, Ultrasound, etc.)
+- Support for:
+  - **C-FIND** (Modality Worklist query)
+  - **C-STORE** (Image transmission)
+  - **C-ECHO** (Connectivity test)
+- Administrative access to device configuration
+
+**Documentation Needed:**
+- Device DICOM Conformance Statement
+- Device AE Title (Application Entity Title)
+- Device IP address
+- Device DICOM port (usually 104 or custom)
+- Supported transfer syntaxes
+
+---
+
+#### Step 4.1: Configure Windows DICOM Enabler
+
+**1. Set Static IP on Windows Machine:**
+```powershell
+# Open Network Connections
+ncpa.cpl
+
+# Right-click network adapter → Properties
+# Select "Internet Protocol Version 4 (TCP/IPv4)"
+# Set static IP (e.g., 192.168.1.100)
+# Subnet: 255.255.255.0
+# Gateway: 192.168.1.1
+# DNS: 8.8.8.8, 8.8.4.4
+```
+
+**2. Configure Firewall Rules:**
+```powershell
+# Allow inbound DICOM connections
+New-NetFirewallRule -DisplayName "DICOM MWL SCP Port" -Direction Inbound -LocalPort 2008 -Protocol TCP -Action Allow -Profile Any
+
+New-NetFirewallRule -DisplayName "DICOM Store SCP Port" -Direction Inbound -LocalPort 2007 -Protocol TCP -Action Allow -Profile Any
+
+# Disable Windows Defender temporarily for testing (optional)
+Set-MpPreference -DisableRealtimeMonitoring $true
+```
+
+**3. Update App.config with Public IP:**
+```xml
+<appSettings>
+  <!-- Use 0.0.0.0 to listen on all interfaces -->
+  <add key="mwlhost" value="0.0.0.0" />
+  <add key="sscphost" value="0.0.0.0" />
+
+  <!-- Or specify exact IP if multiple NICs -->
+  <!-- <add key="mwlhost" value="192.168.1.100" /> -->
+</appSettings>
+```
+
+**4. Restart Services:**
+```powershell
+net stop "CARE MWL Service"
+net stop "CARE StoreSCP Service"
+net start "CARE MWL Service"
+net start "CARE StoreSCP Service"
+```
+
+---
+
+#### Step 4.2: Device-Specific Configuration
+
+**For GE Healthcare CT Scanner:**
+
+1. Access service menu (usually F10 or hidden key combination during boot)
+2. Login with service credentials
+3. Navigate to: **System → DICOM → Worklist**
+4. Add Worklist Server:
+   - **Server Name:** CARE_MWL
+   - **AE Title:** MODALITYSCP
+   - **IP Address:** 192.168.1.100 (Windows machine IP)
+   - **Port:** 2008
+   - **Timeout:** 30 seconds
+5. Navigate to: **System → DICOM → Storage**
+6. Add Storage Destination:
+   - **Destination Name:** CARE_STORAGE
+   - **AE Title:** STORAGESCP
+   - **IP Address:** 192.168.1.100
+   - **Port:** 2007
+   - **Transfer Syntax:** Explicit VR Little Endian (preferred)
+   - **Auto-send:** Yes
+7. Test connectivity:
+   - **DICOM → Test → Echo to MODALITYSCP** - should succeed
+   - **DICOM → Test → Echo to STORAGESCP** - should succeed
+8. Save configuration and exit service menu
+
+**For Siemens MRI Scanner:**
+
+1. Access service mode (service key + service menu)
+2. Navigate to: **Configuration → Network → DICOM**
+3. Add Application Entity:
+   - **Name:** CARE_Worklist
+   - **Type:** Worklist SCP
+   - **AE Title:** MODALITYSCP
+   - **Hostname:** 192.168.1.100
+   - **Port:** 2008
+4. Add Stor age Entity:
+   - **Name:** CARE_Archive
+   - **Type:** Storage SCP
+   - **AE Title:** STORAGESCP
+   - **Hostname:** 192.168.1.100
+   - **Port:** 2007
+   - **Presentation Context:** CT Image Storage, MR Image Storage, etc.
+5. Configure Workflow:
+   - **Workflow → Worklist Query Settings**
+   - **Query Server:** CARE_Worklist
+   - **Auto-query on patient registration:** Yes
+6. Configure Send:
+   - **Data Transfer → Send Destination**
+   - **Primary:** CARE_Archive
+   - **Send Completed Studies:** Yes
+   - **Send Mode:** Automatic
+7. Perform C-ECHO test from device menu
+
+**For Philips X-Ray:**
+
+1. Login with admin credentials
+2. Open: **Configuration → DICOM Settings**
+3. Add Modality Worklist Server:
+   - **Description:** CARE Worklist
+   - **Application Entity:** MODALITYSCP
+   - **Remote Host:** 192.168.1.100
+   - **Remote Port:** 2008
+   - **Local AE Title:** XRAY_01 (device's own AE title)
+   - **Timeout:** 60 seconds
+4. Add DICOM Export:
+   - **Export Name:** Send to CARE
+   - **Remote AE:** STORAGESCP
+   - **Remote Host:** 192.168.1.100
+   - **Remote Port:** 2007
+   - **Local AE:** XRAY_01
+   - **Auto-export:** Enabled
+5. Test Connection:
+   - **DICOM → Connectivity Test**
+   - Ping CARE server - should respond
+   - Echo to MODALITYSCP - should return success
+   - Echo to STORAGESCP - should return success
+
+**For Canon/Toshiba Ultrasound:**
+
+1. Access setup menu (touchscreen: Settings → DICOM)
+2. Configure Worklist:
+   - **Worklist → Add Server**
+   - **Server Name:** CARE
+   - **AE Title:** MODALITYSCP
+   - **IP:** 192.168.1.100
+   - **Port:** 2008
+   - **Character Set:** ISO_IR 100 (Western European)
+3. Configure Storage:
+   - **Send → Add Destination**
+   - **Name:** CARE PACS
+   - **AE Title:** STORAGESCP
+   - **IP:** 192.168.1.100
+   - **Port:** 2007
+   - **Compression:** JPEG Lossy or None
+4. Set as default:
+   - **Worklist → Default Server:** CARE
+   - **Send → Default Destination:** CARE PACS
+5. Test from patient screen:
+   - Click "Query Worklist"
+   - Should show patients from Django CARE backend
+
+---
+
+#### Step 4.3: Network Verification
+
+**Test network connectivity:**
+
+```powershell
+# From Windows machine, ping device
+ping 192.168.1.50  # Replace with device IP
+
+# From device (if accessible), ping Windows machine
+ping 192.168.1.100
+
+# Test port connectivity
+Test-NetConnection -ComputerName 192.168.1.100 -Port 2007
+Test-NetConnection -ComputerName 192.168.1.100 -Port 2008
+```
+
+**Verify services are listening:**
+```powershell
+# Check if ports are open
+netstat -an | findstr "2007"
+netstat -an | findstr "2008"
+
+# Should show:
+# TCP    0.0.0.0:2007    0.0.0.0:0    LISTENING
+# TCP    0.0.0.0:2008    0.0.0.0:0    LISTENING
+```
+
+---
+
+#### Step 4.4: Test Complete Workflow
+
+**1. Create Test Patient in Django:**
+
+```bash
+# In Django shell
+python manage.py shell
+
+from care.emr.models import Patient, ServiceRequest, Facility
+from care.facility.models import HealthcareService
+
+facility = Facility.objects.first()
+
+# Create patient
+patient = Patient.objects.create(
+    name="Test Patient for Device",
+    gender="M",
+    date_of_birth="1990-05-15",
+    phone_number="+1234567890"
+)
+
+# Create radiology order
+service = HealthcareService.objects.filter(internal_type="radiology").first()
+if not service:
+    service = HealthcareService.objects.create(
+        facility=facility,
+        name="Radiology Department",
+        internal_type="radiology"
+    )
+
+service_request = ServiceRequest.objects.create(
+    facility=facility,
+    patient=patient,
+    title="CT Chest with Contrast",
+    status="active",
+    healthcare_service=service,
+    code={"coding": [{"system": "http://snomed.info/sct", "code": "77477000", "display": "CT of chest"}]},
+    body_site={"coding": [{"system": "http://snomed.info/sct", "code": "51185008", "display": "Chest"}]}
+)
+
+print(f"Created patient: {patient.external_id}")
+print(f"Created order: {service_request.external_id}")
+```
+
+**2. Query Worklist from Device:**
+- On imaging device, open worklist query screen
+- Click "Query" or "Search Patients"
+- Should display: "Test Patient for Device" with CT Chest order
+- Select patient from worklist
+
+**3. Perform Imaging Study:**
+- Complete imaging acquisition on device
+- Device should show patient demographics from worklist
+- Acquire images (test scan or actual procedure)
+
+**4. Send Images to CARE:**
+- Device should auto-send to STORAGESCP after completion
+- Or manually trigger: "Send to CARE PACS"
+- Monitor DICOM Enabler logs for C-STORE requests
+
+**5. Verify in Django:**
+
+```python
+# Check if DICOM study created
+from care_radiology.models import DicomStudy, RadiologyServiceRequest
+
+studies = DicomStudy.objects.filter(patient=patient)
+print(f"Found {studies.count()} studies")
+
+for study in studies:
+    print(f"Study UID: {study.dicom_study_uid}")
+    print(f"Has report: {study.has_report}")
+```
+
+**6. View in OHIF:**
+- Open: http://localhost:3000
+- Should show study in study list
+- Click to open in viewer
+- Verify images display correctly
+
+**7. Create Radiology Report:**
+```bash
+# Via Django API
+curl -X POST http://localhost:9000/api/plugin/care_radiology/study_report/ \
+  -H "Authorization: Bearer <JWT_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "study": "<study_external_id>",
+    "modality": "<modality_type_id>",
+    "body_part": "<body_part_id>",
+    "technique": "CT scan with IV contrast. 5mm axial slices.",
+    "findings": "No acute abnormality identified.",
+    "impression": "Normal CT chest."
+  }'
+```
+
+---
+
+#### Step 4.5: Troubleshooting Device Integration
+
+**Problem: Device cannot connect to worklist**
+
+```powershell
+# Check if MWL service is running
+sc.exe query "CARE MWL Service"
+
+# Check firewall
+netsh advfirewall show allprofiles state
+
+# Test with DCMTK from another machine
+findscu -v localhost 2008 -aet TESTMODALITY -aec MODALITYSCP
+
+# Check MWL service logs
+type "C:\care-projects\care_radiology_dicom_enabler\CARE_MWL_Service\bin\Debug\logs\mwl_service.log"
+```
+
+**Problem: Device cannot send images**
+
+```powershell
+# Verify Store SCP is listening
+netstat -an | findstr "2007"
+
+# Test with storescu
+storescu -v localhost 2007 -aet TEST -aec STORAGESCP test.dcm
+
+# Check StoreSCP logs for incoming associations
+type "C:\care-projects\care_radiology_dicom_enabler\CARE_StoreSCP_Service\bin\Debug\logs\storescp.log"
+```
+
+**Problem: Wrong AE Title**
+
+Device shows: "Association rejected - calling AE title not recognized"
+
+Solution:
+- Verify device's AE Title matches configured in `App.config`
+- Or add device's AE Title to allowed list
+- Edit `CStoreSCP.cs` to accept any calling AE:
+```csharp
+// In OnCStoreRequestAsync method
+// Comment out AE Title validation for testing
+// if (callingAE != "EXPECTED_AE") return;
+```
+
+**Problem: Images not uploading to Django**
+
+```powershell
+# Check SCU service status
+sc.exe query "CARE StoreSCU Service"
+
+# Check SCU logs
+type "C:\care-projects\care_radiology_dicom_enabler\CARE_SCU_Service\bin\Debug\logs\storescu.log"
+
+# Verify Django is reachable
+curl http://localhost:9000/api/plugin/care_radiology/
+
+# Check JWT token is valid
+# Update jwtToken in App.config if expired
+```
+
+**Problem: Transfer Syntax Not Supported**
+
+Device shows: "No acceptable presentation contexts"
+
+Solution:
+- Check device's DICOM Conformance Statement for supported transfer syntaxes
+- Update `CStoreSCP.cs` to accept device's transfer syntax:
+```csharp
+// In OnReceiveAssociationRequest method
+pc.AcceptTransferSyntaxes(
+    DicomTransferSyntax.ExplicitVRLittleEndian,
+    DicomTransferSyntax.ImplicitVRLittleEndian,
+    DicomTransferSyntax.JPEGProcess14SV1,  // Add if needed
+    DicomTransferSyntax.JPEGLSLossless,
+    DicomTransferSyntax.JPEG2000Lossless
+);
+```
+
+---
+
+### Part 5: Verification and Testing
+
+**Complete Integration Test Checklist:**
+
+- [ ] Django backend running on port 9000
+- [ ] PostgreSQL database "care" created and migrated
+- [ ] PostgreSQL database "dicom" created with DCM4CHEE schema
+- [ ] Redis running on port 6379
+- [ ] MinIO running on port 9100 with "dicom-bucket" created
+- [ ] DCM4CHEE running on port 8080
+- [ ] OHIF viewer accessible on port 3000
+- [ ] Nginx proxy running on port 32314
+- [ ] Windows DICOM Enabler services all "Running"
+- [ ] MySQL database "plexus_mi2" created with tables
+- [ ] Can query worklist via DCMTK tools
+- [ ] Can send DICOM file via storescu
+- [ ] Images appear in Django DicomStudy model
+- [ ] Images viewable in OHIF viewer
+- [ ] Can create study reports via API
+- [ ] Medical device can query worklist
+- [ ] Medical device can send images
+- [ ] SCU service uploads to Django successfully
+
+---
+
 ## License & Credits
 
 Originally developed as Plexus DICOM Enabler, now maintained as CARE Radiology DICOM Enabler.
@@ -987,5 +2175,14 @@ Originally developed as Plexus DICOM Enabler, now maintained as CARE Radiology D
 Built with fo-dicom (Fellow Oak DICOM) - industry-standard .NET DICOM library.
 
 ---
+
+## Additional Resources
+
+- **DICOM Standard:** https://www.dicomstandard.org/
+- **fo-dicom Documentation:** https://fo-dicom.github.io/
+- **DCM4CHEE Documentation:** https://github.com/dcm4che/dcm4chee-arc-light/wiki
+- **OHIF Viewer:** https://docs.ohif.org/
+- **Django CARE Backend:** https://care-be-docs.ohc.network/
+- **DCMTK Tools:** https://support.dcmtk.org/docs/
 
 For questions or issues, refer to the README.md file or contact the development team.
