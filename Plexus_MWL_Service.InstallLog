@@ -1,0 +1,80 @@
+﻿Installing assembly 'D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe'.
+Affected parameters are:
+   logtoconsole = 
+   logfile = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog
+   assemblypath = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe
+An exception occurred while trying to find the installers in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+System.Reflection.ReflectionTypeLoadException: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information.
+Aborting installation for D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe.
+Rolling back assembly 'D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe'.
+Affected parameters are:
+   logtoconsole = 
+   logfile = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog
+   assemblypath = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe
+An exception occurred while trying to find the installers in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+System.Reflection.ReflectionTypeLoadException: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information.
+Aborting installation for D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe.
+Installing assembly 'D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe'.
+Affected parameters are:
+   logtoconsole = 
+   logfile = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog
+   assemblypath = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe
+An exception occurred while trying to find the installers in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+System.Reflection.ReflectionTypeLoadException: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information.
+Aborting installation for D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe.
+Rolling back assembly 'D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe'.
+Affected parameters are:
+   logtoconsole = 
+   logfile = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog
+   assemblypath = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe
+An exception occurred while trying to find the installers in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+System.Reflection.ReflectionTypeLoadException: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information.
+Aborting installation for D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe.
+Installing assembly 'D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe'.
+Affected parameters are:
+   logtoconsole = 
+   logfile = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog
+   assemblypath = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe
+An exception occurred while trying to find the installers in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+System.Reflection.ReflectionTypeLoadException: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information.
+Aborting installation for D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe.
+Rolling back assembly 'D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe'.
+Affected parameters are:
+   logtoconsole = 
+   logfile = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog
+   assemblypath = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe
+An exception occurred while trying to find the installers in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+System.Reflection.ReflectionTypeLoadException: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information.
+Aborting installation for D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe.
+Installing assembly 'D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe'.
+Affected parameters are:
+   logtoconsole = 
+   logfile = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog
+   assemblypath = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe
+An exception occurred while trying to find the installers in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+System.Reflection.ReflectionTypeLoadException: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information.
+Aborting installation for D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe.
+Rolling back assembly 'D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe'.
+Affected parameters are:
+   logtoconsole = 
+   logfile = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog
+   assemblypath = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe
+An exception occurred while trying to find the installers in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+System.Reflection.ReflectionTypeLoadException: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information.
+Aborting installation for D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe.
+Installing assembly 'D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe'.
+Affected parameters are:
+   logtoconsole = 
+   logfile = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog
+   assemblypath = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe
+An exception occurred while trying to find the installers in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+System.Reflection.ReflectionTypeLoadException: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information.
+Aborting installation for D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe.
+Rolling back assembly 'D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe'.
+Affected parameters are:
+   logtoconsole = 
+   logfile = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog
+   assemblypath = D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe
+An exception occurred while trying to find the installers in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+System.Reflection.ReflectionTypeLoadException: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information.
+Aborting installation for D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe.

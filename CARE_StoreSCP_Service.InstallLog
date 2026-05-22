@@ -1,0 +1,30 @@
+﻿Installing assembly 'D:\FDE\CARE_StoreSCP_Service.exe'.
+Affected parameters are:
+   i = 
+   logfile = D:\FDE\CARE_StoreSCP_Service.InstallLog
+   assemblypath = D:\FDE\CARE_StoreSCP_Service.exe
+   logtoconsole = 
+Installing service CARE_Store_SCP_Service...
+Service CARE_Store_SCP_Service has been successfully installed.
+Creating EventLog source CARE_Store_SCP_Service in log Application...
+Committing assembly 'D:\FDE\CARE_StoreSCP_Service.exe'.
+Affected parameters are:
+   i = 
+   logfile = D:\FDE\CARE_StoreSCP_Service.InstallLog
+   assemblypath = D:\FDE\CARE_StoreSCP_Service.exe
+   logtoconsole = 
+Installing assembly 'D:\FDE\CARE_StoreSCP_Service.exe'.
+Affected parameters are:
+   i = 
+   logfile = D:\FDE\CARE_StoreSCP_Service.InstallLog
+   assemblypath = D:\FDE\CARE_StoreSCP_Service.exe
+   logtoconsole = 
+Installing service CARE_Store_SCP_Service...
+Service CARE_Store_SCP_Service has been successfully installed.
+Creating EventLog source CARE_Store_SCP_Service in log Application...
+Committing assembly 'D:\FDE\CARE_StoreSCP_Service.exe'.
+Affected parameters are:
+   i = 
+   logfile = D:\FDE\CARE_StoreSCP_Service.InstallLog
+   assemblypath = D:\FDE\CARE_StoreSCP_Service.exe
+   logtoconsole = 

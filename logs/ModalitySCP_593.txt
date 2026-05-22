@@ -1,0 +1,43 @@
+2026-05-22 16:46:11.482 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-22 16:46:11.486 +05:30 [INF] No Record returned from CARE API
+2026-05-22 16:46:41.431 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A46%3A41
+2026-05-22 16:46:41.487 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-22 16:46:41.489 +05:30 [INF] No Record returned from CARE API
+2026-05-22 16:47:11.438 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A47%3A11
+2026-05-22 16:47:11.504 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-22 16:47:11.506 +05:30 [INF] No Record returned from CARE API
+2026-05-22 16:47:41.443 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A47%3A41
+2026-05-22 16:47:41.617 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-22 16:47:41.622 +05:30 [INF] No Record returned from CARE API
+2026-05-22 16:48:11.443 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A48%3A11
+2026-05-22 16:48:11.501 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-22 16:48:11.503 +05:30 [INF] No Record returned from CARE API
+2026-05-22 16:48:41.457 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A48%3A41
+2026-05-22 16:48:41.534 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-22 16:48:41.536 +05:30 [INF] No Record returned from CARE API
+2026-05-22 16:49:11.466 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A49%3A11
+2026-05-22 16:49:11.522 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-22 16:49:11.523 +05:30 [INF] No Record returned from CARE API
+2026-05-22 16:49:41.476 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A49%3A41
+2026-05-22 16:49:41.543 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-22 16:49:41.545 +05:30 [INF] No Record returned from CARE API
+2026-05-22 16:50:11.504 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A50%3A11
+2026-05-22 16:50:12.044 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-22 16:50:12.051 +05:30 [INF] No Record returned from CARE API
+2026-05-22 16:50:41.505 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A50%3A41
+2026-05-22 16:50:41.581 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-22 16:50:41.582 +05:30 [INF] No Record returned from CARE API
+2026-05-22 16:51:11.521 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A51%3A11
+2026-05-22 16:51:11.577 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-22 16:51:11.578 +05:30 [INF] No Record returned from CARE API
+2026-05-22 16:51:41.530 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A51%3A41
+2026-05-22 16:51:41.663 +05:30 [INF] CARE Worklist API call successful. Returning the value
+2026-05-22 16:51:41.667 +05:30 [INF] No Record returned from CARE API
+2026-05-22 16:57:20.161 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A57%3A20
+2026-05-22 16:57:24.346 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-22 16:57:24.360 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 16:57:50.106 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A57%3A50
+2026-05-22 16:57:54.223 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-22 16:57:54.223 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 16:58:20.113 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A58%3A20
+2026-05-22 16:58:24.207 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.

@@ -1,0 +1,172 @@
+﻿
+Running a transacted installation.
+
+Beginning the Install phase of the installation.
+See the contents of the log file for the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly's progress.
+The file is located at D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog.
+
+An exception occurred during the Install phase.
+System.InvalidOperationException: Unable to get installer types in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+The inner exception System.Reflection.ReflectionTypeLoadException was thrown with the following error message: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information..
+
+The Rollback phase of the installation is beginning.
+See the contents of the log file for the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly's progress.
+The file is located at D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog.
+An exception occurred during the Rollback phase of the System.Configuration.Install.AssemblyInstaller installer.
+System.InvalidOperationException: Unable to get installer types in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+The inner exception System.Reflection.ReflectionTypeLoadException was thrown with the following error message: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information..
+An exception occurred during the Rollback phase of the installation. This exception will be ignored and the rollback will continue. However, the machine might not fully revert to its initial state after the rollback is complete.
+
+The Rollback phase completed successfully.
+
+The transacted install has completed.
+
+Running a transacted installation.
+
+Beginning the Install phase of the installation.
+See the contents of the log file for the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly's progress.
+The file is located at D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog.
+
+An exception occurred during the Install phase.
+System.InvalidOperationException: Unable to get installer types in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+The inner exception System.Reflection.ReflectionTypeLoadException was thrown with the following error message: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information..
+
+The Rollback phase of the installation is beginning.
+See the contents of the log file for the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly's progress.
+The file is located at D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog.
+An exception occurred during the Rollback phase of the System.Configuration.Install.AssemblyInstaller installer.
+System.InvalidOperationException: Unable to get installer types in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+The inner exception System.Reflection.ReflectionTypeLoadException was thrown with the following error message: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information..
+An exception occurred during the Rollback phase of the installation. This exception will be ignored and the rollback will continue. However, the machine might not fully revert to its initial state after the rollback is complete.
+
+The Rollback phase completed successfully.
+
+The transacted install has completed.
+
+Running a transacted installation.
+
+Beginning the Install phase of the installation.
+See the contents of the log file for the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly's progress.
+The file is located at D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog.
+
+An exception occurred during the Install phase.
+System.InvalidOperationException: Unable to get installer types in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+The inner exception System.Reflection.ReflectionTypeLoadException was thrown with the following error message: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information..
+
+The Rollback phase of the installation is beginning.
+See the contents of the log file for the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly's progress.
+The file is located at D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog.
+An exception occurred during the Rollback phase of the System.Configuration.Install.AssemblyInstaller installer.
+System.InvalidOperationException: Unable to get installer types in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+The inner exception System.Reflection.ReflectionTypeLoadException was thrown with the following error message: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information..
+An exception occurred during the Rollback phase of the installation. This exception will be ignored and the rollback will continue. However, the machine might not fully revert to its initial state after the rollback is complete.
+
+The Rollback phase completed successfully.
+
+The transacted install has completed.
+
+Running a transacted installation.
+
+Beginning the Install phase of the installation.
+See the contents of the log file for the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly's progress.
+The file is located at D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog.
+
+An exception occurred during the Install phase.
+System.InvalidOperationException: Unable to get installer types in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+The inner exception System.Reflection.ReflectionTypeLoadException was thrown with the following error message: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information..
+
+The Rollback phase of the installation is beginning.
+See the contents of the log file for the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly's progress.
+The file is located at D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog.
+An exception occurred during the Rollback phase of the System.Configuration.Install.AssemblyInstaller installer.
+System.InvalidOperationException: Unable to get installer types in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+The inner exception System.Reflection.ReflectionTypeLoadException was thrown with the following error message: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information..
+An exception occurred during the Rollback phase of the installation. This exception will be ignored and the rollback will continue. However, the machine might not fully revert to its initial state after the rollback is complete.
+
+The Rollback phase completed successfully.
+
+The transacted install has completed.
+
+Running a transacted installation.
+
+Beginning the Install phase of the installation.
+See the contents of the log file for the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly's progress.
+The file is located at D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog.
+
+An exception occurred during the Install phase.
+System.InvalidOperationException: Unable to get installer types in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+The inner exception System.Reflection.ReflectionTypeLoadException was thrown with the following error message: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information..
+
+The Rollback phase of the installation is beginning.
+See the contents of the log file for the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly's progress.
+The file is located at D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.InstallLog.
+An exception occurred during the Rollback phase of the System.Configuration.Install.AssemblyInstaller installer.
+System.InvalidOperationException: Unable to get installer types in the D:\Projects\Flynncare\CDE\New folder\CARE_DICOM_Enabler\CARE_DICOM_Enabler\bin\Debug\Plexus_MWL_Service.exe assembly.
+The inner exception System.Reflection.ReflectionTypeLoadException was thrown with the following error message: Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information..
+An exception occurred during the Rollback phase of the installation. This exception will be ignored and the rollback will continue. However, the machine might not fully revert to its initial state after the rollback is complete.
+
+The Rollback phase completed successfully.
+
+The transacted install has completed.
+
+Running a transacted installation.
+
+Beginning the Install phase of the installation.
+See the contents of the log file for the D:\FDE\CARE_StoreSCP_Service.exe assembly's progress.
+The file is located at D:\FDE\CARE_StoreSCP_Service.InstallLog.
+
+The Install phase completed successfully, and the Commit phase is beginning.
+See the contents of the log file for the D:\FDE\CARE_StoreSCP_Service.exe assembly's progress.
+The file is located at D:\FDE\CARE_StoreSCP_Service.InstallLog.
+
+The Commit phase completed successfully.
+
+The transacted install has completed.
+
+Running a transacted installation.
+
+Beginning the Install phase of the installation.
+See the contents of the log file for the D:\FDE\CARE_SCU_Service.exe assembly's progress.
+The file is located at D:\FDE\CARE_SCU_Service.InstallLog.
+
+An exception occurred during the Install phase.
+System.InvalidOperationException: Installation failed due to the absence of a ServiceProcessInstaller. The ServiceProcessInstaller must either be the containing installer, or it must be present in the Installers collection on the same installer as the ServiceInstaller.
+
+The Rollback phase of the installation is beginning.
+See the contents of the log file for the D:\FDE\CARE_SCU_Service.exe assembly's progress.
+The file is located at D:\FDE\CARE_SCU_Service.InstallLog.
+
+The Rollback phase completed successfully.
+
+The transacted install has completed.
+
+Running a transacted installation.
+
+Beginning the Install phase of the installation.
+See the contents of the log file for the D:\FDE\CARE_StoreSCP_Service.exe assembly's progress.
+The file is located at D:\FDE\CARE_StoreSCP_Service.InstallLog.
+
+The Install phase completed successfully, and the Commit phase is beginning.
+See the contents of the log file for the D:\FDE\CARE_StoreSCP_Service.exe assembly's progress.
+The file is located at D:\FDE\CARE_StoreSCP_Service.InstallLog.
+
+The Commit phase completed successfully.
+
+The transacted install has completed.
+
+Running a transacted installation.
+
+Beginning the Install phase of the installation.
+See the contents of the log file for the D:\FDE\CARE_SCU_Service.exe assembly's progress.
+The file is located at D:\FDE\CARE_SCU_Service.InstallLog.
+
+An exception occurred during the Install phase.
+System.InvalidOperationException: Installation failed due to the absence of a ServiceProcessInstaller. The ServiceProcessInstaller must either be the containing installer, or it must be present in the Installers collection on the same installer as the ServiceInstaller.
+
+The Rollback phase of the installation is beginning.
+See the contents of the log file for the D:\FDE\CARE_SCU_Service.exe assembly's progress.
+The file is located at D:\FDE\CARE_SCU_Service.InstallLog.
+
+The Rollback phase completed successfully.
+
+The transacted install has completed.

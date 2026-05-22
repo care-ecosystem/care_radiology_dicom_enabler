@@ -1,0 +1,166 @@
+2026-05-10 19:17:27.379 +05:30 [INF] Application Path :  D:\FDE
+2026-05-10 19:17:27.421 +05:30 [INF] Store SCU Service Started Successfully !!!
+2026-05-10 19:17:32.441 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:17:32.446 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:17:37.447 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:17:37.448 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:17:42.463 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:17:42.464 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:17:47.478 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:17:47.479 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:17:52.483 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:17:52.486 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:17:57.497 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:17:57.498 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:18:02.511 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:18:02.512 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:18:07.517 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:18:07.520 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:18:12.520 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:18:12.523 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:18:17.528 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:18:17.533 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:18:22.544 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:18:22.549 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:18:27.553 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:18:27.558 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:18:32.570 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:18:32.575 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:18:37.589 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:18:37.592 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:18:42.600 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:18:42.604 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:18:47.613 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:18:47.616 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:18:52.619 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:18:52.623 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:18:57.628 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:18:57.632 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:19:02.645 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:19:02.650 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:19:07.659 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:19:07.664 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:19:12.667 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:19:12.670 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:19:17.675 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:19:17.678 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:19:22.679 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:19:22.683 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:19:27.695 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:19:27.699 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:19:32.699 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:19:32.704 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:19:37.712 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:19:37.717 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:19:42.731 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:19:42.735 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:19:47.740 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:19:47.744 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:19:52.744 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:19:52.748 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:19:57.760 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:19:57.764 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:20:02.773 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:20:02.777 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:20:07.784 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:20:07.789 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:20:12.800 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:20:12.803 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:20:17.807 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:20:17.812 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:20:22.819 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:20:22.821 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:20:27.836 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:20:27.841 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:20:32.843 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:20:32.847 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:20:37.848 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:20:37.853 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:20:42.865 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:20:42.870 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:20:47.881 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:20:47.886 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:20:52.889 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:20:52.894 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:20:57.893 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:20:57.897 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:21:02.908 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:21:02.911 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:21:07.919 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:21:07.923 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:21:12.935 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:21:12.939 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:21:17.940 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:21:17.943 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:21:22.952 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:21:22.956 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:21:27.967 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:21:27.970 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:21:32.973 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:21:32.976 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:21:37.980 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:21:37.985 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:21:42.988 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:21:42.992 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:21:47.998 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:21:48.003 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:21:53.006 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:21:53.011 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:21:58.019 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:21:58.023 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:22:03.036 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:22:03.041 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:22:08.042 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:22:08.045 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:22:13.057 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:22:13.062 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:22:18.074 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:22:18.078 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:22:23.079 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:22:23.085 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:22:28.099 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:22:28.103 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:22:33.111 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:22:33.115 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:22:38.126 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:22:38.128 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:22:43.130 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:22:43.133 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:22:48.141 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:22:48.145 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:22:53.160 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:22:53.161 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:22:58.164 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:22:58.168 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:23:03.172 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:23:03.176 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:23:08.181 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:23:08.185 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:23:13.193 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:23:13.197 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:23:18.206 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:23:18.210 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:23:23.218 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:23:23.222 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:23:28.231 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:23:28.236 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:23:33.248 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:23:33.253 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:23:38.261 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:23:38.263 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:23:43.269 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:23:43.273 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:23:48.280 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:23:48.282 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:23:53.290 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:23:53.293 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:23:58.302 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:23:58.304 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:24:03.309 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:24:03.311 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:24:08.319 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:24:08.322 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:24:13.330 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:24:13.333 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!
+2026-05-10 19:24:18.341 +05:30 [INF] Try create StoreSCU client
+2026-05-10 19:24:18.344 +05:30 [INF] Folder D:\FDE\SCP does not contain any files to push. !!

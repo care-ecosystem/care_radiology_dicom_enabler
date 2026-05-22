@@ -1,0 +1,35 @@
+2026-05-22 16:58:24.210 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 16:58:50.114 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A58%3A50
+2026-05-22 16:58:54.237 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-22 16:58:54.239 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 16:59:20.123 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A59%3A20
+2026-05-22 16:59:24.235 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-22 16:59:24.237 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 16:59:50.140 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2016%3A59%3A50
+2026-05-22 16:59:54.272 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-22 16:59:54.284 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 17:00:28.570 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2017%3A00%3A28
+2026-05-22 17:00:36.051 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-22 17:00:36.056 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 17:01:06.635 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2017%3A01%3A06
+2026-05-22 17:01:10.912 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-22 17:01:10.914 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 17:01:55.641 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2017%3A01%3A55
+2026-05-22 17:02:00.372 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-22 17:02:00.372 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 17:02:25.396 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2017%3A02%3A25
+2026-05-22 17:02:29.498 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-22 17:02:29.504 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 17:02:55.398 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2017%3A02%3A55
+2026-05-22 17:02:59.438 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-22 17:02:59.440 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 17:03:25.412 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2017%3A03%3A25
+2026-05-22 17:03:29.488 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-22 17:03:29.492 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 17:03:55.419 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2017%3A03%3A55
+2026-05-22 17:03:59.490 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-22 17:03:59.490 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 17:04:25.437 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2017%3A04%3A25
+2026-05-22 17:04:29.545 +05:30 [ERR] Error calling CARE Worklist API with exception An error occurred while sending the request.
+2026-05-22 17:04:29.549 +05:30 [ERR] Error Getting / Populating CARE worklist data with exception One or more errors occurred.
+2026-05-22 17:04:55.446 +05:30 [INF] CARE Worklist URL: http://localhost:9000/api/care_radiology/dicom/worklist/?modality=&from=2025-01-01%2008%3A00%3A00&to=2026-05-22%2017%3A04%3A55

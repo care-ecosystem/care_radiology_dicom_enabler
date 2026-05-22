@@ -1,0 +1,30 @@
+﻿Installing assembly 'D:\FDE\CARE_SCU_Service.exe'.
+Affected parameters are:
+   i = 
+   logfile = D:\FDE\CARE_SCU_Service.InstallLog
+   assemblypath = D:\FDE\CARE_SCU_Service.exe
+   logtoconsole = 
+Installing service CARE StoreSCU Service...
+Creating EventLog source CARE StoreSCU Service in log Application...
+Rolling back assembly 'D:\FDE\CARE_SCU_Service.exe'.
+Affected parameters are:
+   i = 
+   logfile = D:\FDE\CARE_SCU_Service.InstallLog
+   assemblypath = D:\FDE\CARE_SCU_Service.exe
+   logtoconsole = 
+Restoring event log to previous state for source CARE StoreSCU Service.
+Installing assembly 'D:\FDE\CARE_SCU_Service.exe'.
+Affected parameters are:
+   i = 
+   logfile = D:\FDE\CARE_SCU_Service.InstallLog
+   assemblypath = D:\FDE\CARE_SCU_Service.exe
+   logtoconsole = 
+Installing service CARE StoreSCU Service...
+Creating EventLog source CARE StoreSCU Service in log Application...
+Rolling back assembly 'D:\FDE\CARE_SCU_Service.exe'.
+Affected parameters are:
+   i = 
+   logfile = D:\FDE\CARE_SCU_Service.InstallLog
+   assemblypath = D:\FDE\CARE_SCU_Service.exe
+   logtoconsole = 
+Restoring event log to previous state for source CARE StoreSCU Service.
