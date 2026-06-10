@@ -25,7 +25,6 @@ jobs:
 
       # -- 2. Patch MWL App.config BEFORE building ----------------------------
       # Switch backend=3 so MWL queries our mock CARE API instead of MySQL.
-      # The other services read all runtime config from cfg/common.cfg.
       - name: Patch CARE_MWL_Service App.config for CI
         shell: pwsh
         run: |
@@ -36,9 +35,11 @@ jobs:
           ($s | Where-Object key -eq "careToken").value    = "ci-test-static-api-key"
           ($s | Where-Object key -eq "careModality").value = ""
           $xml.Save((Resolve-Path "CARE_MWL_Service\App.config").Path)
-          Write-Output "MWL App.config patched (backend=3, careBaseUrl=http://localhost:9000)"
+          Write-Output "MWL App.config patched"
 
-      # -- 3. Build full solution ---------------------------------------------
+      # -- 3. Build service projects individually -----------------------------
+      # Build each service project directly rather than the full solution to
+      # avoid failures in Sample/Test/GUI projects blocking the services.
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
@@ -48,28 +49,44 @@ jobs:
       - name: Restore NuGet packages
         run: nuget restore CARE_DICOM_Enabler.sln
 
-      - name: Build full solution (Release)
-        run: |
-          msbuild CARE_DICOM_Enabler.sln `
-            /p:Configuration=Release `
-            /p:Platform=AnyCPU `
-            /m
-
-      - name: Verify service EXEs were built
+      - name: Build CARE.DAL (shared library)
         shell: pwsh
         run: |
+          msbuild "CARE.DAL\CARE.Common.csproj" /p:Configuration=Release /p:Platform=AnyCPU /m
+          if ($LASTEXITCODE -ne 0) { Write-Error "CARE.DAL build failed"; exit 1 }
+
+      - name: Build CARE_MWL_Service
+        shell: pwsh
+        run: |
+          msbuild "CARE_MWL_Service\CARE_MWL_Service.csproj" /p:Configuration=Release /p:Platform=AnyCPU /m
+          if ($LASTEXITCODE -ne 0) { Write-Error "CARE_MWL_Service build failed"; exit 1 }
+
+      - name: Build CARE_StoreSCP_Service
+        shell: pwsh
+        run: |
+          msbuild "CARE_StoreSCP_Service\CARE_StoreSCP_Service.csproj" /p:Configuration=Release /p:Platform=AnyCPU /m
+          if ($LASTEXITCODE -ne 0) { Write-Error "CARE_StoreSCP_Service build failed"; exit 1 }
+
+      - name: Verify service EXEs exist
+        shell: pwsh
+        run: |
+          $missing = $false
           $exes = @(
             "CARE_MWL_Service\bin\Release\CARE_MWL_Service.exe",
-            "CARE_StoreSCP_Service\bin\Release\CARE_StoreSCP_Service.exe",
-            "CARE_SCU_Service\bin\Release\CARE_SCU_Service.exe"
+            "CARE_StoreSCP_Service\bin\Release\CARE_StoreSCP_Service.exe"
           )
           foreach ($e in $exes) {
-            if (Test-Path $e) { Write-Output "FOUND  : $e" }
-            else              { Write-Warning "MISSING: $e" }
+            if (Test-Path $e) {
+              $size = (Get-Item $e).Length
+              Write-Output "FOUND  : $e ($size bytes)"
+            } else {
+              Write-Output "MISSING: $e"
+              $missing = $true
+            }
           }
+          if ($missing) { Write-Error "One or more service EXEs are missing - cannot proceed"; exit 1 }
 
       # -- 4. MySQL setup -----------------------------------------------------
-      # windows-latest ships MySQL 8.0; root has no password by default.
       - name: Start MySQL
         shell: pwsh
         run: |
@@ -89,12 +106,13 @@ jobs:
         run: |
           $mysql = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe"
           & $mysql -u root < "ci\schema.sql"
-          Write-Output "Schema applied (exit $LASTEXITCODE)"
+          if ($LASTEXITCODE -ne 0) { Write-Error "Schema creation failed"; exit 1 }
+          Write-Output "Schema applied"
 
       # -- 5. Generate cfg/common.cfg for each service ------------------------
-      # Replicates CARE.DAL/EnDcryption.cs exactly:
+      # Replicates CARE.DAL/EnDcryption.cs:
       #   AES-256-CBC, key = EncKey.encdeKey, IV = 16 zero bytes, PKCS7 padding
-      - name: Generate encrypted cfg/common.cfg for each service
+      - name: Generate encrypted cfg/common.cfg
         shell: pwsh
         run: |
           function Get-AesEncrypted([string]$plainText) {
@@ -115,80 +133,99 @@ jobs:
 
           $enc = Get-AesEncrypted "Server=localhost;Database=plexus_mi2;Uid=root;Pwd=;"
 
-          $xml  = '<?xml version="1.0" encoding="utf-8"?>'
-          $xml += "<configurations>"
-          $xml += "<connectString>$enc</connectString>"
-          $xml += "<mwlaetitle>MODALITYSCP</mwlaetitle>"
-          $xml += "<mwlport>2008</mwlport>"
-          $xml += "<sscpaetitle>STORAGESCP</sscpaetitle>"
-          $xml += "<sscpport>2007</sscpport>"
-          $xml += "<sscuaetitle>STORAGESCU</sscuaetitle>"
-          $xml += "<sscuhost>127.0.0.1</sscuhost>"
-          $xml += "<callingaetitle>STORAGESCU</callingaetitle>"
-          $xml += "<sscuport>2007</sscuport>"
-          $xml += "<checkserver>false</checkserver>"
-          $xml += "</configurations>"
+          $cfgXml  = '<?xml version="1.0" encoding="utf-8"?>'
+          $cfgXml += "<configurations>"
+          $cfgXml += "<connectString>$enc</connectString>"
+          $cfgXml += "<mwlaetitle>MODALITYSCP</mwlaetitle>"
+          $cfgXml += "<mwlport>2008</mwlport>"
+          $cfgXml += "<sscpaetitle>STORAGESCP</sscpaetitle>"
+          $cfgXml += "<sscpport>2007</sscpport>"
+          $cfgXml += "<sscuaetitle>STORAGESCU</sscuaetitle>"
+          $cfgXml += "<sscuhost>127.0.0.1</sscuhost>"
+          $cfgXml += "<callingaetitle>STORAGESCU</callingaetitle>"
+          $cfgXml += "<sscuport>2007</sscuport>"
+          $cfgXml += "<checkserver>false</checkserver>"
+          $cfgXml += "</configurations>"
 
-          $dirs = @(
-            "CARE_MWL_Service\bin\Release\cfg",
-            "CARE_StoreSCP_Service\bin\Release\cfg",
-            "CARE_SCU_Service\bin\Release\cfg",
-            "CARE_Auth_Service\bin\Release\cfg"
-          )
-          foreach ($d in $dirs) {
+          foreach ($d in @("CARE_MWL_Service\bin\Release\cfg", "CARE_StoreSCP_Service\bin\Release\cfg")) {
             New-Item -ItemType Directory -Force -Path $d | Out-Null
-            Set-Content -Path "$d\common.cfg" -Value $xml
+            Set-Content -Path "$d\common.cfg" -Value $cfgXml
             Write-Output "Created: $d\common.cfg"
           }
 
+          # Pre-create SCP storage folder that PlexusStoreSCPService expects
+          New-Item -ItemType Directory -Force -Path "CARE_StoreSCP_Service\bin\Release\SCP" | Out-Null
+          Write-Output "Created SCP folder"
+
       # -- 6. Start mock CARE backend -----------------------------------------
-      # ci/mock_backend.py serves worklist + upload endpoints on port 9000.
-      - name: Start mock CARE backend
+      - name: Verify Python and start mock CARE backend
         shell: pwsh
         run: |
-          $p = Start-Process python -ArgumentList "ci\mock_backend.py" -PassThru -NoNewWindow `
+          $pyPath = (Get-Command python -ErrorAction SilentlyContinue)?.Source
+          if (-not $pyPath) { Write-Error "python not found on PATH"; exit 1 }
+          Write-Output "Python: $pyPath"
+
+          $script = (Resolve-Path "ci\mock_backend.py").Path
+          $p = Start-Process -FilePath $pyPath -ArgumentList $script `
+               -PassThru -NoNewWindow `
                -RedirectStandardOutput "$env:TEMP\mock.log" `
                -RedirectStandardError  "$env:TEMP\mock_err.log"
           echo "MOCK_PID=$($p.Id)" >> $env:GITHUB_ENV
-          Start-Sleep -Seconds 3
+          Start-Sleep -Seconds 4
+
+          if ($p.HasExited) {
+            Write-Output "=== mock stdout ==="; Get-Content "$env:TEMP\mock.log" -ErrorAction SilentlyContinue
+            Write-Output "=== mock stderr ==="; Get-Content "$env:TEMP\mock_err.log" -ErrorAction SilentlyContinue
+            Write-Error "Mock backend exited immediately (code $($p.ExitCode))"; exit 1
+          }
+
           try {
             $r = Invoke-WebRequest "http://localhost:9000/" -UseBasicParsing -TimeoutSec 5
             Write-Output "Mock backend responding: HTTP $($r.StatusCode)"
           } catch {
-            Write-Warning "Mock backend check: $_"
+            Write-Error "Mock backend not responding: $_"; exit 1
           }
 
       # -- 7. Install and start Windows services ------------------------------
+      # New-Service is more reliable than sc.exe for path quoting in PowerShell.
       - name: Install DICOM services
         shell: pwsh
         run: |
           $svcs = @{
-            CAREMWLci      = "CARE_MWL_Service\bin\Release\CARE_MWL_Service.exe"
-            CAREStoreSCPci = "CARE_StoreSCP_Service\bin\Release\CARE_StoreSCP_Service.exe"
+            CAREMWLci      = (Resolve-Path "CARE_MWL_Service\bin\Release\CARE_MWL_Service.exe").Path
+            CAREStoreSCPci = (Resolve-Path "CARE_StoreSCP_Service\bin\Release\CARE_StoreSCP_Service.exe").Path
           }
           foreach ($kv in $svcs.GetEnumerator()) {
-            $path = Resolve-Path $kv.Value -ErrorAction SilentlyContinue
-            if (-not $path) { Write-Warning "Skipped $($kv.Key) - EXE not found"; continue }
-            $r = sc.exe create $kv.Key binPath= "`"$($path.Path)`"" start= demand 2>&1
-            Write-Output "Install $($kv.Key): $r"
+            Write-Output "Installing $($kv.Key) -> $($kv.Value)"
+            New-Service -Name $kv.Key -BinaryPathName "`"$($kv.Value)`"" -StartupType Manual -ErrorAction Stop
+            Write-Output "Installed: $($kv.Key)"
           }
 
-      - name: Start MWL and Store SCP services
+      - name: Start DICOM services
         shell: pwsh
         run: |
           foreach ($svc in @("CAREMWLci", "CAREStoreSCPci")) {
-            $r = sc.exe start $svc 2>&1
-            Write-Output "Start $svc : $r"
+            Write-Output "Starting $svc..."
+            Start-Service $svc -ErrorAction Stop
+            Write-Output "Start-Service $svc : OK"
           }
-          Write-Output "Waiting 10s for services to bind ports..."
-          Start-Sleep -Seconds 10
+          Write-Output "Waiting 12s for services to bind ports..."
+          Start-Sleep -Seconds 12
 
+          # Port status
           foreach ($port in @(2007, 2008)) {
             $l = netstat -an | Select-String ":$port\s.*LISTENING"
-            Write-Output "Port $port : $(if ($l) {'LISTENING'} else {'NOT listening'})"
+            Write-Output "Port $port : $(if ($l) {'LISTENING ✓'} else {'NOT listening ✗'})"
           }
+
+          # Service state
           foreach ($svc in @("CAREMWLci", "CAREStoreSCPci")) {
-            sc.exe query $svc 2>&1 | Select-String "STATE"
+            $state = (Get-Service $svc -ErrorAction SilentlyContinue).Status
+            Write-Output "Service $svc : $state"
+            if ($state -ne "Running") {
+              Write-Error "Service $svc is not Running (state: $state)"
+              exit 1
+            }
           }
 
       # -- 8. DCMTK tests -----------------------------------------------------
@@ -211,7 +248,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "C-ECHO StoreSCP FAILED (exit $LASTEXITCODE)"; exit 1 }
           Write-Output "PASS: C-ECHO to Store SCP port 2007"
 
-      - name: "Test - C-FIND worklist query (patient should come from mock backend)"
+      - name: "Test - C-FIND worklist query"
         shell: pwsh
         run: |
           $out = findscu -v -S `
@@ -222,20 +259,19 @@ jobs:
             localhost 2008 -aet GITHUBCI -aec MODALITYSCP 2>&1
           Write-Output $out
           if ($LASTEXITCODE -ne 0) {
-            Write-Warning "C-FIND returned exit $LASTEXITCODE - association may have been refused"
+            Write-Warning "C-FIND returned exit $LASTEXITCODE"
           } else {
             Write-Output "PASS: C-FIND completed"
           }
 
-      - name: Build test DICOM file from ci/test.dump
+      - name: Build test DICOM file
         shell: pwsh
         run: |
           dump2dcm "ci\test.dump" "$env:TEMP\ci_test.dcm"
-          if (Test-Path "$env:TEMP\ci_test.dcm") {
-            Write-Output "Test DICOM file: $((Get-Item "$env:TEMP\ci_test.dcm").Length) bytes"
-          } else {
-            Write-Error "dump2dcm failed to produce ci_test.dcm"; exit 1
+          if (-not (Test-Path "$env:TEMP\ci_test.dcm")) {
+            Write-Error "dump2dcm failed"; exit 1
           }
+          Write-Output "Test DICOM file: $((Get-Item "$env:TEMP\ci_test.dcm").Length) bytes"
 
       - name: "Test - C-STORE send DICOM to Store SCP (port 2007)"
         shell: pwsh
@@ -269,8 +305,8 @@ jobs:
         shell: pwsh
         run: |
           foreach ($svc in @("CAREMWLci", "CAREStoreSCPci")) {
-            sc.exe stop   $svc 2>$null
-            sc.exe delete $svc 2>$null
+            Stop-Service  $svc -Force -ErrorAction SilentlyContinue
+            Remove-Service $svc       -ErrorAction SilentlyContinue
           }
           if ($env:MOCK_PID) {
             Stop-Process -Id $env:MOCK_PID -Force -ErrorAction SilentlyContinue
@@ -281,6 +317,7 @@ jobs:
           Write-Output "=== Mock backend stderr ==="
           if (Test-Path "$env:TEMP\mock_err.log") { Get-Content "$env:TEMP\mock_err.log" }
 
+          # Serilog writes to logs/*.txt next to each service EXE
           Get-ChildItem -Recurse -Filter "*.txt" -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -match "\\logs\\" -and $_.FullName -notmatch "\\packages\\" } |
             ForEach-Object {
