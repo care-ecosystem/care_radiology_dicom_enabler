@@ -93,7 +93,7 @@ namespace Worklist_SCP
             }
             List<string> accessionNos = new List<string>();
 
-            switch (Convert.ToInt32(ConfigurationManager.AppSettings["backend"].ToString()))
+            switch (Convert.ToInt32(ConfigurationManager.AppSettings["backend"] ?? "2"))
             {
                 case 0:
                     fileLogger.Information($"Fetching Records from List");

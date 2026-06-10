@@ -20,9 +20,11 @@ namespace Plexus_StoreSCP_Service
     public partial class PlexusStoreSCPService : ServiceBase
     {
         private static IDicomServer _server;
+        private Serilog.ILogger _fileLogger;
         public PlexusStoreSCPService()
         {
             InitializeComponent();
+            _fileLogger = GetFileLogger();
         }
 
 
@@ -36,7 +38,7 @@ namespace Plexus_StoreSCP_Service
             string logFilePath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "logs/StoreSCP.txt");
             return new LoggerConfiguration().
                 WriteTo.File(logFilePath,
-                //shared: true,
+                shared: true,
                 restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information,
                 rollOnFileSizeLimit: false,
                 fileSizeLimitBytes: 10240000)
@@ -77,12 +79,10 @@ namespace Plexus_StoreSCP_Service
         /// <param name="bInfo"></param>
         public void WriteToLog(string logString, bool bInfo)
         {
-            bool writeEventLog = Convert.ToBoolean(ConfigurationManager.AppSettings["eventlog"].ToString());
-
-            if (writeEventLog)
-            {
-                EventLog.WriteEntry(logString, bInfo ? EventLogEntryType.Information : EventLogEntryType.Error);
-            }
+            if (bInfo)
+                _fileLogger.Information(logString);
+            else
+                _fileLogger.Error(logString);
         }
     }
 }

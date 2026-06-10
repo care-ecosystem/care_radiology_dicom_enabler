@@ -80,8 +80,8 @@ namespace Plexus_StoreSCP_Service.Network
             string logFilePath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "logs/StoreSCP.txt");
             return new LoggerConfiguration().
                 WriteTo.File(logFilePath,
+                shared: true,
                 restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information,
-                //shared: true,
                 rollOnFileSizeLimit: false,
                 fileSizeLimitBytes: 10240000)
                 .CreateLogger();

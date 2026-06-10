@@ -226,9 +226,9 @@ namespace Plexus_SCU_Service
             string logFilePath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "logs/StoreSCU.txt");
             return new LoggerConfiguration().
                 WriteTo.File(logFilePath,
+                shared: true,
                 restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information,
                 rollingInterval: RollingInterval.Day,
-                //shared: true,
                 rollOnFileSizeLimit: false,
                 fileSizeLimitBytes: 10240000)
                 .CreateLogger();

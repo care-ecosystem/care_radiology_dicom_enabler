@@ -225,16 +225,17 @@ namespace Plexus_DICOM_Enabler
         private string ReadLogContent(string searchPattern)
         {
             string logDirectory = Path.Combine(Application.StartupPath, "logs");
+            if (!Directory.Exists(logDirectory))
+                return "No logs found. Services may not have started yet.";
             var directory = new DirectoryInfo(logDirectory);
             FileInfo[] files = directory.GetFiles(searchPattern + "*.txt");
             if (files.Length > 0 ) {
                 var logFile = files.OrderByDescending(f => f.LastWriteTime).First();
-                return ReadAllText(Path.Combine(logDirectory, logFile.ToString()));
-
+                return ReadAllText(Path.Combine(logDirectory, logFile.FullName));
             }
             else
             {
-                return string.Empty;
+                return "No log file found for " + searchPattern + ".";
             }
         }
 

@@ -6,9 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 
-using Serilog.Sinks.File;
 using Worklist_SCP.Model;
-using Serilog;
 
 
 namespace Worklist_SCP
@@ -53,7 +51,7 @@ namespace Worklist_SCP
         public static void Start(int port, string aet,int backend)
         {
             try
-            { 
+            {
                 AETitle = aet;
 
                 _server = DicomServerFactory.Create<WorklistService>(port);
@@ -63,7 +61,7 @@ namespace Worklist_SCP
                     switch(backend)
                     {
                         case 0:
-                           
+
                             var newWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItems();
                             WorklistServer.CurrentWorklistItems = newWorklistItems;
                             break;
@@ -72,20 +70,17 @@ namespace Worklist_SCP
                             WorklistServer.CurrentWorklistItems = dbWorklistItems;
                             break;
                         case 2:
-                            //var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromPellucidAsync();
                             var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync();
                             WorklistServer.CurrentWorklistItems = pellucidWorklistItems;
                             break;
 
                     }
 
-                }, null, TimeSpan.Zero, TimeSpan.FromSeconds(30));
+                }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
             }
             catch(Exception ex)
             {
-                //MessageBox.Show(null, "Error Starting the Server" + ex.Message,
-                //                     "Error Starting the Server", MessageBoxButtons.OK,
-                //                     MessageBoxIcon.Error);
+                throw new Exception("WorklistServer.Start failed on port " + port + ": " + ex.Message, ex);
             }
 
 
