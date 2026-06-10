@@ -8,7 +8,6 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using FellowOakDicom;
-using FellowOakDicom.Imaging.Codec;
 using FellowOakDicom.Log;
 using FellowOakDicom.Network;
 using Plexus.Common.config;
@@ -58,8 +57,8 @@ namespace Plexus_StoreSCP_Service.Network
                DicomTransferSyntax.ImplicitVRLittleEndian
             };
 
-        public CStoreSCP(INetworkStream stream, Encoding fallbackEncoding, FellowOakDicom.Log.ILogger log, ILogManager logManager, INetworkManager network, ITranscoderManager transcoder)
-                : base(stream, fallbackEncoding, log, logManager, network, transcoder)
+        public CStoreSCP(INetworkStream stream, Encoding fallbackEncoding, FellowOakDicom.Log.ILogger log, DicomServiceDependencies dependencies)
+                : base(stream, fallbackEncoding, log, dependencies)
         {
             _fileLogger = GetFileLogger();
             if (objDAL == null )

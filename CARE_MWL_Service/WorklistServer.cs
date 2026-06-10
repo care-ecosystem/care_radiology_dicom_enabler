@@ -1,6 +1,8 @@
 ﻿// Copyright (c) 2012-2022 fo-dicom contributors.
 // Licensed under the Microsoft Public License (MS-PL).
 
+using FellowOakDicom;
+using FellowOakDicom.Log;
 using FellowOakDicom.Network;
 using System;
 using System.Collections.Generic;
@@ -54,6 +56,9 @@ namespace Worklist_SCP
             {
                 AETitle = aet;
 
+                new DicomSetupBuilder()
+                    .RegisterServices(s => s.AddFellowOakDicom().AddLogManager<ConsoleLogManager>())
+                    .Build();
                 _server = DicomServerFactory.Create<WorklistService>(port);
                 // every 30 seconds the worklist source is queried and the current list of items is cached in _currentWorklistItems
                 _itemsLoaderTimer = new System.Threading.Timer((state) =>

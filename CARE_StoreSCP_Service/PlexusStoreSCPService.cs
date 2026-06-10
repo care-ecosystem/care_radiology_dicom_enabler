@@ -1,4 +1,6 @@
-﻿using FellowOakDicom.Network;
+﻿using FellowOakDicom;
+using FellowOakDicom.Log;
+using FellowOakDicom.Network;
 using Plexus.Common.config;
 using Plexus_StoreSCP_Service.Network;
 using Serilog;
@@ -54,6 +56,9 @@ namespace Plexus_StoreSCP_Service
                 Global._aeTitle = cls_PlexusConfig.ReadDetailsFromXML(applicationpath,@"/configurations/sscpaetitle");
                 int port = Convert.ToInt32(cls_PlexusConfig.ReadDetailsFromXML(applicationpath, @"/configurations/sscpport"));
 
+                new DicomSetupBuilder()
+                    .RegisterServices(s => s.AddFellowOakDicom().AddLogManager<ConsoleLogManager>())
+                    .Build();
                 _server = DicomServerFactory.Create<CStoreSCP>(port);
 
                 if (_server != null)

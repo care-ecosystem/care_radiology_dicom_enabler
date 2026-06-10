@@ -6,6 +6,7 @@ using System.Reflection;
 using System.ServiceProcess;
 using System.Timers;
 using FellowOakDicom;
+using FellowOakDicom.Log;
 using FellowOakDicom.Network;
 using FellowOakDicom.Network.Client;
 using Plexus.Common.config;
@@ -28,6 +29,9 @@ namespace Plexus_SCU_Service
         {
             try
             {
+                new DicomSetupBuilder()
+                    .RegisterServices(s => s.AddFellowOakDicom().AddLogManager<ConsoleLogManager>())
+                    .Build();
                 if (fileLogger == null)
                 {
                     fileLogger = GetFileLogger();

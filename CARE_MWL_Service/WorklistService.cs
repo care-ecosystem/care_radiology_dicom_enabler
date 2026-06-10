@@ -8,7 +8,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using FellowOakDicom;
-using FellowOakDicom.Imaging.Codec;
+using FellowOakDicom.IO.Writer;
 using FellowOakDicom.Log;
 using FellowOakDicom.Network;
 using Worklist_SCP.Model;
@@ -48,10 +48,10 @@ namespace Worklist_SCP
         }
 
 
-        public WorklistService(INetworkStream stream, Encoding fallbackEncoding, FellowOakDicom.Log.ILogger log, ILogManager logmanager, INetworkManager network, ITranscoderManager transcoder) : base(stream, fallbackEncoding, log, logmanager, network, transcoder)
+        public WorklistService(INetworkStream stream, Encoding fallbackEncoding, FellowOakDicom.Log.ILogger log, DicomServiceDependencies dependencies)
+            : base(stream, fallbackEncoding, log, dependencies)
         {
             fileLogger = GetFileLogger();
-           
         }
 
         private Serilog.ILogger GetFileLogger()
@@ -67,22 +67,44 @@ namespace Worklist_SCP
                 .CreateLogger();
         }
 
-        public async Task<DicomCEchoResponse> OnCEchoRequestAsync(DicomCEchoRequest request)
+        public Task<DicomCEchoResponse> OnCEchoRequestAsync(DicomCEchoRequest request)
         {
             try
             {
-                fileLogger.Information($"Received verification request from AE {Association.CallingAE} with IP: {Association.RemoteHost}");
-                if (!validateServer(Association.CallingAE, Association.RemoteHost))
+                fileLogger?.Information($"[C-ECHO] Request from AE={Association.CallingAE} IP={Association.RemoteHost} MsgID={request.MessageID}");
+                bool serverValid = validateServer(Association.CallingAE, Association.RemoteHost);
+                fileLogger?.Information($"[C-ECHO] validateServer returned: {serverValid}");
+                if (!serverValid)
                 {
-                    fileLogger.Warning($"C-ECHO rejected for AE {Association.CallingAE}");
-                    return new DicomCEchoResponse(request, DicomStatus.ProcessingFailure);
+                    fileLogger?.Warning($"[C-ECHO] Rejected AE={Association.CallingAE}");
+                    return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.ProcessingFailure));
                 }
+                fileLogger?.Information($"[C-ECHO] Sending Success response to AE={Association.CallingAE}");
+                var response = new DicomCEchoResponse(request, DicomStatus.Success);
+
+                // Log every tag in the command dataset so we can verify correctness
+                var cmdTags = new System.Text.StringBuilder();
+                foreach (var item in response.Command)
+                    cmdTags.Append($" ({item.Tag.Group:X4},{item.Tag.Element:X4})");
+                fileLogger?.Information($"[C-ECHO] Command tags before fix:{cmdTags}");
+
+                // DVTK requires (0000,0000) CommandGroupLength in the PDU (DICOM PS3.7 Sec 6.3.1).
+                // fo-dicom 5.0.2 uses KeepGroupLengths=false by default so it strips it when writing.
+                // Force-add it here so fo-dicom includes the correct value on the wire.
+                response.Command.RecalculateGroupLength(0x0000, true);
+
+                var cmdTagsAfter = new System.Text.StringBuilder();
+                foreach (var item in response.Command)
+                    cmdTagsAfter.Append($" ({item.Tag.Group:X4},{item.Tag.Element:X4})");
+                fileLogger?.Information($"[C-ECHO] Command tags after fix:{cmdTagsAfter}");
+                fileLogger?.Information($"[C-ECHO] Response created: Status={response.Status}, Type={response.Type}");
+                return Task.FromResult(response);
             }
             catch (Exception ex)
             {
-                fileLogger?.Error("C-ECHO handler error: " + ex.Message);
+                fileLogger?.Error($"[C-ECHO] Exception: {ex.GetType().Name}: {ex.Message}");
+                return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.ProcessingFailure));
             }
-            return new DicomCEchoResponse(request, DicomStatus.Success);
         }
 
 
@@ -139,20 +161,26 @@ namespace Worklist_SCP
             string errorString = string.Empty;
             string applicationPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
             string retVal = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/checkserver");
+            fileLogger?.Information($"[VALIDATE] checkserver={retVal} AE={aeTitle} IP={hostAddress}");
             if (retVal != string.Empty && Convert.ToBoolean(retVal) == true)
             {
                 if (objDal == null)
                 {
                     objDal = new ucls_DAL(applicationPath);
                 }
-                if (!objDal.validateAETitle(Association.CallingAE, Association.RemoteHost, ref errorString))
+                if (!objDal.validateAETitle(aeTitle, hostAddress, ref errorString))
                 {
                     if (errorString == string.Empty)
-                        fileLogger.Information($"AETitle {Association.CallingAE} / {Association.RemoteHost} not in server list");
+                        fileLogger?.Information($"[VALIDATE] AE={aeTitle} IP={hostAddress} not in server list");
                     else
-                        fileLogger.Error($"AETitle validation failed for {Association.CallingAE}: " + errorString);
+                        fileLogger?.Error($"[VALIDATE] AE={aeTitle} validation failed: {errorString}");
                     return false;
                 }
+                fileLogger?.Information($"[VALIDATE] AE={aeTitle} validated OK");
+            }
+            else
+            {
+                fileLogger?.Information($"[VALIDATE] checkserver disabled, skipping AE validation");
             }
             return true;
         }
@@ -222,13 +250,11 @@ namespace Worklist_SCP
 
         public Task OnReceiveAssociationRequestAsync(DicomAssociation association)
         {
-            //Logger.Info($"Received association request from AE: {association.CallingAE} with IP: {association.RemoteHost} ");
-            fileLogger.Information($"Received association request from AE: {association.CallingAE} with IP: {association.RemoteHost} ");
+            fileLogger?.Information($"[ASSOC] Request from AE={association.CallingAE} IP={association.RemoteHost} CalledAE={association.CalledAE}");
 
             if (WorklistServer.AETitle != association.CalledAE)
             {
-                //Logger.Error($"Association with {association.CallingAE} rejected since called aet {association.CalledAE} is unknown");
-                fileLogger.Error($"Association with {association.CallingAE} rejected since called aet {association.CalledAE} is unknown");
+                fileLogger?.Error($"[ASSOC] Rejected: called AE={association.CalledAE} unknown (expected {WorklistServer.AETitle})");
                 return SendAssociationRejectAsync(DicomRejectResult.Permanent, DicomRejectSource.ServiceUser, DicomRejectReason.CalledAENotRecognized);
             }
 
@@ -237,21 +263,19 @@ namespace Worklist_SCP
                 if (pc.AbstractSyntax == DicomUID.Verification
                     || pc.AbstractSyntax == DicomUID.ModalityWorklistInformationModelFind
                     || pc.AbstractSyntax == DicomUID.ModalityPerformedProcedureStep
-                    || pc.AbstractSyntax == DicomUID.ModalityPerformedProcedureStepNotification
                     || pc.AbstractSyntax == DicomUID.ModalityPerformedProcedureStepNotification)
                 {
                     pc.AcceptTransferSyntaxes(_acceptedTransferSyntaxes);
+                    fileLogger?.Information($"[ASSOC] PC accepted: {pc.AbstractSyntax.Name} (ID={pc.ID})");
                 }
                 else
                 {
-                    //Logger.Warn($"Requested abstract syntax {pc.AbstractSyntax} from {association.CallingAE} not supported");
-                    fileLogger.Warning($"Requested abstract syntax {pc.AbstractSyntax} from {association.CallingAE} not supported");
+                    fileLogger?.Warning($"[ASSOC] PC rejected: {pc.AbstractSyntax} not supported");
                     pc.SetResult(DicomPresentationContextResult.RejectAbstractSyntaxNotSupported);
                 }
             }
 
-            //Logger.Info($"Accepted association request from {association.CallingAE}");
-            fileLogger.Information($"Accepted association request from {association.CallingAE}");
+            fileLogger?.Information($"[ASSOC] Accepted association from AE={association.CallingAE}");
             return SendAssociationAcceptAsync(association);
         }
 
