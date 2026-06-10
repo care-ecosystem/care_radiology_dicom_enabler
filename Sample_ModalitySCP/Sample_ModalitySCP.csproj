@@ -201,7 +201,6 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="logs\ucls_ReadWriteLog.cs" />
     <Compile Include="Model\IMppsSource.cs" />
     <Compile Include="Model\IWorklistItemsSource.cs" />
     <Compile Include="Model\MppsHandler.cs" />

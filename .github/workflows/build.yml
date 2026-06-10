@@ -27,7 +27,7 @@ jobs:
 
       - name: Build (Release)
         run: |
-          msbuild CARE_DICOM_Enabler.sln `
+          msbuild CARE_DICOM_Enabler.csproj `
             /p:Configuration=Release `
             /p:Platform="Any CPU" `
             /m

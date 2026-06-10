@@ -56,7 +56,6 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="logs\ucls_ReadWriteLog.cs" />
     <Compile Include="ufrm_MainForm.cs">
       <SubType>Form</SubType>
     </Compile>
