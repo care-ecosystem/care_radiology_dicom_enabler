@@ -1,0 +1,44 @@
+name: Build CARE DICOM Enabler
+
+on:
+  push:
+    branches:
+      - debug
+  pull_request:
+    branches:
+      - debug
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Restore NuGet packages
+        run: nuget restore CARE_DICOM_Enabler.sln
+
+      - name: Build (Release)
+        run: |
+          msbuild CARE_DICOM_Enabler.sln `
+            /p:Configuration=Release `
+            /p:Platform="Any CPU" `
+            /m
+
+      - name: Set short SHA
+        shell: pwsh
+        run: echo "SHORT_SHA=$($env:GITHUB_SHA.Substring(0,7))" >> $env:GITHUB_ENV
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CARE_DICOM_Enabler-${{ github.ref_name }}-${{ github.run_number }}-${{ env.SHORT_SHA }}
+          path: bin\Release\
+          if-no-files-found: error
