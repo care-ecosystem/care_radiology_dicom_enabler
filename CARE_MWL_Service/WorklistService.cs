@@ -69,14 +69,19 @@ namespace Worklist_SCP
 
         public async Task<DicomCEchoResponse> OnCEchoRequestAsync(DicomCEchoRequest request)
         {
-            // Logger.Info($"Received verification request from AE {Association.CallingAE} with IP: {Association.RemoteHost}");
-            fileLogger.Information($"Received verification request from AE {Association.CallingAE} with IP: {Association.RemoteHost}");
-            fileLogger.Information($"Validating Server request for AE {Association.CallingAE} with IP: {Association.RemoteHost}");
-            if (!validateServer(Association.CallingAE, Association.RemoteHost))
+            try
             {
-                return new DicomCEchoResponse(request, DicomStatus.ProcessingFailure);
+                fileLogger.Information($"Received verification request from AE {Association.CallingAE} with IP: {Association.RemoteHost}");
+                if (!validateServer(Association.CallingAE, Association.RemoteHost))
+                {
+                    fileLogger.Warning($"C-ECHO rejected for AE {Association.CallingAE}");
+                    return new DicomCEchoResponse(request, DicomStatus.ProcessingFailure);
+                }
             }
-            //fileLogger.Information(request.Dataset.ToString());
+            catch (Exception ex)
+            {
+                fileLogger?.Error("C-ECHO handler error: " + ex.Message);
+            }
             return new DicomCEchoResponse(request, DicomStatus.Success);
         }
 
@@ -134,24 +139,20 @@ namespace Worklist_SCP
             string errorString = string.Empty;
             string applicationPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
             string retVal = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/checkserver");
-            if (retVal != string.Empty && (Convert.ToBoolean(retVal) == true))
+            if (retVal != string.Empty && Convert.ToBoolean(retVal) == true)
             {
+                if (objDal == null)
+                {
+                    objDal = new ucls_DAL(applicationPath);
+                }
                 if (!objDal.validateAETitle(Association.CallingAE, Association.RemoteHost, ref errorString))
                 {
                     if (errorString == string.Empty)
-                    {
-                        fileLogger.Information($"Unable to validate AETitle {Association.CallingAE} with IP: {Association.RemoteHost}. AETitle not configured as part of the Server List");
-                    }
+                        fileLogger.Information($"AETitle {Association.CallingAE} / {Association.RemoteHost} not in server list");
                     else
-                    {
-                        fileLogger.Error($"validating AETitle {Association.CallingAE} with IP: {Association.RemoteHost}. failed with exception : " + errorString);
-                    }
+                        fileLogger.Error($"AETitle validation failed for {Association.CallingAE}: " + errorString);
                     return false;
                 }
-            }
-            else
-            {
-                fileLogger.Error($"Configuraion Value to check for server in valid. Please check the Configuration from Server List Tab ");
             }
             return true;
         }
