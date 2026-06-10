@@ -185,6 +185,7 @@
     <Compile Include="Model\ReturnJSON.cs" />
     <Compile Include="Model\WorklistHandler.cs" />
     <Compile Include="Model\WorklistItem.cs" />
+    <Compile Include="logs\ucls_ReadWriteLog.cs" />
     <Compile Include="Model\WorklistItemsProvider.cs" />
     <Compile Include="PlexusMWLService.cs">
       <SubType>Component</SubType>
