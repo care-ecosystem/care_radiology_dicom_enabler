@@ -91,14 +91,28 @@ jobs:
         shell: pwsh
         run: |
           $mysql = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe"
-          Start-Service MySQL80 -ErrorAction SilentlyContinue
+
+          $svc = Get-Service MySQL80 -ErrorAction SilentlyContinue
+          if (-not $svc) { Write-Error "MySQL80 service not found on this runner"; exit 1 }
+          Write-Output "MySQL80 service found (status: $($svc.Status))"
+
+          Start-Service MySQL80 -ErrorAction Stop
+          Write-Output "Start-Service returned; waiting 10s for MySQL to bind..."
+          Start-Sleep -Seconds 10
+
           $ready = $false
-          for ($i = 0; $i -lt 15; $i++) {
-            & $mysql -u root -e "SELECT 1;" 2>$null
+          for ($i = 1; $i -le 20; $i++) {
+            $out = & $mysql -u root --protocol=TCP --connect-expired-password -e "SELECT 1;" 2>&1
             if ($LASTEXITCODE -eq 0) { $ready = $true; break }
-            Start-Sleep -Seconds 2
+            Write-Output "Attempt $i/20: $out"
+            Start-Sleep -Seconds 3
           }
-          if (-not $ready) { Write-Error "MySQL did not become ready in 30s"; exit 1 }
+          if (-not $ready) {
+            Write-Output "=== MySQL80 service state ==="
+            Get-Service MySQL80 | Format-List Name, Status, StartType
+            Write-Error "MySQL did not become ready after 70s"
+            exit 1
+          }
           Write-Output "MySQL is ready"
 
       - name: Create plexus_mi2 schema
