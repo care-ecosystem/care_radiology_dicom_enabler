@@ -90,14 +90,37 @@ jobs:
       - name: Start MySQL
         shell: pwsh
         run: |
-          $mysql = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe"
+          # Locate mysql.exe — try known install paths, then PATH
+          $candidates = @(
+            "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe",
+            "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe",
+            "C:\tools\mysql\current\bin\mysql.exe"
+          )
+          $mysql = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $mysql) {
+            $mysql = (Get-Command mysql -ErrorAction SilentlyContinue)?.Source
+          }
+          if (-not $mysql) {
+            Write-Output "MySQL not found — installing via Chocolatey..."
+            choco install mysql --yes --no-progress --timeout 300
+            $mysql = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if (-not $mysql) { $mysql = (Get-Command mysql -ErrorAction SilentlyContinue)?.Source }
+          }
+          if (-not $mysql) { Write-Error "mysql.exe not found after install attempt"; exit 1 }
+          Write-Output "Using mysql: $mysql"
+          echo "MYSQL_EXE=$mysql" >> $env:GITHUB_ENV
 
-          $svc = Get-Service MySQL80 -ErrorAction SilentlyContinue
-          if (-not $svc) { Write-Error "MySQL80 service not found on this runner"; exit 1 }
-          Write-Output "MySQL80 service found (status: $($svc.Status))"
-
-          Start-Service MySQL80 -ErrorAction Stop
-          Write-Output "Start-Service returned; waiting 10s for MySQL to bind..."
+          # Start whichever MySQL Windows service is present
+          $svcName = @("MySQL80", "MySQL84", "MySQL") |
+            Where-Object { Get-Service $_ -ErrorAction SilentlyContinue } |
+            Select-Object -First 1
+          if ($svcName) {
+            Write-Output "Starting service: $svcName"
+            Start-Service $svcName -ErrorAction Stop
+          } else {
+            Write-Output "No MySQL Windows service found; assuming mysqld is already running"
+          }
+          Write-Output "Waiting 10s for MySQL to bind..."
           Start-Sleep -Seconds 10
 
           $ready = $false
@@ -108,8 +131,7 @@ jobs:
             Start-Sleep -Seconds 3
           }
           if (-not $ready) {
-            Write-Output "=== MySQL80 service state ==="
-            Get-Service MySQL80 | Format-List Name, Status, StartType
+            if ($svcName) { Get-Service $svcName | Format-List Name, Status, StartType }
             Write-Error "MySQL did not become ready after 70s"
             exit 1
           }
@@ -118,8 +140,7 @@ jobs:
       - name: Create plexus_mi2 schema
         shell: pwsh
         run: |
-          $mysql = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe"
-          & $mysql -u root < "ci\schema.sql"
+          & $env:MYSQL_EXE -u root --protocol=TCP < "ci\schema.sql"
           if ($LASTEXITCODE -ne 0) { Write-Error "Schema creation failed"; exit 1 }
           Write-Output "Schema applied"
 
