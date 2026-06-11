@@ -90,36 +90,38 @@ jobs:
       - name: Start MySQL
         shell: pwsh
         run: |
-          # Locate mysql.exe — try known install paths, then PATH
+          # Decide whether MySQL Server is already installed by checking for a service.
+          # Do NOT use mysql.exe presence — that only proves the client is installed.
+          $svcName = @("MySQL80", "MySQL84", "MySQL") |
+            Where-Object { Get-Service $_ -ErrorAction SilentlyContinue } |
+            Select-Object -First 1
+
+          if ($svcName) {
+            Write-Output "Found service '$svcName' — starting it"
+            Start-Service $svcName -ErrorAction Stop
+          } else {
+            Write-Output "No MySQL service found — installing MySQL Server via Chocolatey"
+            choco install mysql --yes --no-progress --timeout 300
+            $svcName = @("MySQL80", "MySQL84", "MySQL") |
+              Where-Object { Get-Service $_ -ErrorAction SilentlyContinue } |
+              Select-Object -First 1
+            if (-not $svcName) { Write-Error "MySQL service not found after Chocolatey install"; exit 1 }
+            Start-Service $svcName -ErrorAction SilentlyContinue
+            Write-Output "Started: $svcName"
+          }
+
+          # Find mysql.exe (path may differ after a fresh Chocolatey install)
           $candidates = @(
             "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe",
             "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe",
             "C:\tools\mysql\current\bin\mysql.exe"
           )
           $mysql = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $mysql) {
-            $mysql = (Get-Command mysql -ErrorAction SilentlyContinue)?.Source
-          }
-          if (-not $mysql) {
-            Write-Output "MySQL not found — installing via Chocolatey..."
-            choco install mysql --yes --no-progress --timeout 300
-            $mysql = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-            if (-not $mysql) { $mysql = (Get-Command mysql -ErrorAction SilentlyContinue)?.Source }
-          }
-          if (-not $mysql) { Write-Error "mysql.exe not found after install attempt"; exit 1 }
+          if (-not $mysql) { $mysql = (Get-Command mysql -ErrorAction SilentlyContinue)?.Source }
+          if (-not $mysql) { Write-Error "mysql.exe not found"; exit 1 }
           Write-Output "Using mysql: $mysql"
           echo "MYSQL_EXE=$mysql" >> $env:GITHUB_ENV
 
-          # Start whichever MySQL Windows service is present
-          $svcName = @("MySQL80", "MySQL84", "MySQL") |
-            Where-Object { Get-Service $_ -ErrorAction SilentlyContinue } |
-            Select-Object -First 1
-          if ($svcName) {
-            Write-Output "Starting service: $svcName"
-            Start-Service $svcName -ErrorAction Stop
-          } else {
-            Write-Output "No MySQL Windows service found; assuming mysqld is already running"
-          }
           Write-Output "Waiting 10s for MySQL to bind..."
           Start-Sleep -Seconds 10
 
@@ -131,7 +133,7 @@ jobs:
             Start-Sleep -Seconds 3
           }
           if (-not $ready) {
-            if ($svcName) { Get-Service $svcName | Format-List Name, Status, StartType }
+            Get-Service $svcName -ErrorAction SilentlyContinue | Format-List Name, Status, StartType
             Write-Error "MySQL did not become ready after 70s"
             exit 1
           }
