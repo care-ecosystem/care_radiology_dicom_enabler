@@ -142,7 +142,7 @@ jobs:
       - name: Create plexus_mi2 schema
         shell: pwsh
         run: |
-          & $env:MYSQL_EXE -u root --protocol=TCP < "ci\schema.sql"
+          Get-Content "ci\schema.sql" | & $env:MYSQL_EXE -u root --protocol=TCP
           if ($LASTEXITCODE -ne 0) { Write-Error "Schema creation failed"; exit 1 }
           Write-Output "Schema applied"
 
