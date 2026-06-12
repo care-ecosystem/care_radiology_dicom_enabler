@@ -235,7 +235,7 @@ namespace Worklist_SCP.Model
                             }
 
                             if (!string.IsNullOrWhiteSpace(item.patient.gender))
-                                mwlItem.Sex = item.patient.gender;
+                                mwlItem.Sex = NormalizeSex(item.patient.gender);
 
                             if (item.patient.age.HasValue)
                                 mwlItem.DateOfBirth = DateTime.Now.AddYears(item.patient.age.Value * -1);
@@ -385,11 +385,11 @@ namespace Worklist_SCP.Model
                                 mwlItem.Forename = appointment.Patient.FullName.LastName;
 
                             if (appointment.Patient.Gender != null)
-                                mwlItem.Sex = appointment.Patient.Gender;
+                                mwlItem.Sex = NormalizeSex(appointment.Patient.Gender);
 
 
                             if (appointment.Patient.Gender != null)
-                                mwlItem.Sex = appointment.Patient.Gender;
+                                mwlItem.Sex = NormalizeSex(appointment.Patient.Gender);
 
                             mwlItem.Modality = "OT";
                             mwlItem.ExamDescription = string.Empty;
@@ -431,6 +431,17 @@ namespace Worklist_SCP.Model
 
 
 
+
+        private static string NormalizeSex(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "O";
+            switch (value.ToLowerInvariant().Trim())
+            {
+                case "m": case "male":   return "M";
+                case "f": case "female": return "F";
+                default:                 return "O";
+            }
+        }
 
         private async Task<string> authAndGetDetailsAsync()
         {
