@@ -216,7 +216,7 @@ namespace Worklist_SCP.Model
 
                         if (item.patient != null)
                         {
-                            mwlItem.PatientID = string.Empty;
+                            mwlItem.PatientID = item.patient.external_id ?? item.patient.id ?? string.Empty;
 
                             if (!string.IsNullOrWhiteSpace(item.patient.name))
                             {
@@ -523,6 +523,8 @@ namespace Worklist_SCP.Model
 
     public class CarePatient
     {
+        public string external_id { get; set; }
+        public string id { get; set; }
         public string name { get; set; }
         public string address { get; set; }
         public string phone_number { get; set; }
