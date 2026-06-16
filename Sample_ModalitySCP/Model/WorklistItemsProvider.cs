@@ -416,7 +416,8 @@ namespace Worklist_SCP.Model
                         mwlItem.ExamDescription = item.service_request != null ? item.service_request.name ?? string.Empty : string.Empty;
                         mwlItem.HospitalName = item.facility != null ? item.facility.name ?? "CARE" : "CARE";
                         mwlItem.PerformingPhysician = string.Empty;
-                        mwlItem.ProcedureID = item.service_request != null ? item.service_request.id ?? string.Empty : string.Empty;
+                        mwlItem.ProcedureID = "200001";
+                        mwlItem.ServiceRequestId = item.service_request != null ? item.service_request.external_id ?? string.Empty : string.Empty;
                         mwlItem.ProcedureStepID = "200002"; //item.service_request != null ? item.service_request.id ?? string.Empty : string.Empty;
                         mwlItem.StudyUID = "1.2.34.567890.1234567890.1";// string.Empty;
                         mwlItem.ScheduledAET = ConfigurationManager.AppSettings["careScheduledAET"]?.ToString() ?? "OEC9800";

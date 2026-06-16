@@ -6,6 +6,8 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.ServiceProcess;
+using System.Text;
+using System.Text.Json;
 using System.Timers;
 using FellowOakDicom;
 using Plexus.Common.Database;
@@ -58,16 +60,16 @@ namespace Plexus_SCU_Service
 
                 string careBackendURL = ConfigurationManager.AppSettings["careBackendURL"]?.TrimEnd('/') ?? string.Empty;
                 string uploadPath = ConfigurationManager.AppSettings["uploadURL"] ?? string.Empty;
-                string jwtToken = ConfigurationManager.AppSettings["jwtToken"] ?? string.Empty;
+                string staticAPIKey = ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty;
 
                 if (string.IsNullOrWhiteSpace(careBackendURL))
                 {
                     WriteToLog("careBackendURL is not configured in App.config", false);
                     return;
                 }
-                if (string.IsNullOrWhiteSpace(jwtToken))
+                if (string.IsNullOrWhiteSpace(staticAPIKey))
                 {
-                    WriteToLog("jwtToken is not configured in App.config — cannot upload", false);
+                    WriteToLog("staticAPIKey is not configured in App.config — cannot upload", false);
                     return;
                 }
 
@@ -93,7 +95,7 @@ namespace Plexus_SCU_Service
                 foreach (string dcmfile in dcmfiles)
                 {
                     if (string.IsNullOrWhiteSpace(dcmfile)) continue;
-                    UploadDicomFileViaHttp(dcmfile, uploadURL, jwtToken);
+                    UploadDicomFileViaHttp(dcmfile, uploadURL, staticAPIKey);
                 }
             }
             catch (Exception ex)
@@ -106,7 +108,7 @@ namespace Plexus_SCU_Service
             }
         }
 
-        private void UploadDicomFileViaHttp(string dcmfile, string uploadURL, string jwtToken)
+        private void UploadDicomFileViaHttp(string dcmfile, string uploadURL, string staticApiKey)
         {
             string studyInstanceId = string.Empty;
             try
@@ -116,6 +118,7 @@ namespace Plexus_SCU_Service
                 DicomDataset dataset = DicomFile.Open(dcmfile).Dataset;
                 studyInstanceId = dataset.GetString(DicomTag.StudyInstanceUID);
                 string patientId = dataset.GetString(DicomTag.PatientID);
+                string serviceRequestId = dataset.GetSingleValueOrDefault(DicomTag.RequestedProcedureID, string.Empty);
 
                 string fileName = Path.GetFileName(dcmfile);
                 using (var content = new MultipartFormDataContent())
@@ -133,10 +136,10 @@ namespace Plexus_SCU_Service
                     content.Add(fileContent, "file", fileName);
 
                     var request = new HttpRequestMessage(HttpMethod.Post, uploadURL);
-                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", jwtToken);
+                    request.Headers.Add("Authorization", staticApiKey);
                     request.Content = content;
 
-                    WriteToLog($"Uploading to {uploadURL} (PatientID={patientId}, StudyUID={studyInstanceId})", true);
+                    WriteToLog($"Uploading to {uploadURL} (PatientID={patientId}, StudyUID={studyInstanceId}, ServiceRequestID={serviceRequestId})", true);
 
                     var response = httpClient.SendAsync(request).GetAwaiter().GetResult();
                     string responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
@@ -145,6 +148,10 @@ namespace Plexus_SCU_Service
                     {
                         WriteToLog($"Upload succeeded ({(int)response.StatusCode}) for {dcmfile}", true);
                         UpdateStudyStatusDB(3, studyInstanceId, dcmfile);
+
+                        string studyUid = ParseStudyUidFromResponse(responseBody);
+                        CallStudyWebhook(studyUid, serviceRequestId);
+
                         File.Delete(dcmfile);
                         WriteToLog($"Deleted local file: {dcmfile}", true);
                     }
@@ -159,6 +166,65 @@ namespace Plexus_SCU_Service
             {
                 WriteToLog($"Upload exception for {dcmfile}: {ex.Message}", false);
                 UpdateStudyStatusDB(-10, studyInstanceId, dcmfile);
+            }
+        }
+
+        private string ParseStudyUidFromResponse(string responseBody)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(responseBody))
+                {
+                    if (doc.RootElement.TryGetProperty("study_uid", out var prop))
+                        return prop.GetString() ?? string.Empty;
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteToLog($"Failed to parse study_uid from upload response: {ex.Message}", false);
+            }
+            return string.Empty;
+        }
+
+        private void CallStudyWebhook(string studyUid, string serviceRequestId)
+        {
+            try
+            {
+                string careBackendURL = ConfigurationManager.AppSettings["careBackendURL"]?.TrimEnd('/') ?? string.Empty;
+                string webhookPath = ConfigurationManager.AppSettings["webhookURL"] ?? string.Empty;
+                string staticApiKey = ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty;
+
+                if (string.IsNullOrWhiteSpace(studyUid))
+                {
+                    WriteToLog("Skipping webhook — study_uid missing from upload response", false);
+                    return;
+                }
+                if (!Guid.TryParse(serviceRequestId, out _))
+                {
+                    WriteToLog($"Skipping webhook — service_request_id '{serviceRequestId}' is not a valid UUID (file did not come from MWL flow)", false);
+                    return;
+                }
+
+                string webhookUrl = careBackendURL + webhookPath;
+                string payload = $"{{\"service_request_id\":\"{serviceRequestId}\",\"study_id\":\"{studyUid}\"}}";
+
+                var request = new HttpRequestMessage(HttpMethod.Post, webhookUrl);
+                request.Headers.Add("Authorization", staticApiKey);
+                request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+                WriteToLog($"Calling webhook: {webhookUrl} (study_id={studyUid}, service_request_id={serviceRequestId})", true);
+
+                var response = httpClient.SendAsync(request).GetAwaiter().GetResult();
+                string responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+
+                if (response.IsSuccessStatusCode)
+                    WriteToLog($"Webhook succeeded ({(int)response.StatusCode}): {responseBody}", true);
+                else
+                    WriteToLog($"Webhook failed ({(int)response.StatusCode}): {responseBody}", false);
+            }
+            catch (Exception ex)
+            {
+                WriteToLog($"Webhook call exception: {ex.Message}", false);
             }
         }
 
