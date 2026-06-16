@@ -8,7 +8,6 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using FellowOakDicom;
-using FellowOakDicom.IO.Writer;
 using FellowOakDicom.Log;
 using FellowOakDicom.Network;
 using Worklist_SCP.Model;
@@ -69,42 +68,13 @@ namespace Worklist_SCP
 
         public Task<DicomCEchoResponse> OnCEchoRequestAsync(DicomCEchoRequest request)
         {
-            try
+            fileLogger?.Information($"[C-ECHO] Request from AE={Association.CallingAE} IP={Association.RemoteHost}");
+            if (!validateServer(Association.CallingAE, Association.RemoteHost))
             {
-                fileLogger?.Information($"[C-ECHO] Request from AE={Association.CallingAE} IP={Association.RemoteHost} MsgID={request.MessageID}");
-                bool serverValid = validateServer(Association.CallingAE, Association.RemoteHost);
-                fileLogger?.Information($"[C-ECHO] validateServer returned: {serverValid}");
-                if (!serverValid)
-                {
-                    fileLogger?.Warning($"[C-ECHO] Rejected AE={Association.CallingAE}");
-                    return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.ProcessingFailure));
-                }
-                fileLogger?.Information($"[C-ECHO] Sending Success response to AE={Association.CallingAE}");
-                var response = new DicomCEchoResponse(request, DicomStatus.Success);
-
-                // Log every tag in the command dataset so we can verify correctness
-                var cmdTags = new System.Text.StringBuilder();
-                foreach (var item in response.Command)
-                    cmdTags.Append($" ({item.Tag.Group:X4},{item.Tag.Element:X4})");
-                fileLogger?.Information($"[C-ECHO] Command tags before fix:{cmdTags}");
-
-                // DVTK requires (0000,0000) CommandGroupLength in the PDU (DICOM PS3.7 Sec 6.3.1).
-                // fo-dicom 5.0.2 uses KeepGroupLengths=false by default so it strips it when writing.
-                // Force-add it here so fo-dicom includes the correct value on the wire.
-                response.Command.RecalculateGroupLength(0x0000, true);
-
-                var cmdTagsAfter = new System.Text.StringBuilder();
-                foreach (var item in response.Command)
-                    cmdTagsAfter.Append($" ({item.Tag.Group:X4},{item.Tag.Element:X4})");
-                fileLogger?.Information($"[C-ECHO] Command tags after fix:{cmdTagsAfter}");
-                fileLogger?.Information($"[C-ECHO] Response created: Status={response.Status}, Type={response.Type}");
-                return Task.FromResult(response);
-            }
-            catch (Exception ex)
-            {
-                fileLogger?.Error($"[C-ECHO] Exception: {ex.GetType().Name}: {ex.Message}");
+                fileLogger?.Warning($"[C-ECHO] Rejected AE={Association.CallingAE}");
                 return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.ProcessingFailure));
             }
+            return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.Success));
         }
 
 
