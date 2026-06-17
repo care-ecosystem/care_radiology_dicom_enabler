@@ -3,7 +3,7 @@ name: Build CARE DICOM Enabler
 on:
   push:
     branches:
-      - others2
+      - debug
   pull_request:
     branches:
       - debug
