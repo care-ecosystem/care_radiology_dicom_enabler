@@ -9,9 +9,9 @@ name: Integration Test - CARE DICOM Enabler
 
 on:
   push:
-    branches: [debug]
+    branches: [main]
   pull_request:
-    branches: [debug]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
