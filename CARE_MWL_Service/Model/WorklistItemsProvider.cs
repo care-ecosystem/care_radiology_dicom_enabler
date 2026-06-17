@@ -216,7 +216,7 @@ namespace Worklist_SCP.Model
 
                         if (item.patient != null)
                         {
-                            mwlItem.PatientID = string.Empty;
+                            mwlItem.PatientID = item.patient.external_id ?? item.patient.id ?? string.Empty;
 
                             if (!string.IsNullOrWhiteSpace(item.patient.name))
                             {
@@ -235,7 +235,7 @@ namespace Worklist_SCP.Model
                             }
 
                             if (!string.IsNullOrWhiteSpace(item.patient.gender))
-                                mwlItem.Sex = item.patient.gender;
+                                mwlItem.Sex = NormalizeSex(item.patient.gender);
 
                             if (item.patient.age.HasValue)
                                 mwlItem.DateOfBirth = DateTime.Now.AddYears(item.patient.age.Value * -1);
@@ -249,7 +249,8 @@ namespace Worklist_SCP.Model
                         mwlItem.ExamDescription = item.service_request != null ? item.service_request.name ?? string.Empty : string.Empty;
                         mwlItem.HospitalName = item.facility != null ? item.facility.name ?? "CARE" : "CARE";
                         mwlItem.PerformingPhysician = string.Empty;
-                        mwlItem.ProcedureID = "200001";// item.service_request != null ? item.service_request.id ?? string.Empty : string.Empty;
+                        mwlItem.ProcedureID = "200001";
+                        mwlItem.ServiceRequestId = item.service_request != null ? item.service_request.external_id ?? string.Empty : string.Empty;
                         mwlItem.ProcedureStepID = "200002"; //item.service_request != null ? item.service_request.id ?? string.Empty : string.Empty;
                         mwlItem.StudyUID = "1.2.34.567890.1234567890.1";// string.Empty;
                         mwlItem.ScheduledAET = ConfigurationManager.AppSettings["careScheduledAET"]?.ToString() ?? "OEC9800";
@@ -385,11 +386,11 @@ namespace Worklist_SCP.Model
                                 mwlItem.Forename = appointment.Patient.FullName.LastName;
 
                             if (appointment.Patient.Gender != null)
-                                mwlItem.Sex = appointment.Patient.Gender;
+                                mwlItem.Sex = NormalizeSex(appointment.Patient.Gender);
 
 
                             if (appointment.Patient.Gender != null)
-                                mwlItem.Sex = appointment.Patient.Gender;
+                                mwlItem.Sex = NormalizeSex(appointment.Patient.Gender);
 
                             mwlItem.Modality = "OT";
                             mwlItem.ExamDescription = string.Empty;
@@ -431,6 +432,17 @@ namespace Worklist_SCP.Model
 
 
 
+
+        private static string NormalizeSex(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "O";
+            switch (value.ToLowerInvariant().Trim())
+            {
+                case "m": case "male":   return "M";
+                case "f": case "female": return "F";
+                default:                 return "O";
+            }
+        }
 
         private async Task<string> authAndGetDetailsAsync()
         {
@@ -512,6 +524,8 @@ namespace Worklist_SCP.Model
 
     public class CarePatient
     {
+        public string external_id { get; set; }
+        public string id { get; set; }
         public string name { get; set; }
         public string address { get; set; }
         public string phone_number { get; set; }

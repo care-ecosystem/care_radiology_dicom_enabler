@@ -8,7 +8,6 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using FellowOakDicom;
-using FellowOakDicom.Imaging.Codec;
 using FellowOakDicom.Log;
 using FellowOakDicom.Network;
 using Worklist_SCP.Model;
@@ -48,10 +47,10 @@ namespace Worklist_SCP
         }
 
 
-        public WorklistService(INetworkStream stream, Encoding fallbackEncoding, FellowOakDicom.Log.ILogger log, ILogManager logmanager, INetworkManager network, ITranscoderManager transcoder) : base(stream, fallbackEncoding, log, logmanager, network, transcoder)
+        public WorklistService(INetworkStream stream, Encoding fallbackEncoding, FellowOakDicom.Log.ILogger log, DicomServiceDependencies dependencies)
+            : base(stream, fallbackEncoding, log, dependencies)
         {
             fileLogger = GetFileLogger();
-           
         }
 
         private Serilog.ILogger GetFileLogger()
@@ -67,17 +66,15 @@ namespace Worklist_SCP
                 .CreateLogger();
         }
 
-        public async Task<DicomCEchoResponse> OnCEchoRequestAsync(DicomCEchoRequest request)
+        public Task<DicomCEchoResponse> OnCEchoRequestAsync(DicomCEchoRequest request)
         {
-            // Logger.Info($"Received verification request from AE {Association.CallingAE} with IP: {Association.RemoteHost}");
-            fileLogger.Information($"Received verification request from AE {Association.CallingAE} with IP: {Association.RemoteHost}");
-            fileLogger.Information($"Validating Server request for AE {Association.CallingAE} with IP: {Association.RemoteHost}");
+            fileLogger?.Information($"[C-ECHO] Request from AE={Association.CallingAE} IP={Association.RemoteHost}");
             if (!validateServer(Association.CallingAE, Association.RemoteHost))
             {
-                return new DicomCEchoResponse(request, DicomStatus.ProcessingFailure);
+                fileLogger?.Warning($"[C-ECHO] Rejected AE={Association.CallingAE}");
+                return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.ProcessingFailure));
             }
-            //fileLogger.Information(request.Dataset.ToString());
-            return new DicomCEchoResponse(request, DicomStatus.Success);
+            return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.Success));
         }
 
 
@@ -93,7 +90,7 @@ namespace Worklist_SCP
             }
             List<string> accessionNos = new List<string>();
 
-            switch (Convert.ToInt32(ConfigurationManager.AppSettings["backend"].ToString()))
+            switch (Convert.ToInt32(ConfigurationManager.AppSettings["backend"] ?? "2"))
             {
                 case 0:
                     fileLogger.Information($"Fetching Records from List");
@@ -134,24 +131,26 @@ namespace Worklist_SCP
             string errorString = string.Empty;
             string applicationPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
             string retVal = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/checkserver");
-            if (retVal != string.Empty && (Convert.ToBoolean(retVal) == true))
+            fileLogger?.Information($"[VALIDATE] checkserver={retVal} AE={aeTitle} IP={hostAddress}");
+            if (retVal != string.Empty && Convert.ToBoolean(retVal) == true)
             {
-                if (!objDal.validateAETitle(Association.CallingAE, Association.RemoteHost, ref errorString))
+                if (objDal == null)
+                {
+                    objDal = new ucls_DAL(applicationPath);
+                }
+                if (!objDal.validateAETitle(aeTitle, hostAddress, ref errorString))
                 {
                     if (errorString == string.Empty)
-                    {
-                        fileLogger.Information($"Unable to validate AETitle {Association.CallingAE} with IP: {Association.RemoteHost}. AETitle not configured as part of the Server List");
-                    }
+                        fileLogger?.Information($"[VALIDATE] AE={aeTitle} IP={hostAddress} not in server list");
                     else
-                    {
-                        fileLogger.Error($"validating AETitle {Association.CallingAE} with IP: {Association.RemoteHost}. failed with exception : " + errorString);
-                    }
+                        fileLogger?.Error($"[VALIDATE] AE={aeTitle} validation failed: {errorString}");
                     return false;
                 }
+                fileLogger?.Information($"[VALIDATE] AE={aeTitle} validated OK");
             }
             else
             {
-                fileLogger.Error($"Configuraion Value to check for server in valid. Please check the Configuration from Server List Tab ");
+                fileLogger?.Information($"[VALIDATE] checkserver disabled, skipping AE validation");
             }
             return true;
         }
@@ -221,13 +220,11 @@ namespace Worklist_SCP
 
         public Task OnReceiveAssociationRequestAsync(DicomAssociation association)
         {
-            //Logger.Info($"Received association request from AE: {association.CallingAE} with IP: {association.RemoteHost} ");
-            fileLogger.Information($"Received association request from AE: {association.CallingAE} with IP: {association.RemoteHost} ");
+            fileLogger?.Information($"[ASSOC] Request from AE={association.CallingAE} IP={association.RemoteHost} CalledAE={association.CalledAE}");
 
             if (WorklistServer.AETitle != association.CalledAE)
             {
-                //Logger.Error($"Association with {association.CallingAE} rejected since called aet {association.CalledAE} is unknown");
-                fileLogger.Error($"Association with {association.CallingAE} rejected since called aet {association.CalledAE} is unknown");
+                fileLogger?.Error($"[ASSOC] Rejected: called AE={association.CalledAE} unknown (expected {WorklistServer.AETitle})");
                 return SendAssociationRejectAsync(DicomRejectResult.Permanent, DicomRejectSource.ServiceUser, DicomRejectReason.CalledAENotRecognized);
             }
 
@@ -236,21 +233,19 @@ namespace Worklist_SCP
                 if (pc.AbstractSyntax == DicomUID.Verification
                     || pc.AbstractSyntax == DicomUID.ModalityWorklistInformationModelFind
                     || pc.AbstractSyntax == DicomUID.ModalityPerformedProcedureStep
-                    || pc.AbstractSyntax == DicomUID.ModalityPerformedProcedureStepNotification
                     || pc.AbstractSyntax == DicomUID.ModalityPerformedProcedureStepNotification)
                 {
                     pc.AcceptTransferSyntaxes(_acceptedTransferSyntaxes);
+                    fileLogger?.Information($"[ASSOC] PC accepted: {pc.AbstractSyntax.Name} (ID={pc.ID})");
                 }
                 else
                 {
-                    //Logger.Warn($"Requested abstract syntax {pc.AbstractSyntax} from {association.CallingAE} not supported");
-                    fileLogger.Warning($"Requested abstract syntax {pc.AbstractSyntax} from {association.CallingAE} not supported");
+                    fileLogger?.Warning($"[ASSOC] PC rejected: {pc.AbstractSyntax} not supported");
                     pc.SetResult(DicomPresentationContextResult.RejectAbstractSyntaxNotSupported);
                 }
             }
 
-            //Logger.Info($"Accepted association request from {association.CallingAE}");
-            fileLogger.Information($"Accepted association request from {association.CallingAE}");
+            fileLogger?.Information($"[ASSOC] Accepted association from AE={association.CallingAE}");
             return SendAssociationAcceptAsync(association);
         }
 

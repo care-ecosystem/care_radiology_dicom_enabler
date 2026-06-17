@@ -49,5 +49,7 @@ namespace Worklist_SCP.Model
 
         public string ScheduledAET { get; set; }
 
+        public string ServiceRequestId { get; set; }
+
     }
 }

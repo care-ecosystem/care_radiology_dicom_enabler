@@ -1,14 +1,14 @@
 ﻿// Copyright (c) 2012-2022 fo-dicom contributors.
 // Licensed under the Microsoft Public License (MS-PL).
 
+using FellowOakDicom;
+using FellowOakDicom.Log;
 using FellowOakDicom.Network;
 using System;
 using System.Collections.Generic;
 using System.Threading;
 
-using Serilog.Sinks.File;
 using Worklist_SCP.Model;
-using Serilog;
 
 
 namespace Worklist_SCP
@@ -53,9 +53,12 @@ namespace Worklist_SCP
         public static void Start(int port, string aet,int backend)
         {
             try
-            { 
+            {
                 AETitle = aet;
 
+                new DicomSetupBuilder()
+                    .RegisterServices(s => s.AddFellowOakDicom().AddLogManager<ConsoleLogManager>())
+                    .Build();
                 _server = DicomServerFactory.Create<WorklistService>(port);
                 // every 30 seconds the worklist source is queried and the current list of items is cached in _currentWorklistItems
                 _itemsLoaderTimer = new System.Threading.Timer((state) =>
@@ -63,7 +66,7 @@ namespace Worklist_SCP
                     switch(backend)
                     {
                         case 0:
-                           
+
                             var newWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItems();
                             WorklistServer.CurrentWorklistItems = newWorklistItems;
                             break;
@@ -72,20 +75,17 @@ namespace Worklist_SCP
                             WorklistServer.CurrentWorklistItems = dbWorklistItems;
                             break;
                         case 2:
-                            //var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromPellucidAsync();
                             var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync();
                             WorklistServer.CurrentWorklistItems = pellucidWorklistItems;
                             break;
 
                     }
 
-                }, null, TimeSpan.Zero, TimeSpan.FromSeconds(30));
+                }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
             }
             catch(Exception ex)
             {
-                //MessageBox.Show(null, "Error Starting the Server" + ex.Message,
-                //                     "Error Starting the Server", MessageBoxButtons.OK,
-                //                     MessageBoxIcon.Error);
+                throw new Exception("WorklistServer.Start failed on port " + port + ": " + ex.Message, ex);
             }
 
 
