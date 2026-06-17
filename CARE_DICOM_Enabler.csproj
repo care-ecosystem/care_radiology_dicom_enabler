@@ -235,6 +235,9 @@
     <Folder Include="Logo\" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="cfg\common.cfg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Care_ICON.ico" />
     <Content Include="Images\aboutus.png" />
     <None Include="Images\delete.ico" />

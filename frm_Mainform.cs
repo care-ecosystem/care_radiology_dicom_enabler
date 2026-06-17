@@ -26,7 +26,12 @@ namespace Plexus_DICOM_Enabler
             materialSkinManager.AddFormToManage(this);
             materialSkinManager.Theme = MaterialSkinManager.Themes.LIGHT;
             //materialSkinManager.ColorScheme = new ColorScheme(Primary.LightBlue400, Primary.LightBlue500, Primary.LightBlue200, Accent.LightBlue200, TextShade.BLACK);
-            materialSkinManager.ColorScheme = new ColorScheme(Primary.Blue700, Primary.Blue900, Primary.Blue500, Accent.Green400, TextShade.WHITE);
+            materialSkinManager.ColorScheme = new ColorScheme(
+                ColorTranslator.FromHtml("#046c4e"),
+                ColorTranslator.FromHtml("#024d38"),
+                ColorTranslator.FromHtml("#05956b"),
+                ColorTranslator.FromHtml("#00e5a0"),
+                TextShade.WHITE);
             //MetroColor = MetroColorStyle.Blue;
 
             objDAL = new ucls_DAL(Global._applicationPath);

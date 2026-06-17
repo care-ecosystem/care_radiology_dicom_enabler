@@ -1,6 +1,7 @@
 ﻿using MaterialSkin;
 using MaterialSkin.Controls;
 using System;
+using System.Drawing;
 using System.Configuration;
 using System.IO;
 using System.Net;
@@ -20,7 +21,12 @@ namespace Plexus_DICOM_Enabler.Forms
             var materialSkinManager = MaterialSkinManager.Instance;
             materialSkinManager.AddFormToManage(this);
             materialSkinManager.Theme = MaterialSkinManager.Themes.LIGHT;
-            materialSkinManager.ColorScheme = new ColorScheme(Primary.Blue700, Primary.Blue900, Primary.Blue500, Accent.Green400, TextShade.WHITE);
+            materialSkinManager.ColorScheme = new ColorScheme(
+                ColorTranslator.FromHtml("#046c4e"),
+                ColorTranslator.FromHtml("#024d38"),
+                ColorTranslator.FromHtml("#05956b"),
+                ColorTranslator.FromHtml("#00e5a0"),
+                TextShade.WHITE);
         }
 
         /// <summary>
@@ -92,57 +98,21 @@ namespace Plexus_DICOM_Enabler.Forms
         /// <returns></returns>
         private bool CheckValidUser(ref string errorString)
         {
-            //string authURL = ConfigurationManager.AppSettings["authURL"].ToString();
-            //this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
+            try
+            {
+                string encUname = cls_PlexusConfig.ReadDetailsFromXML(Global._applicationPath, @"/configurations/app_uname");
+                string encPwd   = cls_PlexusConfig.ReadDetailsFromXML(Global._applicationPath, @"/configurations/app_pwd");
 
-            //try
-            //{
-            //    string device = ConfigurationManager.AppSettings["deviceName"].ToString();
-            //    WebRequest authReq = WebRequest.Create(authURL);
-            //    authReq.Method = "POST";
-            //    authReq.ContentType = "application/json";
-            //    //    {
-            //    //       "device": "ARaja",
-            //    //       "name": "alagaraja",
-            //    //       "password": "Plexus@123"
-            //    //     }
-            //    string postData = "{\"device\":\""+ device + "\",\"name\":\"" + mtb_Username.Text + "\",\"password\":\"" + mtxtb_Password.Text + "\"}";
+                string validUser = ucls_EnDcryption.DecryptString(EncKey.encdeKey, encUname);
+                string validPwd  = ucls_EnDcryption.DecryptString(EncKey.encdeKey, encPwd);
 
-            //    using ( var streamWriter =  new StreamWriter(authReq.GetRequestStream()))
-            //    {
-            //        streamWriter.Write(postData);
-            //        streamWriter.Flush();
-            //        streamWriter.Close();
-
-            //        var httpResponse = (HttpWebResponse) authReq.GetResponse();
-
-            //        using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
-            //        {
-            //            var resultData = streamReader.ReadToEnd();
-            //            //var serializer = new JavaScriptSerializer();
-            //            cls_UserDetail userDetails = (cls_UserDetail)JsonSerializer.Deserialize(resultData, typeof(cls_UserDetail));
-            //            if (userDetails !=null )
-            //            {
-            //                if ( userDetails.status == "A" )
-            //                {
-            //                    return true;
-            //                }
-            //            }
-            //        }
-            //    }
-
-            //    return true;
-            //}
-            //catch ( Exception ex)
-            //{
-            //    errorString = ex.Message;
-            //    return false;
-            //}
-            //finally
-            //{
-            //    this.Cursor = System.Windows.Forms.Cursors.Default;
-            //}
-            return true;
+                return mtb_Username.Text == validUser && mtxtb_Password.Text == validPwd;
+            }
+            catch (Exception ex)
+            {
+                errorString = ex.Message;
+                return false;
+            }
         }
 
         /// <summary>
@@ -204,6 +174,11 @@ namespace Plexus_DICOM_Enabler.Forms
                     mtxtb_Password.Text = string.Empty;
                 }
             }
+
+        }
+
+        private void mtb_Username_Click(object sender, EventArgs e)
+        {
 
         }
     }
