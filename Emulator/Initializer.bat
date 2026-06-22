@@ -1,4 +1,4 @@
-bat@echo off
+@echo off
 echo ========================================
 echo    DICOM Enabler - Auto Setup Script
 echo ========================================
