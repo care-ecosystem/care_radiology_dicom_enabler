@@ -28,15 +28,35 @@ namespace Plexus.Common.Database
         public string getConnectionString()
         {
             string connString = string.Empty;
-            string xmlPath = Path.Combine(_applicationDirectory, "cfg/common.cfg");
-            XmlDocument configDoc = new XmlDocument();
-            configDoc.Load(xmlPath);
+            string xmlPath = Path.Combine(_applicationDirectory, "cfg", "common.cfg");
 
-            XmlNode csNode = configDoc.SelectSingleNode("/configurations/connectString");
-            if (csNode != null)
+            try
             {
-                connString = csNode.InnerText;
+                Console.WriteLine($"[DEBUG] Full XML Path: {xmlPath}");
+                Console.WriteLine($"[DEBUG] File Exists: {File.Exists(xmlPath)}");
+
+                // Verify file is not empty
+                if (new FileInfo(xmlPath).Length == 0)
+                {
+                    throw new InvalidOperationException("Config file is empty!");
+                }
+
+                XmlDocument configDoc = new XmlDocument();
+                configDoc.Load(xmlPath);
+
+                XmlNode csNode = configDoc.SelectSingleNode("/configurations/connectString");
+                if (csNode != null)
+                {
+                    connString = csNode.InnerText;
+                    Console.WriteLine("[SUCCESS] Connection string loaded!");
+                }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] {ex.Message}");
+                throw;
+            }
+
             return connString;
         }
 
