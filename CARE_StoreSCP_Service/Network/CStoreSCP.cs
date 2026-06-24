@@ -113,6 +113,11 @@ namespace Plexus_StoreSCP_Service.Network
                 {
                     pc.AcceptTransferSyntaxes(_acceptedTransferSyntaxes);
                 }
+                else if (pc.AbstractSyntax == DicomUID.RTDoseStorage)
+                {
+                    // ✅ Explicitly accept RT Dose Storage
+                    pc.AcceptTransferSyntaxes(_acceptedTransferSyntaxes);
+                }
                 else if (pc.AbstractSyntax.StorageCategory != DicomStorageCategory.None)
                 {
                     pc.AcceptTransferSyntaxes(_acceptedImageTransferSyntaxes);
@@ -194,37 +199,46 @@ namespace Plexus_StoreSCP_Service.Network
         /// <returns></returns>
         public async Task<DicomCStoreResponse> OnCStoreRequestAsync(DicomCStoreRequest request)
         {
-            _fileLogger.Information($"C-Store Request received for Study Instance Id : ");
-            var studyUid = request.Dataset.GetSingleValue<string>(DicomTag.StudyInstanceUID).Trim();
-            var instUid = request.SOPInstanceUID.UID;
-
-            _fileLogger.Information($"C-Store Request received for Study Instance Id : " + studyUid + " and Image Instance ID : " + instUid);
-
-
-            if (!validateServer(Association.CallingAE, Association.RemoteHost))
+            try
             {
+                _fileLogger.Information($"C-Store Request received for Study Instance Id : ");
+                //var studyUid = request.Dataset.GetSingleValue<string>(DicomTag.StudyInstanceUID).Trim();
+                var studyUid = request.Dataset.GetSingleValue<string>(DicomTag.StudyInstanceUID)?.Trim() ?? string.Empty;
+                var instUid = request.SOPInstanceUID.UID;
+
+                _fileLogger.Information($"C-Store Request received for Study Instance Id : " + studyUid + " and Image Instance ID : " + instUid);
+
+
+                if (!validateServer(Association.CallingAE, Association.RemoteHost))
+                {
+                    return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
+                }
+
+                var path = Path.GetFullPath(Global._storagePath);
+                path = Path.Combine(path, studyUid);
+
+                if (!Directory.Exists(path))
+                {
+                    Directory.CreateDirectory(path);
+                }
+
+                path = Path.Combine(path, instUid) + ".dcm";
+
+                await request.File.SaveAsync(path);
+
+                if (File.Exists(path))
+                {
+                    ReadDICOMPushDB(path, studyUid, instUid);
+                }
+
+                _fileLogger.Information($"File Saved Successfully and C-Store Response Sent for ImageInstance ID : " + instUid);
+                return new DicomCStoreResponse(request, DicomStatus.Success);
+            }
+            catch(Exception ex)
+            {
+                _fileLogger.Error($"C-Store processing failed: {ex.Message}\n{ex.StackTrace}");
                 return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
             }
-
-            var path = Path.GetFullPath(Global._storagePath);
-            path = Path.Combine(path, studyUid);
-
-            if (!Directory.Exists(path))
-            {
-                Directory.CreateDirectory(path);
-            }
-
-            path = Path.Combine(path, instUid) + ".dcm";
-
-            await request.File.SaveAsync(path);
-
-            if (File.Exists(path))
-            {
-                ReadDICOMPushDB(path, studyUid, instUid);
-            }
-
-            _fileLogger.Information($"File Saved Successfully and C-Store Response Sent for ImageInstance ID : " + instUid);
-            return new DicomCStoreResponse(request, DicomStatus.Success);
         }
 
 
