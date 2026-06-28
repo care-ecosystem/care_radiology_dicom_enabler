@@ -1,4 +1,10 @@
-﻿using System;
+﻿using FellowOakDicom;
+using FellowOakDicom.Log;
+using FellowOakDicom.Network;
+using Plexus.Common.config;
+using Plexus.Common.Database;
+using Serilog;
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Diagnostics;
@@ -6,13 +12,9 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-using FellowOakDicom;
-using FellowOakDicom.Log;
-using FellowOakDicom.Network;
-using Plexus.Common.config;
-using Plexus.Common.Database;
-using Serilog;
+using Worklist_SCP;
 
 
 namespace Plexus_StoreSCP_Service.Network
@@ -20,7 +22,7 @@ namespace Plexus_StoreSCP_Service.Network
     /// <summary>
     /// Store SCP
     /// </summary>
-    class CStoreSCP : DicomService, IDicomServiceProvider, IDicomCStoreProvider, IDicomCEchoProvider
+    class CStoreSCP : DicomService, IDicomServiceProvider, IDicomCStoreProvider, IDicomCEchoProvider, IDicomNServiceProvider
 
     {
         public static Serilog.ILogger _fileLogger = null;
@@ -61,14 +63,14 @@ namespace Plexus_StoreSCP_Service.Network
                 : base(stream, fallbackEncoding, log, dependencies)
         {
             _fileLogger = GetFileLogger();
-            if (objDAL == null )
+            if (objDAL == null)
             {
                 objDAL = new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
             }
         }
 
 
-        
+
         /// <summary>
         /// Get FIle Loger to Write to file
         /// </summary>
@@ -85,7 +87,7 @@ namespace Plexus_StoreSCP_Service.Network
                 fileSizeLimitBytes: 10240000)
                 .CreateLogger();
         }
-       
+
         /// <summary>
         /// On Recieve Associat Request
         /// </summary>
@@ -107,6 +109,15 @@ namespace Plexus_StoreSCP_Service.Network
             {
                 if (pc.AbstractSyntax == DicomUID.Verification)
                 {
+                    pc.AcceptTransferSyntaxes(_acceptedTransferSyntaxes);
+                }
+                else if (pc.AbstractSyntax == DicomUID.ModalityPerformedProcedureStep)
+                {
+                    pc.AcceptTransferSyntaxes(_acceptedTransferSyntaxes);
+                }
+                else if (pc.AbstractSyntax == DicomUID.RTDoseStorage)
+                {
+                    // ✅ Explicitly accept RT Dose Storage
                     pc.AcceptTransferSyntaxes(_acceptedTransferSyntaxes);
                 }
                 else if (pc.AbstractSyntax.StorageCategory != DicomStorageCategory.None)
@@ -190,37 +201,46 @@ namespace Plexus_StoreSCP_Service.Network
         /// <returns></returns>
         public async Task<DicomCStoreResponse> OnCStoreRequestAsync(DicomCStoreRequest request)
         {
-            _fileLogger.Information($"C-Store Request received for Study Instance Id : ");
-            var studyUid = request.Dataset.GetSingleValue<string>(DicomTag.StudyInstanceUID).Trim();
-            var instUid = request.SOPInstanceUID.UID;
-
-            _fileLogger.Information($"C-Store Request received for Study Instance Id : "+studyUid+" and Image Instance ID : " + instUid);
-
-
-            if (!validateServer(Association.CallingAE, Association.RemoteHost))
+            try
             {
+                _fileLogger.Information($"C-Store Request received for Study Instance Id : ");
+                //var studyUid = request.Dataset.GetSingleValue<string>(DicomTag.StudyInstanceUID).Trim();
+                var studyUid = request.Dataset.GetSingleValue<string>(DicomTag.StudyInstanceUID)?.Trim() ?? string.Empty;
+                var instUid = request.SOPInstanceUID.UID;
+
+                _fileLogger.Information($"C-Store Request received for Study Instance Id : " + studyUid + " and Image Instance ID : " + instUid);
+
+
+                if (!validateServer(Association.CallingAE, Association.RemoteHost))
+                {
+                    return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
+                }
+
+                var path = Path.GetFullPath(Global._storagePath);
+                path = Path.Combine(path, studyUid);
+
+                if (!Directory.Exists(path))
+                {
+                    Directory.CreateDirectory(path);
+                }
+
+                path = Path.Combine(path, instUid) + ".dcm";
+
+                await request.File.SaveAsync(path);
+
+                if (File.Exists(path))
+                {
+                    ReadDICOMPushDB(path, studyUid, instUid);
+                }
+
+                _fileLogger.Information($"File Saved Successfully and C-Store Response Sent for ImageInstance ID : " + instUid);
+                return new DicomCStoreResponse(request, DicomStatus.Success);
+            }
+            catch(Exception ex)
+            {
+                _fileLogger.Error($"C-Store processing failed: {ex.Message}\n{ex.StackTrace}");
                 return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
             }
-
-            var path = Path.GetFullPath(Global._storagePath);
-            path = Path.Combine(path, studyUid);
-
-            if (!Directory.Exists(path))
-            {
-                Directory.CreateDirectory(path);
-            }
-
-            path = Path.Combine(path, instUid) + ".dcm";
-
-            await request.File.SaveAsync(path);
-
-            if (File.Exists(path))
-            {
-                ReadDICOMPushDB(path, studyUid, instUid);
-            }
-
-            _fileLogger.Information($"File Saved Successfully and C-Store Response Sent for ImageInstance ID : " + instUid);
-            return new DicomCStoreResponse(request, DicomStatus.Success);
         }
 
 
@@ -258,7 +278,7 @@ namespace Plexus_StoreSCP_Service.Network
                 }
 
                 objDAL.InsertOrUpdateStudyInfo(patient_id, accession_no, studyinstanceid, seriesinstanceid, seriesno, modality, bodypart, series_desc, institution,
-                    stationname, department, imageInstanceId, 2 , ref errorString);
+                    stationname, department, imageInstanceId, 2, ref errorString);
 
                 if (errorString != string.Empty)
                 {
@@ -313,6 +333,53 @@ namespace Plexus_StoreSCP_Service.Network
             {
                 _fileLogger.Error(logString);
             }
+
+        }
+        public async Task<DicomNCreateResponse> OnNCreateRequestAsync(DicomNCreateRequest request)
+        {
+            if (request.SOPClassUID != DicomUID.ModalityPerformedProcedureStep)
+            {
+                return new DicomNCreateResponse(request, DicomStatus.SOPClassNotSupported);
+            }
+
+            var affectedSopInstanceUID = request.Command.GetSingleValue<string>(DicomTag.AffectedSOPInstanceUID);
+            _fileLogger.Information($"[MPPS] N-CREATE received for SOP Instance UID: {affectedSopInstanceUID}");
+
+            return new DicomNCreateResponse(request, DicomStatus.Success);
+        }
+
+        public async Task<DicomNSetResponse> OnNSetRequestAsync(DicomNSetRequest request)
+        {
+            if (request.SOPClassUID != DicomUID.ModalityPerformedProcedureStep)
+            {
+                return new DicomNSetResponse(request, DicomStatus.SOPClassNotSupported);
+            }
+
+            var requestedSopInstanceUID = request.Command.GetSingleValue<string>(DicomTag.RequestedSOPInstanceUID);
+            _fileLogger.Information($"[MPPS] N-SET received for SOP Instance UID: {requestedSopInstanceUID}");
+
+            return new DicomNSetResponse(request, DicomStatus.Success);
+        }
+
+        public async Task<DicomNDeleteResponse> OnNDeleteRequestAsync(DicomNDeleteRequest request)
+        {
+            return new DicomNDeleteResponse(request, DicomStatus.UnrecognizedOperation);
+        }
+
+        public async Task<DicomNEventReportResponse> OnNEventReportRequestAsync(DicomNEventReportRequest request)
+        {
+            return new DicomNEventReportResponse(request, DicomStatus.UnrecognizedOperation);
+        }
+
+        public async Task<DicomNGetResponse> OnNGetRequestAsync(DicomNGetRequest request)
+        {
+            return new DicomNGetResponse(request, DicomStatus.UnrecognizedOperation);
+        }
+
+        public async Task<DicomNActionResponse> OnNActionRequestAsync(DicomNActionRequest request)
+        {
+            return new DicomNActionResponse(request, DicomStatus.UnrecognizedOperation);
         }
     }
 }
+
