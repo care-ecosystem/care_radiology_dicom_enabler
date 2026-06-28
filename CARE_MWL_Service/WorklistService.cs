@@ -262,19 +262,47 @@ namespace Worklist_SCP
             {
                 return new DicomNCreateResponse(request, DicomStatus.SOPClassNotSupported);
             }
+
+            fileLogger.Information($"[NCREATE-START] === ALL N-CREATE TAGS ===");
+
+            foreach (var item in request.Dataset)
+            {
+                try
+                {
+                    fileLogger.Information($"[NCREATE-TAG] {item.Tag} = {item}");
+                }
+                catch { }
+            }
+
+            fileLogger.Information($"[NCREATE-END] === END N-CREATE TAGS ===");
+
+
             // on N-Create the UID is stored in AffectedSopInstanceUID, in N-Set the UID is stored in RequestedSopInstanceUID
             var affectedSopInstanceUID = request.Command.GetSingleValue<string>(DicomTag.AffectedSOPInstanceUID);
             //Logger.Log(LogLevel.Info, $"reeiving N-Create with SOPUID {affectedSopInstanceUID}");
             fileLogger.Information($"reeiving N-Create with SOPUID {affectedSopInstanceUID}");
             // get the procedureStepIds from the request
-            var procedureStepId = request.Dataset
-                .GetSequence(DicomTag.ScheduledStepAttributesSequence)
-                .First()
-                .GetSingleValue<string>(DicomTag.ScheduledProcedureStepID);
-            var ok = MppsSource.SetInProgress(affectedSopInstanceUID, procedureStepId);
+            //var procedureStepId = request.Dataset
+            //    .GetSequence(DicomTag.ScheduledStepAttributesSequence)
+            //    .First()
+            //    .GetSingleValue<string>(DicomTag.ScheduledProcedureStepID);
+            var scheduledSeq = request.Dataset
+           .GetSequence(DicomTag.ScheduledStepAttributesSequence)
+           .First();
 
+            var procedureStepId = scheduledSeq
+                .GetSingleValue<string>(DicomTag.ScheduledProcedureStepID);
+
+            var accessionNumber = scheduledSeq
+                .GetSingleValueOrDefault<string>(DicomTag.AccessionNumber, "");
+
+            fileLogger.Information($"[NCREATE-EXTRACT] procedureStepId='{procedureStepId}' | accessionNumber='{accessionNumber}'");
+            // var ok = MppsSource.SetInProgress(affectedSopInstanceUID, procedureStepId);
+            var ok = MppsSource.SetInProgress(affectedSopInstanceUID, procedureStepId, accessionNumber);
             return new DicomNCreateResponse(request, ok ? DicomStatus.Success : DicomStatus.ProcessingFailure);
         }
+
+
 
 
         public async Task<DicomNSetResponse> OnNSetRequestAsync(DicomNSetRequest request)
