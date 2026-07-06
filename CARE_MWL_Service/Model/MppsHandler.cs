@@ -4,6 +4,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using FellowOakDicom.Log;
+using System;
+using Newtonsoft.Json;
 
 namespace Worklist_SCP.Model
 {
@@ -11,7 +13,7 @@ namespace Worklist_SCP.Model
     /// <summary>
     /// An implementation of IMppsSource, that does only logging but does not store the MPPS messages
     /// </summary>
-    class MppsHandler : IMppsSource
+    public class MppsHandler : IMppsSource
     {
 
         public static Dictionary<string, WorklistItem> PendingProcedures { get; } = new Dictionary<string, WorklistItem>();
@@ -24,27 +26,79 @@ namespace Worklist_SCP.Model
             _logger = logger;
         }
 
-
-        public bool SetInProgress(string sopInstanceUID, string procedureStepId)
+        public bool SetInProgress(string sopInstanceUID, string procedureStepId, string accessionNumber)
         {
             var workItem = WorklistServer.CurrentWorklistItems
-                .FirstOrDefault(w => w.ProcedureStepID == procedureStepId);
-            if (workItem == null)
+                .FirstOrDefault(w => w.AccessionNumber == accessionNumber);
+
+            if (workItem != null)
             {
-                // the procedureStepId provided cannot be found any more, so the data is invalid or the 
-                // modality tries to start a procedure that has been deleted/changed on the ris side...
-                return false;
+                System.IO.File.AppendAllText(@"C:\temp\mpps_debug.txt",
+                    $"\n[{DateTime.Now:HH:mm:ss}] MATCH SUCCESS - accessionNumber='{accessionNumber}' | ServiceRequestId='{workItem.ServiceRequestId}' | StudyUID='{workItem.StudyUID}'\n");
+
+                // Extract webhook fields
+                string service_request_id = workItem.ServiceRequestId;
+                string study_id = workItem.StudyUID;
+                string mpps_status = "STARTED";
+
+                // Create JSON payload
+                var payload = new
+                {
+                    service_request_id = service_request_id,
+                    study_id = study_id,
+                    mpps_status = mpps_status
+                };
+
+                // Send webhook to Radiology Plugin
+                SendWebhookToRadiology(payload);
+
+                return true;
             }
 
-            // now here change the sate of the procedure in the database or do similar stuff...
-            _logger.Info($"Procedure with id {workItem.ProcedureStepID} of Patient {workItem.Surname} {workItem.Forename} is started");
-
-            // remember the sopInstanceUID and store the worklistitem to which the sopInstanceUID belongs. 
-            // You should do this more permanent like in database or in file
-            PendingProcedures.Add(sopInstanceUID, workItem);
-            return true;
+            System.IO.File.AppendAllText(@"C:\temp\mpps_debug.txt",
+                $"\n[{DateTime.Now:HH:mm:ss}] MATCH FAILED - accessionNumber='{accessionNumber}' not found in worklist\n");
+            return false;
         }
 
+
+        private void SendWebhookToRadiology(object payload)
+        {
+            try
+            {
+                System.IO.File.AppendAllText(@"C:\temp\mpps_debug.txt",
+                    $"\n[{DateTime.Now:HH:mm:ss}] SENDING WEBHOOK...\n");
+
+                using (var client = new System.Net.Http.HttpClient())
+                {
+                    var jsonContent = JsonConvert.SerializeObject(payload);
+                    System.IO.File.AppendAllText(@"C:\temp\mpps_debug.txt",
+                        $"[{DateTime.Now:HH:mm:ss}] Payload: {jsonContent}\n");
+
+                    var content = new System.Net.Http.StringContent(
+                        jsonContent,
+                        System.Text.Encoding.UTF8,
+                        "application/json");
+
+                    client.DefaultRequestHeaders.Add("Authorization", "RADOMSECRET");
+
+                    var response = client.PostAsync(
+                        "http://localhost:9000/api/care_radiology/webhooks/mpps/",
+                        content).Result;
+
+                    System.IO.File.AppendAllText(@"C:\temp\mpps_debug.txt",
+                        $"[{DateTime.Now:HH:mm:ss}] WEBHOOK RESPONSE: {response.StatusCode}\n");
+
+                    _logger.Info($"Webhook sent to Radiology: {response.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.IO.File.AppendAllText(@"C:\temp\mpps_debug.txt",
+                    $"\n[{DateTime.Now:HH:mm:ss}] WEBHOOK ERROR: {ex.Message}\n");
+
+                _logger.Error($"Error sending webhook to Radiology: {ex.Message}");
+            }
+        }
 
         public bool SetDiscontinued(string sopInstanceUID, string reason)
         {
@@ -85,6 +139,6 @@ namespace Worklist_SCP.Model
             return true;
         }
 
-
+        
     }
 }

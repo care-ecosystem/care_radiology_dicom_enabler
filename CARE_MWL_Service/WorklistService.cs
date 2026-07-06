@@ -271,7 +271,11 @@ namespace Worklist_SCP
                 .GetSequence(DicomTag.ScheduledStepAttributesSequence)
                 .First()
                 .GetSingleValue<string>(DicomTag.ScheduledProcedureStepID);
-            var ok = MppsSource.SetInProgress(affectedSopInstanceUID, procedureStepId);
+            var accessionNumber = request.Dataset
+    .GetSequence(DicomTag.ScheduledStepAttributesSequence)
+    .First()
+    .GetSingleValueOrDefault<string>(DicomTag.AccessionNumber, string.Empty);
+            var ok = MppsSource.SetInProgress(affectedSopInstanceUID, procedureStepId, accessionNumber);
 
             return new DicomNCreateResponse(request, ok ? DicomStatus.Success : DicomStatus.ProcessingFailure);
         }
