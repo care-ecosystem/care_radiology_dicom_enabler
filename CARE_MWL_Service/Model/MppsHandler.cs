@@ -82,7 +82,7 @@ namespace Worklist_SCP.Model
                     client.DefaultRequestHeaders.Add("Authorization", "RADOMSECRET");
 
                     var response = client.PostAsync(
-                        "http://localhost:9000/api/care_radiology/webhooks/mpps/",
+                        "https://staging.carehmis.dpdns.org/api/care_radiology/webhooks/mpps/",
                         content).Result;
 
                     System.IO.File.AppendAllText(@"C:\temp\mpps_debug.txt",
