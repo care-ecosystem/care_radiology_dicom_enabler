@@ -73,6 +73,7 @@ namespace Plexus_SCU_Service
                     return;
                 }
 
+                //string dcmPushPath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "SCP");
                 string dcmPushPath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "SCP");
                 if (!Directory.Exists(dcmPushPath))
                 {

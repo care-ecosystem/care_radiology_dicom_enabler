@@ -2,6 +2,9 @@
 // Licensed under the Microsoft Public License (MS-PL).
 
 
+using FellowOakDicom;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Org.BouncyCastle.Utilities;
 using Plexus.Common.Database;
 using Plexus_MWL_Service.logs;
@@ -11,14 +14,12 @@ using System.Collections.Generic;
 using System.Configuration;
 using System.Data;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using System.Linq;
 
 namespace Worklist_SCP.Model
 {
@@ -253,6 +254,7 @@ namespace Worklist_SCP.Model
                         mwlItem.ServiceRequestId = item.service_request != null ? item.service_request.external_id ?? string.Empty : string.Empty;
                         mwlItem.ProcedureStepID = "200002"; //item.service_request != null ? item.service_request.id ?? string.Empty : string.Empty;
                         mwlItem.StudyUID = "1.2.34.567890.1234567890.1";// string.Empty;
+                        //mwlItem.StudyUID = DicomUID.Generate().UID;
                         mwlItem.ScheduledAET = ConfigurationManager.AppSettings["careScheduledAET"]?.ToString() ?? "OEC9800";
                         mwlItem.ReferringPhysician = string.Empty;
 

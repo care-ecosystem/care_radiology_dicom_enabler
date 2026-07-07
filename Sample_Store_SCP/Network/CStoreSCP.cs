@@ -201,17 +201,22 @@ namespace Sample_Store_SCP.Network
 
             await request.File.SaveAsync(path);
 
-            if ( File.Exists(path))
+            if (File.Exists(path))
             {
-                ReadDICOMPushDB(path, studyUid, instUid);
-            }
+                string sopClassUid = request.Dataset.Contains(DicomTag.SOPClassUID)
+                       ? request.Dataset.GetString(DicomTag.SOPClassUID)
+                       : string.Empty;
 
+                ReadDICOMPushDB(path, studyUid, instUid, sopClassUid);
+            }
+            
             fileLogger.Information($"File Saved Successfully and C-Store Response Sent for ImageInstance ID : " + instUid);
             return new DicomCStoreResponse(request, DicomStatus.Success);
         }
 
 
-        private void ReadDICOMPushDB(string filePath,string studyinstanceID,string imageInstanceId)
+
+        private void ReadDICOMPushDB(string filePath,string studyinstanceID,string imageInstanceId, string sopClassUid)
         {
             try
             {
@@ -246,7 +251,7 @@ namespace Sample_Store_SCP.Network
 
 
                 objDAL.InsertOrUpdateStudyInfo(patient_id, accession_no, studyinstanceid, seriesinstanceid, seriesno, modality, bodypart, series_desc, institution,
-                    stationname, department, imageInstanceId, 2 , ref errorString);
+                    stationname, department, imageInstanceId, 2 , sopClassUid, ref errorString);
 
                 if (errorString != string.Empty)
                 {

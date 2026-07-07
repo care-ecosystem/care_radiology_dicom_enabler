@@ -98,14 +98,14 @@ namespace Worklist_SCP.Model
                 AddIfExistsInRequest(resultDataset, request, DicomTag.PatientSex, result.Sex); //T2
 
                 // Code Modified by AR -  19-05-2022
-                //string studyUID = string.Empty;
-                //if (result.StudyUID == null || result.StudyUID == string.Empty || result.StudyUID == "0" )
-                //{
-                //    studyUID = DicomUID.Generate().UID;
-                //}
-                //else
-                //    studyUID = result.StudyUID;
-                //AddIfExistsInRequest(resultDataset, request, DicomTag.StudyInstanceUID, studyUID); // T1
+                string studyUID = string.Empty;
+                if (result.StudyUID == null || result.StudyUID == string.Empty || result.StudyUID == "0")
+                {
+                    studyUID = DicomUID.Generate().UID;
+                }
+                else
+                    studyUID = result.StudyUID;
+                AddIfExistsInRequest(resultDataset, request, DicomTag.StudyInstanceUID, studyUID); // T1
 
                 AddIfExistsInRequest(resultDataset, request, DicomTag.RequestingPhysician, result.ReferringPhysician); //T2
                 AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureDescription, result.ExamDescription); //T1C
