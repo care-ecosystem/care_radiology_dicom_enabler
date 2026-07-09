@@ -88,6 +88,29 @@ namespace Worklist_SCP
             {
                 yield return new DicomCFindResponse(request, DicomStatus.QueryRetrieveUnableToProcess);
             }
+            //List<string> accessionNos = new List<string>();
+
+            //switch (Convert.ToInt32(ConfigurationManager.AppSettings["backend"] ?? "2"))
+            //{
+            //    case 0:
+            //        fileLogger.Information($"Fetching Records from List");
+            //        var newWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItems();
+            //        WorklistServer.CurrentWorklistItems = newWorklistItems;
+            //        break;
+            //    case 1:
+            //        fileLogger.Information($"Fetching Records from Plexus Database");
+            //        var dbWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromDB();
+            //        WorklistServer.CurrentWorklistItems = dbWorklistItems;
+            //        break;
+            //    case 2:
+            //        fileLogger.Information($"Fetching Records from Pellucid Database");
+            //        //var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromPellucidAsync();
+            //        var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync();
+            //        WorklistServer.CurrentWorklistItems = pellucidWorklistItems;
+            //        break;
+
+            //}
+
             List<string> accessionNos = new List<string>();
 
             switch (Convert.ToInt32(ConfigurationManager.AppSettings["backend"] ?? "2"))
@@ -96,22 +119,35 @@ namespace Worklist_SCP
                     fileLogger.Information($"Fetching Records from List");
                     var newWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItems();
                     WorklistServer.CurrentWorklistItems = newWorklistItems;
+                    SplitAndStoreWorklistByModality(newWorklistItems);
                     break;
                 case 1:
                     fileLogger.Information($"Fetching Records from Plexus Database");
                     var dbWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromDB();
                     WorklistServer.CurrentWorklistItems = dbWorklistItems;
+                    SplitAndStoreWorklistByModality(dbWorklistItems);
                     break;
                 case 2:
                     fileLogger.Information($"Fetching Records from Pellucid Database");
-                    //var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromPellucidAsync();
                     var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync();
                     WorklistServer.CurrentWorklistItems = pellucidWorklistItems;
+                    SplitAndStoreWorklistByModality(pellucidWorklistItems);
                     break;
 
             }
-            
-            foreach (DicomDataset result in WorklistHandler.FilterWorklistItems(request.Dataset, WorklistServer.CurrentWorklistItems))
+
+            // Get modality for this emulator
+            string requestingModality = GetModalityForAETitle(Association.CallingAE);
+
+            // Get worklist for this modality
+            List<WorklistItem> worklistForThisEmulator =
+                WorklistServer.WorklistsByModality.ContainsKey(requestingModality)
+                    ? WorklistServer.WorklistsByModality[requestingModality]
+                    : new List<WorklistItem>();
+
+            fileLogger.Information($"C-FIND: AE={Association.CallingAE} requesting modality={requestingModality} (items: {worklistForThisEmulator.Count})");
+
+            foreach (DicomDataset result in WorklistHandler.FilterWorklistItems(request.Dataset, worklistForThisEmulator))
             {
                 // Insert Into Database
                 if (result.GetString(DicomTag.AccessionNumber) != null)
@@ -119,6 +155,16 @@ namespace Worklist_SCP
                 yield return new DicomCFindResponse(request, DicomStatus.Pending) { Dataset = result };
 
             }
+            
+
+            //foreach (DicomDataset result in WorklistHandler.FilterWorklistItems(request.Dataset, WorklistServer.CurrentWorklistItems))
+            //{
+            //    // Insert Into Database
+            //    if (result.GetString(DicomTag.AccessionNumber) != null)
+            //        accessionNos.Add(result.GetString(DicomTag.AccessionNumber));
+            //    yield return new DicomCFindResponse(request, DicomStatus.Pending) { Dataset = result };
+
+            //}
             UpdateStatusinDB(accessionNos);
             fileLogger.Information($"C-FIND response sent to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
             yield return new DicomCFindResponse(request, DicomStatus.Success);
@@ -222,12 +268,14 @@ namespace Worklist_SCP
         {
             fileLogger?.Information($"[ASSOC] Request from AE={association.CallingAE} IP={association.RemoteHost} CalledAE={association.CalledAE}");
 
-            if (WorklistServer.AETitle != association.CalledAE)
+            // Accept AE Titles that start with MODALITYSCP (CR, CT, DX, etc.)
+            if (!association.CalledAE.StartsWith("MODALITYSCP"))
             {
-                fileLogger?.Error($"[ASSOC] Rejected: called AE={association.CalledAE} unknown (expected {WorklistServer.AETitle})");
+                fileLogger?.Error($"[ASSOC] Rejected: called AE={association.CalledAE} - must start with MODALITYSCP");
                 return SendAssociationRejectAsync(DicomRejectResult.Permanent, DicomRejectSource.ServiceUser, DicomRejectReason.CalledAENotRecognized);
             }
 
+            fileLogger?.Information($"[ASSOC] Processing {association.PresentationContexts.Count()} presentation contexts");
             foreach (var pc in association.PresentationContexts)
             {
                 if (pc.AbstractSyntax == DicomUID.Verification
@@ -237,6 +285,8 @@ namespace Worklist_SCP
                 {
                     pc.AcceptTransferSyntaxes(_acceptedTransferSyntaxes);
                     fileLogger?.Information($"[ASSOC] PC accepted: {pc.AbstractSyntax.Name} (ID={pc.ID})");
+
+                    fileLogger?.Information($"[ASSOC] PC {pc.ID} AbstractSyntax={pc.AbstractSyntax.UID} Result={pc.Result}");
                 }
                 else
                 {
@@ -333,7 +383,73 @@ namespace Worklist_SCP
             }
         }
 
+        /// <summary>
+        /// Get modality for a specific AE Title from config
+        /// </summary>
+        private string GetModalityForAETitle(string aeTitle)
+        {
+            try
+            {
+                // Loop through configured emulators
+                for (int i = 1; i <= 10; i++)
+                {
+                    string configAETitle = ConfigurationManager.AppSettings[$"emulator{i}_aeTitle"];
 
+                    if (string.IsNullOrEmpty(configAETitle))
+                        break; // No more emulators configured
+
+                    // Check if this is the requested AE Title
+                    if (configAETitle.Equals(aeTitle, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string modality = ConfigurationManager.AppSettings[$"emulator{i}_modality"] ?? "CR";
+                        fileLogger?.Information($"[MODALITY DETECTION] AE={aeTitle} → Modality={modality}");
+                        return modality;
+                    }
+                }
+
+                // AE Title not found, default to CR
+                fileLogger?.Warning($"[MODALITY DETECTION] AE={aeTitle} not found, defaulting to CR");
+                return "CR";
+            }
+            catch (Exception ex)
+            {
+                fileLogger?.Error($"[MODALITY DETECTION] Error: {ex.Message}");
+                return "CR";
+            }
+        }
+
+        /// <summary>
+        /// Split worklist by modality and store in dictionary
+        /// </summary>
+        private void SplitAndStoreWorklistByModality(List<WorklistItem> allWorklistItems)
+        {
+            try
+            {
+                if (WorklistServer.WorklistsByModality == null)
+                {
+                    WorklistServer.WorklistsByModality = new Dictionary<string, List<WorklistItem>>();
+                }
+
+                WorklistServer.WorklistsByModality.Clear();
+
+                var groupedByModality = allWorklistItems.GroupBy(w => w.Modality ?? "CR");
+
+                foreach (var group in groupedByModality)
+                {
+                    WorklistServer.WorklistsByModality[group.Key] = group.ToList();
+                    fileLogger?.Information($"[WORKLIST SPLIT] Modality={group.Key} has {group.Count()} items");
+                }
+
+                fileLogger?.Information($"[WORKLIST SPLIT] Total {allWorklistItems.Count} items split into {WorklistServer.WorklistsByModality.Count} modalities");
+            }
+            catch (Exception ex)
+            {
+                fileLogger?.Error($"[WORKLIST SPLIT] Error: {ex.Message}");
+                if (WorklistServer.WorklistsByModality == null)
+                    WorklistServer.WorklistsByModality = new Dictionary<string, List<WorklistItem>>();
+                WorklistServer.WorklistsByModality["CR"] = allWorklistItems;
+            }
+        }
         #region not supported methods but that are required because of the interface
 
         public async Task<DicomNDeleteResponse> OnNDeleteRequestAsync(DicomNDeleteRequest request)

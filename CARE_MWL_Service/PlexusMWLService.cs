@@ -25,6 +25,24 @@ namespace Plexus_MWL_Service
                 .CreateLogger();
         }
 
+        //protected override void OnStart(string[] args)
+        //{
+        //    try
+        //    {
+        //        string applicationPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+        //        _fileLogger.Information("MWL Service OnStart. ApplicationPath: " + applicationPath);
+        //        int backend = Convert.ToInt32(ConfigurationManager.AppSettings["backend"].ToString());
+        //        string mwlPort = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/mwlport");
+        //        string mwlAet = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/mwlaetitle");
+        //        _fileLogger.Information($"Starting MWL DICOM server on port {mwlPort}, AET={mwlAet}, backend={backend}");
+        //        WorklistServer.Start(Convert.ToInt32(mwlPort), mwlAet, backend);
+        //        _fileLogger.Information("WorklistServer.Start completed.");
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _fileLogger.Error("Starting MWL SCP Service failed: " + ex.ToString());
+        //    }
+        //}
         protected override void OnStart(string[] args)
         {
             try
@@ -32,11 +50,28 @@ namespace Plexus_MWL_Service
                 string applicationPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
                 _fileLogger.Information("MWL Service OnStart. ApplicationPath: " + applicationPath);
                 int backend = Convert.ToInt32(ConfigurationManager.AppSettings["backend"].ToString());
-                string mwlPort = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/mwlport");
-                string mwlAet = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/mwlaetitle");
-                _fileLogger.Information($"Starting MWL DICOM server on port {mwlPort}, AET={mwlAet}, backend={backend}");
-                WorklistServer.Start(Convert.ToInt32(mwlPort), mwlAet, backend);
-                _fileLogger.Information("WorklistServer.Start completed.");
+
+                // CHANGED: Launch BOTH emulators
+                int numberOfEmulators = Convert.ToInt32(ConfigurationManager.AppSettings["numberOfEmulators"] ?? "1");
+                _fileLogger.Information($"Starting {numberOfEmulators} emulator(s)...");
+
+                for (int i = 1; i <= numberOfEmulators; i++)
+                {
+                    string aeTitle = ConfigurationManager.AppSettings[$"emulator{i}_aeTitle"];
+                    string port = ConfigurationManager.AppSettings[$"emulator{i}_port"];
+
+                    if (string.IsNullOrEmpty(aeTitle) || string.IsNullOrEmpty(port))
+                    {
+                        _fileLogger.Warning($"Emulator {i} config missing, skipping");
+                        continue;
+                    }
+
+                    _fileLogger.Information($"Starting emulator {i}: port={port}, AET={aeTitle}");
+                    WorklistServer.Start(Convert.ToInt32(port), aeTitle, backend);
+                    _fileLogger.Information($"Emulator {i} started successfully");
+                }
+
+                _fileLogger.Information("All emulators started.");
             }
             catch (Exception ex)
             {

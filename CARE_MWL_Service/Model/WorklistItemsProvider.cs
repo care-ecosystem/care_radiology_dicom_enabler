@@ -182,7 +182,7 @@ namespace Worklist_SCP.Model
             return objWorkListItems;
         }
 
-        public List<WorklistItem> GetAllCurrentWorklistItemsFromCareAsync()
+        public List<WorklistItem> GetAllCurrentWorklistItemsFromCareAsync(string modality)
         {
             List<WorklistItem> objWorkListItems = new List<WorklistItem>();
             ucls_ReadWriteLog objReadWriteLog = new ucls_ReadWriteLog();
@@ -191,7 +191,7 @@ namespace Worklist_SCP.Model
             {
                 string errorString = string.Empty;
 
-                Task<string> task = GetCareWorklistDetailsAsync();
+                Task<string> task = GetCareWorklistDetailsAsync(modality);
                 string responseBody = task.Result;
 
                 CareWorklistResponse careResponse = JsonConvert.DeserializeObject<CareWorklistResponse>(responseBody);
@@ -246,7 +246,8 @@ namespace Worklist_SCP.Model
                         //mwlItem.PatientID = "10101";
                         //mwlItem.AccessionNumber = "26042022100448";
                         //mwlItem.Sex = "F";
-                        mwlItem.Modality = "CR";
+                        mwlItem.Modality = modality;
+
                         mwlItem.ExamDescription = item.service_request != null ? item.service_request.name ?? string.Empty : string.Empty;
                         mwlItem.HospitalName = item.facility != null ? item.facility.name ?? "CARE" : "CARE";
                         mwlItem.PerformingPhysician = string.Empty;
@@ -291,7 +292,7 @@ namespace Worklist_SCP.Model
         /// 
         /// </summary>
         /// <returns></returns>
-        private async Task<string> GetCareWorklistDetailsAsync()
+        private async Task<string> GetCareWorklistDetailsAsync(string modality)
         {
             string responseBody = string.Empty;
             ucls_ReadWriteLog objReadWriteLog = new ucls_ReadWriteLog();
@@ -300,7 +301,7 @@ namespace Worklist_SCP.Model
             {
                 string baseUrl = ConfigurationManager.AppSettings["careBaseUrl"].ToString();
                 string token = ConfigurationManager.AppSettings["careToken"].ToString();
-                string modality = ConfigurationManager.AppSettings["careModality"].ToString();
+                //string modality = ConfigurationManager.AppSettings["careModality"].ToString();
                 string fromDate = ConfigurationManager.AppSettings["careFromDate"].ToString();
                 string toDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
