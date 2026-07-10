@@ -214,7 +214,7 @@ namespace Worklist_SCP.Model
 
                         string accNum =  item.service_request.meta !=null ?item.service_request.meta.accession_number ?? string.Empty : string.Empty;
 
-                        mwlItem.AccessionNumber = accNum || result;// "5850ac6768c9407a95cbc7c5bb547d21"; 
+                        mwlItem.AccessionNumber = string.IsNullOrWhiteSpace(accNum) ? result : accNum;// "5850ac6768c9407a95cbc7c5bb547d21"; 
 
                         if (item.patient != null)
                         {
