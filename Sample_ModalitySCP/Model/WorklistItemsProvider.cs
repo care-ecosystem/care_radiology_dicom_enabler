@@ -535,7 +535,7 @@ namespace Worklist_SCP.Model
     {
         public string external_id { get; set; }
         public string id { get; set; }
-        public string name { get; set; }`
+        public string name { get; set; }
         public string address { get; set; }
         public string phone_number { get; set; }
         public string gender { get; set; }
