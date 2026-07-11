@@ -1,5 +1,11 @@
 name: Build CARE DICOM Enabler
 
+# Configurable Parameters (when triggered manually):
+#   - Build Configuration (Release/Debug)
+#   - Platform (Any CPU, x86, x64)
+#   - Parallel Build (enable/disable /m flag)
+#   - Include Artifact Upload (yes/no)
+
 on:
   push:
     branches:
@@ -7,6 +13,35 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:  # Manual trigger with configurable inputs
+    inputs:
+      build_configuration:
+        description: 'Build Configuration'
+        required: false
+        default: 'Release'
+        type: choice
+        options:
+          - Release
+          - Debug
+      build_platform:
+        description: 'Build Platform'
+        required: false
+        default: 'Any CPU'
+        type: choice
+        options:
+          - Any CPU
+          - x86
+          - x64
+      parallel_build:
+        description: 'Enable Parallel Build (/m flag)'
+        required: false
+        default: true
+        type: boolean
+      upload_artifact:
+        description: 'Upload Build Artifact'
+        required: false
+        default: true
+        type: boolean
 
 jobs:
   build:
@@ -25,27 +60,63 @@ jobs:
       - name: Restore NuGet packages
         run: nuget restore CARE_DICOM_Enabler.sln
 
-      - name: Build (Release)
+      - name: Display Build Configuration
+        shell: pwsh
         run: |
-          msbuild CARE_DICOM_Enabler.sln `
-            /p:Configuration=Release `
-            /p:Platform="Any CPU" `
-            /m
+          $config    = "${{ inputs.build_configuration || 'Release' }}"
+          $platform  = "${{ inputs.build_platform || 'Any CPU' }}"
+          $parallel  = "${{ inputs.parallel_build }}"
+          $artifact  = "${{ inputs.upload_artifact }}"
+
+          Write-Output "Build Configuration:"
+          Write-Output "  - Configuration: $config"
+          Write-Output "  - Platform: $platform"
+          Write-Output "  - Parallel Build: $(if ($parallel -eq 'true' -or $parallel -eq '') { 'Enabled' } else { 'Disabled' })"
+          Write-Output "  - Upload Artifact: $(if ($artifact -eq 'true' -or $artifact -eq '') { 'Yes' } else { 'No' })"
+
+      - name: Build Solution
+        shell: pwsh
+        run: |
+          $config   = "${{ inputs.build_configuration || 'Release' }}"
+          $platform = "${{ inputs.build_platform || 'Any CPU' }}"
+          $parallel = "${{ inputs.parallel_build }}"
+
+          # Build command
+          $cmd = "msbuild CARE_DICOM_Enabler.sln /p:Configuration=$config /p:Platform=`"$platform`""
+
+          # Add parallel flag if enabled (default true for push/PR, configurable for manual)
+          if ($parallel -eq 'true' -or $parallel -eq '') {
+            $cmd += " /m"
+          }
+
+          Write-Output "Executing: $cmd"
+          Invoke-Expression $cmd
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
 
       - name: Copy cfg and create logs dir
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path bin\Release\cfg
-          Copy-Item cfg\common.cfg bin\Release\cfg\common.cfg
-          New-Item -ItemType Directory -Force -Path bin\Release\logs
+          $config = "${{ inputs.build_configuration || 'Release' }}"
+          $binPath = "bin\$config"
+
+          Write-Output "Setting up configuration for $config build..."
+          New-Item -ItemType Directory -Force -Path "$binPath\cfg"
+          Copy-Item cfg\common.cfg "$binPath\cfg\common.cfg"
+          New-Item -ItemType Directory -Force -Path "$binPath\logs"
+          Write-Output "Configuration files and directories created in $binPath"
 
       - name: Set short SHA
         shell: pwsh
         run: echo "SHORT_SHA=$($env:GITHUB_SHA.Substring(0,7))" >> $env:GITHUB_ENV
 
-      - name: Upload EXE artifact
+      - name: Upload Build Artifact
+        if: ${{ inputs.upload_artifact != 'false' }}
         uses: actions/upload-artifact@v4
         with:
-          name: CARE_DICOM_Enabler-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_number }}-${{ env.SHORT_SHA }}
-          path: bin\Release\
+          name: CARE_DICOM_Enabler-${{ inputs.build_configuration || 'Release' }}-${{ inputs.build_platform || 'AnyCPU' }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_number }}-${{ env.SHORT_SHA }}
+          path: bin\${{ inputs.build_configuration || 'Release' }}\
           if-no-files-found: error
