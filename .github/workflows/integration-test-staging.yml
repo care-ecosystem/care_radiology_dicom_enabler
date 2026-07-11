@@ -1,16 +1,42 @@
 name: Integration Test - CARE Staging Server
 
-# Tests the DICOM services against the real CARE staging server:
-#   MWL SCP  (port 2008) - C-ECHO + C-FIND via CARE staging API
+# Tests the DICOM services against a real CARE server:
+#   MWL SCP  (port 2008) - C-ECHO + C-FIND via CARE API
 #   Store SCP (port 2007) - C-ECHO + C-STORE with a synthetic DICOM file
 #
-# This test connects to: https://staging.carehmis.dpdns.org
-# Uses real CARE API to fetch worklist items from staging environment
+# Configurable Parameters (when triggered manually):
+#   - CARE Server URL (default: https://staging.carehmis.dpdns.org)
+#   - API Token/Secret (default: RADOMSECRET)
+#   - Modality Filter (default: CT)
+#   - From Date (default: 2024-01-01 00:00:00)
+#
+# Uses real CARE API to fetch worklist items from the specified server
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_dispatch:  # Manual trigger with configurable inputs
+    inputs:
+      care_server_url:
+        description: 'CARE Server URL'
+        required: false
+        default: 'https://staging.carehmis.dpdns.org'
+        type: string
+      care_api_token:
+        description: 'CARE API Token/Secret'
+        required: false
+        default: 'RADOMSECRET'
+        type: string
+      care_modality:
+        description: 'DICOM Modality Filter (CT, CR, MR, etc.)'
+        required: false
+        default: 'CT'
+        type: string
+      care_from_date:
+        description: 'Worklist From Date (YYYY-MM-DD HH:MM:SS)'
+        required: false
+        default: '2024-01-01 00:00:00'
+        type: string
   schedule:
-    - cron: '0 2 * * *'  # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'  # Run daily at 2 AM UTC with default values
 
 jobs:
   dicom-staging-test:
@@ -23,21 +49,31 @@ jobs:
 
       # -- 2. Patch MWL App.config for CARE Staging ---------------------------
       # Switch backend=2 so MWL queries the real CARE staging API
+      # Uses workflow inputs if provided, otherwise defaults
       - name: Patch CARE_MWL_Service App.config for Staging
         shell: pwsh
         run: |
+          # Get values from inputs or use defaults
+          $serverUrl  = "${{ inputs.care_server_url || 'https://staging.carehmis.dpdns.org' }}"
+          $apiToken   = "${{ inputs.care_api_token || 'RADOMSECRET' }}"
+          $modality   = "${{ inputs.care_modality || 'CT' }}"
+          $fromDate   = "${{ inputs.care_from_date || '2024-01-01 00:00:00' }}"
+
           [xml]$xml = Get-Content "CARE_MWL_Service\App.config"
           $s = $xml.configuration.appSettings.add
           ($s | Where-Object key -eq "backend").value      = "2"
-          ($s | Where-Object key -eq "careBaseUrl").value  = "https://staging.carehmis.dpdns.org"
-          ($s | Where-Object key -eq "careToken").value    = "RADOMSECRET"
-          ($s | Where-Object key -eq "careModality").value = "CT"
-          ($s | Where-Object key -eq "careFromDate").value = "2024-01-01 00:00:00"
+          ($s | Where-Object key -eq "careBaseUrl").value  = $serverUrl
+          ($s | Where-Object key -eq "careToken").value    = $apiToken
+          ($s | Where-Object key -eq "careModality").value = $modality
+          ($s | Where-Object key -eq "careFromDate").value = $fromDate
           $xml.Save((Resolve-Path "CARE_MWL_Service\App.config").Path)
-          Write-Output "MWL App.config patched for CARE Staging"
+
+          Write-Output "MWL App.config patched for CARE Server"
           Write-Output "  - Backend: 2 (CARE Server)"
-          Write-Output "  - URL: https://staging.carehmis.dpdns.org"
-          Write-Output "  - Modality: CT"
+          Write-Output "  - URL: $serverUrl"
+          Write-Output "  - API Token: $($apiToken.Substring(0, [Math]::Min(4, $apiToken.Length)))***"
+          Write-Output "  - Modality: $modality"
+          Write-Output "  - From Date: $fromDate"
 
       # -- 3. Build service projects individually -----------------------------
       - name: Setup MSBuild
@@ -252,25 +288,34 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "C-ECHO StoreSCP FAILED (exit $LASTEXITCODE)"; exit 1 }
           Write-Output "PASS: C-ECHO to Store SCP port 2007"
 
-      - name: "Test - C-FIND worklist query (from CARE Staging)"
+      - name: "Test - C-FIND worklist query (from CARE Server)"
         shell: pwsh
         run: |
-          Write-Output "Querying worklist from CARE Staging server..."
-          Write-Output "This will fetch real worklist items from https://staging.carehmis.dpdns.org"
+          $serverUrl = "${{ inputs.care_server_url || 'https://staging.carehmis.dpdns.org' }}"
+          $modality  = "${{ inputs.care_modality || 'CT' }}"
+
+          Write-Output "Querying worklist from CARE Server..."
+          Write-Output "  - Server: $serverUrl"
+          Write-Output "  - Modality: $modality"
           $out = findscu -v -W `
             -k "0008,0050=" `
             -k "0010,0010=" `
             -k "0010,0020=" `
-            -k "0040,0100[0].0008,0060=CT" `
+            -k "0040,0100[0].0008,0060=$modality" `
             localhost 2008 -aet GITHUBCI -aec MODALITYSCP 2>&1
           Write-Output $out
           if ($LASTEXITCODE -ne 0) { Write-Error "C-FIND FAILED (exit $LASTEXITCODE)"; exit 1 }
-          Write-Output "PASS: C-FIND worklist query completed (fetched from CARE Staging)"
+          Write-Output "PASS: C-FIND worklist query completed (fetched from CARE Server)"
 
       - name: Validate CARE API Connection
         shell: pwsh
         run: |
-          Write-Output "Validating CARE Staging API connection..."
+          $serverUrl = "${{ inputs.care_server_url || 'https://staging.carehmis.dpdns.org' }}"
+          $modality  = "${{ inputs.care_modality || 'CT' }}"
+
+          Write-Output "Validating CARE API connection..."
+          Write-Output "  - Server: $serverUrl"
+          Write-Output "  - Modality: $modality"
           Start-Sleep -Seconds 2  # Wait for logs to flush
 
           # Check for CARE API errors in logs
@@ -300,12 +345,13 @@ jobs:
             # Check if items were fetched
             if ($content -match "Successfully fetched(?: and populated)? (\d+) worklist items") {
               $count = $matches[1]
+              $fromDate = "${{ inputs.care_from_date || '2024-01-01 00:00:00' }}"
               Write-Output "✓ CARE API Connection: Successfully fetched $count worklist items"
               if ([int]$count -eq 0) {
-                Write-Warning "⚠️  Warning: 0 worklist items returned from CARE Staging"
+                Write-Warning "⚠️  Warning: 0 worklist items returned from CARE Server"
                 Write-Output "This might indicate:"
-                Write-Output "  - No CT worklist items exist in the date range (2024-01-01 to now)"
-                Write-Output "  - The modality filter (CT) has no matches"
+                Write-Output "  - No $modality worklist items exist in the date range ($fromDate to now)"
+                Write-Output "  - The modality filter ($modality) has no matches"
                 Write-Output "  - Authentication succeeded but query returned no results"
               }
             }
@@ -314,7 +360,7 @@ jobs:
               Write-Output ""
               Write-Output "=== CARE API Error Details ==="
               $content | Select-String -Pattern "CARE Worklist|Error|403|Forbidden" | ForEach-Object { Write-Output $_.Line }
-              Write-Error "CARE Staging API connection validation FAILED"
+              Write-Error "CARE API connection validation FAILED"
               exit 1
             }
           } else {
@@ -366,8 +412,15 @@ jobs:
             Remove-Service $svc       -ErrorAction SilentlyContinue
           }
 
-          Write-Output "=== CARE Staging Integration Test Logs ==="
-          Write-Output "Server: https://staging.carehmis.dpdns.org"
+          $serverUrl = "${{ inputs.care_server_url || 'https://staging.carehmis.dpdns.org' }}"
+          $modality  = "${{ inputs.care_modality || 'CT' }}"
+          $fromDate  = "${{ inputs.care_from_date || '2024-01-01 00:00:00' }}"
+
+          Write-Output "=== CARE Server Integration Test Logs ==="
+          Write-Output "Test Configuration:"
+          Write-Output "  - Server URL: $serverUrl"
+          Write-Output "  - Modality: $modality"
+          Write-Output "  - From Date: $fromDate"
           Write-Output ""
 
           # Serilog writes to logs/*.txt next to each service EXE
