@@ -93,10 +93,10 @@ namespace Worklist_SCP
             switch (Convert.ToInt32(ConfigurationManager.AppSettings["backend"] ?? "2"))
             {
                 case 0:
-                    fileLogger.Information($"Fetching Records from Mock/Emulator (List)");
+                    fileLogger.Information($"Fetching Records from List");
                     var newWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItems();
                     WorklistServer.CurrentWorklistItems = newWorklistItems;
-                    fileLogger.Information($"✓ Successfully fetched {newWorklistItems?.Count ?? 0} worklist items from Mock/Emulator");
+                    fileLogger.Information($"✓ Successfully fetched {newWorklistItems?.Count ?? 0} worklist items from List");
                     break;
                 case 1:
                     fileLogger.Information($"Fetching Records from Plexus Database");
