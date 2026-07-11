@@ -267,6 +267,60 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "C-FIND FAILED (exit $LASTEXITCODE)"; exit 1 }
           Write-Output "PASS: C-FIND worklist query completed (fetched from CARE Staging)"
 
+      - name: Validate CARE API Connection
+        shell: pwsh
+        run: |
+          Write-Output "Validating CARE Staging API connection..."
+          Start-Sleep -Seconds 2  # Wait for logs to flush
+
+          # Check for CARE API errors in logs
+          $logPath = "bin\Release\logs\WorklistItems*.txt"
+          $hasError = $false
+          $errorMsg = ""
+
+          if (Test-Path $logPath) {
+            $logs = Get-ChildItem -Path $logPath | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            $content = Get-Content $logs.FullName -Raw
+
+            # Check for authentication errors
+            if ($content -match "403|Forbidden") {
+              $hasError = $true
+              $errorMsg = "CARE API returned 403 Forbidden - Authentication failed"
+              Write-Error "❌ $errorMsg"
+              Write-Output "Check your API token format and permissions"
+            }
+
+            # Check for other API errors
+            if ($content -match "Error calling CARE Worklist API") {
+              $hasError = $true
+              $errorMsg = "Failed to call CARE Worklist API"
+              Write-Error "❌ $errorMsg"
+            }
+
+            # Check if items were fetched
+            if ($content -match "Successfully fetched (\d+) worklist items") {
+              $count = $matches[1]
+              Write-Output "✓ CARE API Connection: Successfully fetched $count worklist items"
+              if ([int]$count -eq 0) {
+                Write-Warning "⚠️  Warning: 0 worklist items returned from CARE Staging"
+                Write-Output "This might indicate:"
+                Write-Output "  - No CT worklist items exist in the date range (2024-01-01 to now)"
+                Write-Output "  - The modality filter (CT) has no matches"
+                Write-Output "  - Authentication succeeded but query returned no results"
+              }
+            }
+
+            if ($hasError) {
+              Write-Output ""
+              Write-Output "=== CARE API Error Details ==="
+              $content | Select-String -Pattern "CARE Worklist|Error|403|Forbidden" | ForEach-Object { Write-Output $_.Line }
+              Write-Error "CARE Staging API connection validation FAILED"
+              exit 1
+            }
+          } else {
+            Write-Warning "WorklistItems log not found - cannot validate CARE API connection"
+          }
+
       - name: Build test DICOM file
         shell: pwsh
         run: |
