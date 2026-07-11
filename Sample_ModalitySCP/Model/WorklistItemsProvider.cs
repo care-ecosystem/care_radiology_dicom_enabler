@@ -512,12 +512,17 @@ namespace Worklist_SCP.Model
         public CarePatient patient { get; set; }
     }
 
+    public class CareServiceRequestMeta 
+    {
+         public string? accession_number { get; set; }
+    }
     public class CareServiceRequest
     {
         public string id { get; set; }
         public string external_id { get; set; }
         public string name { get; set; }
         public DateTime? date { get; set; }
+        public CareServiceRequestMeta? meta  { get; set; }
     }
 
     public class CareFacility

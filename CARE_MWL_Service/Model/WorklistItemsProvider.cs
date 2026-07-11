@@ -212,7 +212,9 @@ namespace Worklist_SCP.Model
 
                         string result = parts[parts.Length - 2] + parts[parts.Length - 1];
 
-                        mwlItem.AccessionNumber = result;// "5850ac6768c9407a95cbc7c5bb547d21"; 
+                        string accNum =  item.service_request.meta !=null ?item.service_request.meta.accession_number ?? string.Empty : string.Empty;
+
+                        mwlItem.AccessionNumber = string.IsNullOrWhiteSpace(accNum) ? result : accNum;// "5850ac6768c9407a95cbc7c5bb547d21"; 
 
                         if (item.patient != null)
                         {
@@ -245,7 +247,7 @@ namespace Worklist_SCP.Model
                         //mwlItem.PatientID = "10101";
                         //mwlItem.AccessionNumber = "26042022100448";
                         //mwlItem.Sex = "F";
-                        mwlItem.Modality = "CR";
+                        mwlItem.Modality = item.service_request != null ? item.service_request.modality ?? "CR" : "CR";
                         mwlItem.ExamDescription = item.service_request != null ? item.service_request.name ?? string.Empty : string.Empty;
                         mwlItem.HospitalName = item.facility != null ? item.facility.name ?? "CARE" : "CARE";
                         mwlItem.PerformingPhysician = string.Empty;
@@ -262,7 +264,11 @@ namespace Worklist_SCP.Model
                         objWorkListItems.Add(mwlItem);
                     }
 
-                    objReadWriteLog.WriteToLog("CARE worklist data fetched and populated successfully.", true);
+                    // Log detailed success information
+                    var accessionNumbers = objWorkListItems.Select(x => x.AccessionNumber).ToList();
+                    objReadWriteLog.WriteToLog($"✓ CARE Server: Successfully fetched and populated {objWorkListItems.Count} worklist items", true);
+                    objReadWriteLog.WriteToLog($"  - Accession Numbers: {string.Join(", ", accessionNumbers)}", true);
+                    objReadWriteLog.WriteToLog($"  - Facility: {objWorkListItems.FirstOrDefault()?.HospitalName ?? "N/A"}", true);
                 }
                 else
                 {
@@ -507,12 +513,18 @@ namespace Worklist_SCP.Model
         public CarePatient patient { get; set; }
     }
 
+    public class CareServiceRequestMeta 
+    {
+         public string? accession_number { get; set; }
+    }
     public class CareServiceRequest
     {
-        public string external_id { get; set; }
         public string id { get; set; }
+        public string external_id { get; set; }
         public string name { get; set; }
         public DateTime? date { get; set; }
+        public CareServiceRequestMeta? meta  { get; set; }
+        public string modality { get; set; }
     }
 
     public class CareFacility
