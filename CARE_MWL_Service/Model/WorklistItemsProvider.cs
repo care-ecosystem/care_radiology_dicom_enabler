@@ -212,7 +212,9 @@ namespace Worklist_SCP.Model
 
                         string result = parts[parts.Length - 2] + parts[parts.Length - 1];
 
-                        mwlItem.AccessionNumber = result;// "5850ac6768c9407a95cbc7c5bb547d21"; 
+                        string accNum =  item.service_request.meta !=null ?item.service_request.meta.accession_number ?? string.Empty : string.Empty;
+
+                        mwlItem.AccessionNumber = string.IsNullOrWhiteSpace(accNum) ? result : accNum;// "5850ac6768c9407a95cbc7c5bb547d21"; 
 
                         if (item.patient != null)
                         {
@@ -507,12 +509,17 @@ namespace Worklist_SCP.Model
         public CarePatient patient { get; set; }
     }
 
+    public class CareServiceRequestMeta 
+    {
+         public string? accession_number { get; set; }
+    }
     public class CareServiceRequest
     {
-        public string external_id { get; set; }
         public string id { get; set; }
+        public string external_id { get; set; }
         public string name { get; set; }
         public DateTime? date { get; set; }
+        public CareServiceRequestMeta? meta  { get; set; }
     }
 
     public class CareFacility
