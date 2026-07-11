@@ -93,34 +93,38 @@ namespace Worklist_SCP
             switch (Convert.ToInt32(ConfigurationManager.AppSettings["backend"] ?? "2"))
             {
                 case 0:
-                    fileLogger.Information($"Fetching Records from List");
+                    fileLogger.Information($"Fetching Records from Mock/Emulator (List)");
                     var newWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItems();
                     WorklistServer.CurrentWorklistItems = newWorklistItems;
+                    fileLogger.Information($"✓ Successfully fetched {newWorklistItems?.Count ?? 0} worklist items from Mock/Emulator");
                     break;
                 case 1:
                     fileLogger.Information($"Fetching Records from Plexus Database");
                     var dbWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromDB();
                     WorklistServer.CurrentWorklistItems = dbWorklistItems;
+                    fileLogger.Information($"✓ Successfully fetched {dbWorklistItems?.Count ?? 0} worklist items from Plexus Database");
                     break;
                 case 2:
-                    fileLogger.Information($"Fetching Records from Pellucid Database");
+                    fileLogger.Information($"Fetching Records from CARE Server API");
                     //var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromPellucidAsync();
                     var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync();
                     WorklistServer.CurrentWorklistItems = pellucidWorklistItems;
+                    fileLogger.Information($"✓ Successfully fetched {pellucidWorklistItems?.Count ?? 0} worklist items from CARE Server");
                     break;
 
             }
-            
+
+            int returnedItemsCount = 0;
             foreach (DicomDataset result in WorklistHandler.FilterWorklistItems(request.Dataset, WorklistServer.CurrentWorklistItems))
             {
                 // Insert Into Database
                 if (result.GetString(DicomTag.AccessionNumber) != null)
                     accessionNos.Add(result.GetString(DicomTag.AccessionNumber));
                 yield return new DicomCFindResponse(request, DicomStatus.Pending) { Dataset = result };
-
+                returnedItemsCount++;
             }
             UpdateStatusinDB(accessionNos);
-            fileLogger.Information($"C-FIND response sent to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
+            fileLogger.Information($"✓ C-FIND completed successfully: returned {returnedItemsCount} worklist items (Accession Numbers: {string.Join(", ", accessionNos)}) to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
             yield return new DicomCFindResponse(request, DicomStatus.Success);
             //}
         }

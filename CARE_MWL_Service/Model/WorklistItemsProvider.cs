@@ -264,7 +264,11 @@ namespace Worklist_SCP.Model
                         objWorkListItems.Add(mwlItem);
                     }
 
-                    objReadWriteLog.WriteToLog("CARE worklist data fetched and populated successfully.", true);
+                    // Log detailed success information
+                    var accessionNumbers = objWorkListItems.Select(x => x.AccessionNumber).ToList();
+                    objReadWriteLog.WriteToLog($"✓ CARE Server: Successfully fetched and populated {objWorkListItems.Count} worklist items", true);
+                    objReadWriteLog.WriteToLog($"  - Accession Numbers: {string.Join(", ", accessionNumbers)}", true);
+                    objReadWriteLog.WriteToLog($"  - Facility: {objWorkListItems.FirstOrDefault()?.HospitalName ?? "N/A"}", true);
                 }
                 else
                 {
