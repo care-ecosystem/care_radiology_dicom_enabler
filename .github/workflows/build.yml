@@ -1,10 +1,16 @@
 name: Build CARE DICOM Enabler
 
 # Configurable Parameters (when triggered manually):
-#   - Build Configuration (Release/Debug)
-#   - Platform (Any CPU, x86, x64)
-#   - Parallel Build (enable/disable /m flag)
-#   - Include Artifact Upload (yes/no)
+#   Build Settings:
+#     - Build Configuration (Release/Debug)
+#     - Platform (Any CPU, x86, x64)
+#     - Parallel Build (enable/disable /m flag)
+#     - Include Artifact Upload (yes/no)
+#   CARE Server Settings (baked into EXE):
+#     - CARE Server URL
+#     - CARE API Token
+#     - DICOM Modality Filter
+#     - Worklist From Date
 
 on:
   push:
@@ -42,6 +48,36 @@ on:
         required: false
         default: true
         type: boolean
+      care_server_url:
+        description: 'CARE Server URL (baked into EXE)'
+        required: false
+        default: ''
+        type: string
+      care_api_token:
+        description: 'CARE API Token (baked into EXE)'
+        required: false
+        default: ''
+        type: string
+      care_modality:
+        description: 'DICOM Modality Filter (baked into EXE)'
+        required: false
+        default: ''
+        type: string
+      care_from_date:
+        description: 'Worklist From Date (baked into EXE)'
+        required: false
+        default: ''
+        type: string
+      care_backend:
+        description: 'Backend Mode (0=List, 1=Database, 2=CARE Server)'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - ''
+          - '0'
+          - '1'
+          - '2'
 
 jobs:
   build:
@@ -50,6 +86,46 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Patch CARE_MWL_Service App.config (if CARE settings provided)
+        if: ${{ inputs.care_server_url != '' || inputs.care_api_token != '' || inputs.care_modality != '' || inputs.care_backend != '' }}
+        shell: pwsh
+        run: |
+          $serverUrl = "${{ inputs.care_server_url }}"
+          $apiToken  = "${{ inputs.care_api_token }}"
+          $modality  = "${{ inputs.care_modality }}"
+          $fromDate  = "${{ inputs.care_from_date }}"
+          $backend   = "${{ inputs.care_backend }}"
+
+          Write-Output "Patching CARE_MWL_Service App.config with custom CARE settings..."
+
+          [xml]$xml = Get-Content "CARE_MWL_Service\App.config"
+          $s = $xml.configuration.appSettings.add
+
+          # Only patch values that were provided (not empty)
+          if ($backend -ne '') {
+            ($s | Where-Object key -eq "backend").value = $backend
+            Write-Output "  - Backend: $backend"
+          }
+          if ($serverUrl -ne '') {
+            ($s | Where-Object key -eq "careBaseUrl").value = $serverUrl
+            Write-Output "  - Server URL: $serverUrl"
+          }
+          if ($apiToken -ne '') {
+            ($s | Where-Object key -eq "careToken").value = $apiToken
+            Write-Output "  - API Token: $($apiToken.Substring(0, [Math]::Min(4, $apiToken.Length)))***"
+          }
+          if ($modality -ne '') {
+            ($s | Where-Object key -eq "careModality").value = $modality
+            Write-Output "  - Modality: $modality"
+          }
+          if ($fromDate -ne '') {
+            ($s | Where-Object key -eq "careFromDate").value = $fromDate
+            Write-Output "  - From Date: $fromDate"
+          }
+
+          $xml.Save((Resolve-Path "CARE_MWL_Service\App.config").Path)
+          Write-Output "App.config patched successfully - settings baked into EXE"
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -67,12 +143,32 @@ jobs:
           $platform  = "${{ inputs.build_platform || 'Any CPU' }}"
           $parallel  = "${{ inputs.parallel_build }}"
           $artifact  = "${{ inputs.upload_artifact }}"
+          $serverUrl = "${{ inputs.care_server_url }}"
+          $modality  = "${{ inputs.care_modality }}"
+          $backend   = "${{ inputs.care_backend }}"
 
           Write-Output "Build Configuration:"
           Write-Output "  - Configuration: $config"
           Write-Output "  - Platform: $platform"
           Write-Output "  - Parallel Build: $(if ($parallel -eq 'true' -or $parallel -eq '') { 'Enabled' } else { 'Disabled' })"
           Write-Output "  - Upload Artifact: $(if ($artifact -eq 'true' -or $artifact -eq '') { 'Yes' } else { 'No' })"
+
+          if ($serverUrl -ne '' -or $modality -ne '' -or $backend -ne '') {
+            Write-Output ""
+            Write-Output "CARE Server Settings (baked into EXE):"
+            if ($backend -ne '') {
+              Write-Output "  - Backend Mode: $backend"
+            }
+            if ($serverUrl -ne '') {
+              Write-Output "  - Server URL: $serverUrl"
+            }
+            if ($modality -ne '') {
+              Write-Output "  - Modality: $modality"
+            }
+          } else {
+            Write-Output ""
+            Write-Output "CARE Server Settings: Using defaults from App.config"
+          }
 
       - name: Build Solution
         shell: pwsh
@@ -109,14 +205,37 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$binPath\logs"
           Write-Output "Configuration files and directories created in $binPath"
 
-      - name: Set short SHA
+      - name: Set short SHA and artifact suffix
         shell: pwsh
-        run: echo "SHORT_SHA=$($env:GITHUB_SHA.Substring(0,7))" >> $env:GITHUB_ENV
+        run: |
+          echo "SHORT_SHA=$($env:GITHUB_SHA.Substring(0,7))" >> $env:GITHUB_ENV
+
+          # Add suffix if CARE settings are customized
+          $serverUrl = "${{ inputs.care_server_url }}"
+          $modality  = "${{ inputs.care_modality }}"
+          $backend   = "${{ inputs.care_backend }}"
+
+          if ($serverUrl -ne '' -or $modality -ne '' -or $backend -ne '') {
+            $suffix = "-custom"
+            if ($modality -ne '') {
+              $suffix += "-$modality"
+            }
+            if ($backend -eq '2') {
+              $suffix += "-CARE"
+            } elseif ($backend -eq '1') {
+              $suffix += "-DB"
+            } elseif ($backend -eq '0') {
+              $suffix += "-List"
+            }
+            echo "ARTIFACT_SUFFIX=$suffix" >> $env:GITHUB_ENV
+          } else {
+            echo "ARTIFACT_SUFFIX=" >> $env:GITHUB_ENV
+          }
 
       - name: Upload Build Artifact
         if: ${{ inputs.upload_artifact != 'false' }}
         uses: actions/upload-artifact@v4
         with:
-          name: CARE_DICOM_Enabler-${{ inputs.build_configuration || 'Release' }}-${{ inputs.build_platform || 'AnyCPU' }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_number }}-${{ env.SHORT_SHA }}
+          name: CARE_DICOM_Enabler-${{ inputs.build_configuration || 'Release' }}-${{ inputs.build_platform || 'AnyCPU' }}${{ env.ARTIFACT_SUFFIX }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_number }}-${{ env.SHORT_SHA }}
           path: bin\${{ inputs.build_configuration || 'Release' }}\
           if-no-files-found: error
