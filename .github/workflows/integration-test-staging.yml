@@ -298,7 +298,7 @@ jobs:
             }
 
             # Check if items were fetched
-            if ($content -match "Successfully fetched (\d+) worklist items") {
+            if ($content -match "Successfully fetched(?: and populated)? (\d+) worklist items") {
               $count = $matches[1]
               Write-Output "✓ CARE API Connection: Successfully fetched $count worklist items"
               if ([int]$count -eq 0) {
