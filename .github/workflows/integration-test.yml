@@ -72,8 +72,8 @@ jobs:
         run: |
           $missing = $false
           $exes = @(
-            "CARE_MWL_Service\bin\Release\CARE_MWL_Service.exe",
-            "CARE_StoreSCP_Service\bin\Release\CARE_StoreSCP_Service.exe"
+            "bin\Release\CARE_MWL_Service.exe",
+            "bin\Release\CARE_StoreSCP_Service.exe"
           )
           foreach ($e in $exes) {
             if (Test-Path $e) {
@@ -184,14 +184,14 @@ jobs:
           $cfgXml += "<checkserver>false</checkserver>"
           $cfgXml += "</configurations>"
 
-          foreach ($d in @("CARE_MWL_Service\bin\Release\cfg", "CARE_StoreSCP_Service\bin\Release\cfg")) {
+          foreach ($d in @("bin\Release\cfg")) {
             New-Item -ItemType Directory -Force -Path $d | Out-Null
             Set-Content -Path "$d\common.cfg" -Value $cfgXml
             Write-Output "Created: $d\common.cfg"
           }
 
           # Pre-create SCP storage folder that PlexusStoreSCPService expects
-          New-Item -ItemType Directory -Force -Path "CARE_StoreSCP_Service\bin\Release\SCP" | Out-Null
+          New-Item -ItemType Directory -Force -Path "bin\Release\SCP" | Out-Null
           Write-Output "Created SCP folder"
 
       # -- 6. Start mock CARE backend -----------------------------------------
@@ -229,8 +229,8 @@ jobs:
         shell: pwsh
         run: |
           $svcs = @{
-            CAREMWLci      = (Resolve-Path "CARE_MWL_Service\bin\Release\CARE_MWL_Service.exe").Path
-            CAREStoreSCPci = (Resolve-Path "CARE_StoreSCP_Service\bin\Release\CARE_StoreSCP_Service.exe").Path
+            CAREMWLci      = (Resolve-Path "bin\Release\CARE_MWL_Service.exe").Path
+            CAREStoreSCPci = (Resolve-Path "bin\Release\CARE_StoreSCP_Service.exe").Path
           }
           foreach ($kv in $svcs.GetEnumerator()) {
             Write-Output "Installing $($kv.Key) -> $($kv.Value)"
@@ -322,7 +322,7 @@ jobs:
         run: |
           Start-Sleep -Seconds 5
           $total = 0
-          foreach ($p in @("CARE_StoreSCP_Service\bin\Release\SCP", "SCP")) {
+          foreach ($p in @("bin\Release\SCP", "SCP")) {
             if (Test-Path $p) {
               $files = Get-ChildItem -Path $p -Recurse -Filter "*.dcm"
               $total += $files.Count
@@ -352,12 +352,13 @@ jobs:
           if (Test-Path "$env:TEMP\mock_err.log") { Get-Content "$env:TEMP\mock_err.log" }
 
           # Serilog writes to logs/*.txt next to each service EXE
-          Get-ChildItem -Recurse -Filter "*.txt" -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match "\\logs\\" -and $_.FullName -notmatch "\\packages\\" } |
-            ForEach-Object {
-              Write-Output "=== $($_.FullName) (last 100 lines) ==="
-              Get-Content $_.FullName -Tail 100 -ErrorAction SilentlyContinue
-            }
+          if (Test-Path "bin\Release\logs") {
+            Get-ChildItem -Path "bin\Release\logs" -Filter "*.txt" -ErrorAction SilentlyContinue |
+              ForEach-Object {
+                Write-Output "=== $($_.FullName) (last 100 lines) ==="
+                Get-Content $_.FullName -Tail 100 -ErrorAction SilentlyContinue
+              }
+          }
 
       - name: Upload test artifacts
         if: always()
@@ -365,6 +366,6 @@ jobs:
         with:
           name: dicom-test-results-${{ github.run_number }}-${{ github.sha }}
           path: |
-            **/logs/*.txt
-            **/SCP/**/*.dcm
+            bin/Release/logs/*.txt
+            bin/Release/SCP/**/*.dcm
           if-no-files-found: ignore
