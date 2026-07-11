@@ -30,7 +30,7 @@ jobs:
           $s = $xml.configuration.appSettings.add
           ($s | Where-Object key -eq "backend").value      = "2"
           ($s | Where-Object key -eq "careBaseUrl").value  = "https://staging.carehmis.dpdns.org"
-          ($s | Where-Object key -eq "careToken").value    = "RADOMSECRET"
+          ($s | Where-Object key -eq "careToken").value    = "Bearer RADOMSECRET"
           ($s | Where-Object key -eq "careModality").value = "CT"
           ($s | Where-Object key -eq "careFromDate").value = "2024-01-01 00:00:00"
           $xml.Save((Resolve-Path "CARE_MWL_Service\App.config").Path)
