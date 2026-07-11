@@ -1,21 +1,19 @@
-name: Integration Test - CARE DICOM Enabler
+name: Integration Test - CARE Staging Server
 
-# Tests the three headless DICOM services end-to-end:
-#   MWL SCP  (port 2008) - C-ECHO + C-FIND via mock CARE backend
+# Tests the DICOM services against the real CARE staging server:
+#   MWL SCP  (port 2008) - C-ECHO + C-FIND via CARE staging API
 #   Store SCP (port 2007) - C-ECHO + C-STORE with a synthetic DICOM file
 #
-# Does NOT test the WinForms GUI (requires an interactive desktop session).
-# Support files: ci/schema.sql, ci/mock_backend.py, ci/test.dump
+# This test connects to: https://staging.carehmis.dpdns.org
+# Uses real CARE API to fetch worklist items from staging environment
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger only
+  schedule:
+    - cron: '0 2 * * *'  # Run daily at 2 AM UTC
 
 jobs:
-  dicom-integration-test:
+  dicom-staging-test:
     runs-on: windows-latest
 
     steps:
@@ -23,23 +21,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # -- 2. Patch MWL App.config BEFORE building ----------------------------
-      # Switch backend=3 so MWL queries our mock CARE API instead of MySQL.
-      - name: Patch CARE_MWL_Service App.config for CI
+      # -- 2. Patch MWL App.config for CARE Staging ---------------------------
+      # Switch backend=2 so MWL queries the real CARE staging API
+      - name: Patch CARE_MWL_Service App.config for Staging
         shell: pwsh
         run: |
           [xml]$xml = Get-Content "CARE_MWL_Service\App.config"
           $s = $xml.configuration.appSettings.add
-          ($s | Where-Object key -eq "backend").value      = "3"
-          ($s | Where-Object key -eq "careBaseUrl").value  = "http://localhost:9000"
-          ($s | Where-Object key -eq "careToken").value    = "ci-test-static-api-key"
-          ($s | Where-Object key -eq "careModality").value = ""
+          ($s | Where-Object key -eq "backend").value      = "2"
+          ($s | Where-Object key -eq "careBaseUrl").value  = "https://staging.carehmis.dpdns.org"
+          ($s | Where-Object key -eq "careToken").value    = "Bearer RADOMSECRET"
+          ($s | Where-Object key -eq "careModality").value = "CT"
+          ($s | Where-Object key -eq "careFromDate").value = "2024-01-01 00:00:00"
           $xml.Save((Resolve-Path "CARE_MWL_Service\App.config").Path)
-          Write-Output "MWL App.config patched"
+          Write-Output "MWL App.config patched for CARE Staging"
+          Write-Output "  - Backend: 2 (CARE Server)"
+          Write-Output "  - URL: https://staging.carehmis.dpdns.org"
+          Write-Output "  - Modality: CT"
 
       # -- 3. Build service projects individually -----------------------------
-      # Build each service project directly rather than the full solution to
-      # avoid failures in Sample/Test/GUI projects blocking the services.
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
@@ -90,8 +90,6 @@ jobs:
       - name: Start MySQL
         shell: pwsh
         run: |
-          # Decide whether MySQL Server is already installed by checking for a service.
-          # Do NOT use mysql.exe presence — that only proves the client is installed.
           $svcName = @("MySQL80", "MySQL84", "MySQL") |
             Where-Object { Get-Service $_ -ErrorAction SilentlyContinue } |
             Select-Object -First 1
@@ -110,7 +108,6 @@ jobs:
             Write-Output "Started: $svcName"
           }
 
-          # Find mysql.exe (path may differ after a fresh Chocolatey install)
           $candidates = @(
             "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe",
             "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe",
@@ -147,8 +144,6 @@ jobs:
           Write-Output "Schema applied"
 
       # -- 5. Generate cfg/common.cfg for each service ------------------------
-      # Replicates CARE.DAL/EnDcryption.cs:
-      #   AES-256-CBC, key = EncKey.encdeKey, IV = 16 zero bytes, PKCS7 padding
       - name: Generate encrypted cfg/common.cfg
         shell: pwsh
         run: |
@@ -194,43 +189,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path "bin\Release\SCP" | Out-Null
           Write-Output "Created SCP folder"
 
-      # -- 6. Start mock CARE backend -----------------------------------------
-      - name: Verify Python and start mock CARE backend
-        shell: pwsh
-        run: |
-          $pyPath = (Get-Command python -ErrorAction SilentlyContinue)?.Source
-          if (-not $pyPath) { Write-Error "python not found on PATH"; exit 1 }
-          Write-Output "Python: $pyPath"
-
-          $script = (Resolve-Path "ci\mock_backend.py").Path
-          $p = Start-Process -FilePath $pyPath -ArgumentList $script `
-               -PassThru -NoNewWindow `
-               -RedirectStandardOutput "$env:TEMP\mock.log" `
-               -RedirectStandardError  "$env:TEMP\mock_err.log"
-          echo "MOCK_PID=$($p.Id)" >> $env:GITHUB_ENV
-          Start-Sleep -Seconds 4
-
-          if ($p.HasExited) {
-            Write-Output "=== mock stdout ==="; Get-Content "$env:TEMP\mock.log" -ErrorAction SilentlyContinue
-            Write-Output "=== mock stderr ==="; Get-Content "$env:TEMP\mock_err.log" -ErrorAction SilentlyContinue
-            Write-Error "Mock backend exited immediately (code $($p.ExitCode))"; exit 1
-          }
-
-          try {
-            $r = Invoke-WebRequest "http://localhost:9000/" -UseBasicParsing -TimeoutSec 5
-            Write-Output "Mock backend responding: HTTP $($r.StatusCode)"
-          } catch {
-            Write-Error "Mock backend not responding: $_"; exit 1
-          }
+      # -- 6. No mock backend needed - we use the real CARE staging server ----
 
       # -- 7. Install and start Windows services ------------------------------
-      # New-Service is more reliable than sc.exe for path quoting in PowerShell.
       - name: Install DICOM services
         shell: pwsh
         run: |
           $svcs = @{
-            CAREMWLci      = (Resolve-Path "bin\Release\CARE_MWL_Service.exe").Path
-            CAREStoreSCPci = (Resolve-Path "bin\Release\CARE_StoreSCP_Service.exe").Path
+            CAREMWLStaging      = (Resolve-Path "bin\Release\CARE_MWL_Service.exe").Path
+            CAREStoreSCPStaging = (Resolve-Path "bin\Release\CARE_StoreSCP_Service.exe").Path
           }
           foreach ($kv in $svcs.GetEnumerator()) {
             Write-Output "Installing $($kv.Key) -> $($kv.Value)"
@@ -241,13 +208,13 @@ jobs:
       - name: Start DICOM services
         shell: pwsh
         run: |
-          foreach ($svc in @("CAREMWLci", "CAREStoreSCPci")) {
+          foreach ($svc in @("CAREMWLStaging", "CAREStoreSCPStaging")) {
             Write-Output "Starting $svc..."
             Start-Service $svc -ErrorAction Stop
             Write-Output "Start-Service $svc : OK"
           }
-          Write-Output "Waiting 12s for services to bind ports..."
-          Start-Sleep -Seconds 12
+          Write-Output "Waiting 15s for services to bind ports and connect to CARE staging..."
+          Start-Sleep -Seconds 15
 
           # Port status
           foreach ($port in @(2007, 2008)) {
@@ -256,7 +223,7 @@ jobs:
           }
 
           # Service state
-          foreach ($svc in @("CAREMWLci", "CAREStoreSCPci")) {
+          foreach ($svc in @("CAREMWLStaging", "CAREStoreSCPStaging")) {
             $state = (Get-Service $svc -ErrorAction SilentlyContinue).Status
             Write-Output "Service $svc : $state"
             if ($state -ne "Running") {
@@ -285,9 +252,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "C-ECHO StoreSCP FAILED (exit $LASTEXITCODE)"; exit 1 }
           Write-Output "PASS: C-ECHO to Store SCP port 2007"
 
-      - name: "Test - C-FIND worklist query"
+      - name: "Test - C-FIND worklist query (from CARE Staging)"
         shell: pwsh
         run: |
+          Write-Output "Querying worklist from CARE Staging server..."
+          Write-Output "This will fetch real worklist items from https://staging.carehmis.dpdns.org"
           $out = findscu -v -W `
             -k "0008,0050=" `
             -k "0010,0010=" `
@@ -296,23 +265,23 @@ jobs:
             localhost 2008 -aet GITHUBCI -aec MODALITYSCP 2>&1
           Write-Output $out
           if ($LASTEXITCODE -ne 0) { Write-Error "C-FIND FAILED (exit $LASTEXITCODE)"; exit 1 }
-          Write-Output "PASS: C-FIND worklist query completed"
+          Write-Output "PASS: C-FIND worklist query completed (fetched from CARE Staging)"
 
       - name: Build test DICOM file
         shell: pwsh
         run: |
-          dump2dcm "ci\test.dump" "$env:TEMP\ci_test.dcm"
-          if (-not (Test-Path "$env:TEMP\ci_test.dcm")) {
+          dump2dcm "ci\test.dump" "$env:TEMP\staging_test.dcm"
+          if (-not (Test-Path "$env:TEMP\staging_test.dcm")) {
             Write-Error "dump2dcm failed"; exit 1
           }
-          Write-Output "Test DICOM file: $((Get-Item "$env:TEMP\ci_test.dcm").Length) bytes"
+          Write-Output "Test DICOM file: $((Get-Item "$env:TEMP\staging_test.dcm").Length) bytes"
 
       - name: "Test - C-STORE send DICOM to Store SCP (port 2007)"
         shell: pwsh
         run: |
           $out = storescu -v localhost 2007 `
             -aet GITHUBCI -aec STORAGESCP `
-            "$env:TEMP\ci_test.dcm" 2>&1
+            "$env:TEMP\staging_test.dcm" 2>&1
           Write-Output $out
           if ($LASTEXITCODE -ne 0) { Write-Error "C-STORE FAILED (exit $LASTEXITCODE)"; exit 1 }
           Write-Output "PASS: C-STORE to Store SCP port 2007"
@@ -338,18 +307,14 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          foreach ($svc in @("CAREMWLci", "CAREStoreSCPci")) {
+          foreach ($svc in @("CAREMWLStaging", "CAREStoreSCPStaging")) {
             Stop-Service  $svc -Force -ErrorAction SilentlyContinue
             Remove-Service $svc       -ErrorAction SilentlyContinue
           }
-          if ($env:MOCK_PID) {
-            Stop-Process -Id $env:MOCK_PID -Force -ErrorAction SilentlyContinue
-          }
 
-          Write-Output "=== Mock backend stdout ==="
-          if (Test-Path "$env:TEMP\mock.log")     { Get-Content "$env:TEMP\mock.log" }
-          Write-Output "=== Mock backend stderr ==="
-          if (Test-Path "$env:TEMP\mock_err.log") { Get-Content "$env:TEMP\mock_err.log" }
+          Write-Output "=== CARE Staging Integration Test Logs ==="
+          Write-Output "Server: https://staging.carehmis.dpdns.org"
+          Write-Output ""
 
           # Serilog writes to logs/*.txt next to each service EXE
           if (Test-Path "bin\Release\logs") {
@@ -360,11 +325,23 @@ jobs:
               }
           }
 
+          Write-Output ""
+          Write-Output "=== Key Log Entries ==="
+          if (Test-Path "bin\Release\logs") {
+            Get-ChildItem -Path "bin\Release\logs" -Filter "*.txt" -ErrorAction SilentlyContinue |
+              ForEach-Object {
+                Write-Output "--- $($_.Name) ---"
+                Get-Content $_.FullName -ErrorAction SilentlyContinue |
+                  Select-String -Pattern "✓|Successfully fetched|C-FIND completed|DICOM Upload|CARE Server|Accession" |
+                  Select-Object -Last 20
+              }
+          }
+
       - name: Upload test artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dicom-test-results-${{ github.run_number }}-${{ github.sha }}
+          name: staging-test-results-${{ github.run_number }}-${{ github.sha }}
           path: |
             bin/Release/logs/*.txt
             bin/Release/SCP/**/*.dcm

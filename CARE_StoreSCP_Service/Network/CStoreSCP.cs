@@ -214,12 +214,21 @@ namespace Plexus_StoreSCP_Service.Network
 
             await request.File.SaveAsync(path);
 
+            string accessionNo = "N/A";
+            string patientId = "N/A";
             if (File.Exists(path))
             {
+                accessionNo = request.Dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, "N/A");
+                patientId = request.Dataset.GetSingleValueOrDefault(DicomTag.PatientID, "N/A");
                 ReadDICOMPushDB(path, studyUid, instUid);
             }
 
-            _fileLogger.Information($"File Saved Successfully and C-Store Response Sent for ImageInstance ID : " + instUid);
+            _fileLogger.Information($"✓ DICOM Upload Successful: File saved and database updated");
+            _fileLogger.Information($"  - Study UID: {studyUid}");
+            _fileLogger.Information($"  - Instance UID: {instUid}");
+            _fileLogger.Information($"  - Accession Number: {accessionNo}");
+            _fileLogger.Information($"  - Patient ID: {patientId}");
+            _fileLogger.Information($"  - File Path: {path}");
             return new DicomCStoreResponse(request, DicomStatus.Success);
         }
 
@@ -266,7 +275,11 @@ namespace Plexus_StoreSCP_Service.Network
                 }
                 else
                 {
-                    _fileLogger.Information($"Populate DB Successfull for StudyInstanceid {studyinstanceID} and ImageInstanceId {imageInstanceId}");
+                    _fileLogger.Information($"✓ Database Update Successful");
+                    _fileLogger.Information($"  - Patient ID: {patient_id}");
+                    _fileLogger.Information($"  - Accession No: {accession_no}");
+                    _fileLogger.Information($"  - Modality: {modality}");
+                    _fileLogger.Information($"  - Series: {seriesinstanceid}");
                 }
 
 
