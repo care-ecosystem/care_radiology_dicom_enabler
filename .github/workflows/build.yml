@@ -39,6 +39,14 @@ jobs:
           Copy-Item cfg\common.cfg bin\Release\cfg\common.cfg
           New-Item -ItemType Directory -Force -Path bin\Release\logs
 
+      - name: Copy Emulator initializer scripts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path bin\Release\Emulator
+          Copy-Item Emulator\Initializer.bat bin\Release\Emulator\Initializer.bat
+          Copy-Item Emulator\Initializer.ps1 bin\Release\Emulator\Initializer.ps1
+          Copy-Item Emulator\schema.sql bin\Release\Emulator\schema.sql
+
       - name: Set short SHA
         shell: pwsh
         run: echo "SHORT_SHA=$($env:GITHUB_SHA.Substring(0,7))" >> $env:GITHUB_ENV
