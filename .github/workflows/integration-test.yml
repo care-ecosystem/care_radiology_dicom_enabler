@@ -342,34 +342,31 @@ jobs:
           echo "MPPS_UID=$mppsUID" >> $env:GITHUB_ENV
 
           # Create MPPS N-CREATE dump file (procedure started)
-          $mppsCreate = @"
-# MPPS N-CREATE - Procedure Started
-(0000,0002) UI [1.2.840.10008.3.1.2.3.3]      # Affected SOP Class UID: ModalityPerformedProcedureStep
-(0000,0100) US [0x0100]                        # N-CREATE-RQ
-(0000,1000) UI [$mppsUID]                      # Affected SOP Instance UID
-(0000,0110) US [1]                             # Message ID
-(0040,0241) AE [MODALITYSCP]                   # Performed Station AE Title
-(0040,0242) SH [TestStation]                   # Performed Station Name
-(0040,0243) SH [Test Location]                 # Performed Location
-(0040,0244) DA [$(Get-Date -Format 'yyyyMMdd')] # Performed Procedure Step Start Date
-(0040,0245) TM [$(Get-Date -Format 'HHmmss')]   # Performed Procedure Step Start Time
-(0040,0252) CS [IN PROGRESS]                   # Performed Procedure Step Status
-(0040,0253) SH [200002]                        # Performed Procedure Step ID
-(0040,0254) LO [CT Scan Procedure]             # Performed Procedure Step Description
-(0040,0260) SQ                                 # Performed Protocol Code Sequence
-  (fffe,e000) na                               # Item
-    (0008,0100) SH [CT001]                     # Code Value
-    (0008,0102) SH [LOCAL]                     # Coding Scheme Designator
-    (0008,0104) LO [CT Protocol]               # Code Meaning
-  (fffe,e00d) na                               # Item Delimitation
-(fffe,e0dd) na                                 # Sequence Delimitation
-(0040,0270) SQ                                 # Scheduled Step Attributes Sequence
-  (fffe,e000) na                               # Item
-    (0040,0009) SH [200002]                    # Scheduled Procedure Step ID
-    (0008,0060) CS [CT]                        # Modality
-  (fffe,e00d) na                               # Item Delimitation
-(fffe,e0dd) na                                 # Sequence Delimitation
-"@
+          $mppsCreate = "(0000,0002) UI [1.2.840.10008.3.1.2.3.3]`n"
+          $mppsCreate += "(0000,0100) US [0x0100]`n"
+          $mppsCreate += "(0000,1000) UI [$mppsUID]`n"
+          $mppsCreate += "(0000,0110) US [1]`n"
+          $mppsCreate += "(0040,0241) AE [MODALITYSCP]`n"
+          $mppsCreate += "(0040,0242) SH [TestStation]`n"
+          $mppsCreate += "(0040,0243) SH [Test Location]`n"
+          $mppsCreate += "(0040,0244) DA [$(Get-Date -Format 'yyyyMMdd')]`n"
+          $mppsCreate += "(0040,0245) TM [$(Get-Date -Format 'HHmmss')]`n"
+          $mppsCreate += "(0040,0252) CS [IN PROGRESS]`n"
+          $mppsCreate += "(0040,0253) SH [200002]`n"
+          $mppsCreate += "(0040,0254) LO [CT Scan Procedure]`n"
+          $mppsCreate += "(0040,0260) SQ`n"
+          $mppsCreate += "  (fffe,e000) na`n"
+          $mppsCreate += "    (0008,0100) SH [CT001]`n"
+          $mppsCreate += "    (0008,0102) SH [LOCAL]`n"
+          $mppsCreate += "    (0008,0104) LO [CT Protocol]`n"
+          $mppsCreate += "  (fffe,e00d) na`n"
+          $mppsCreate += "(fffe,e0dd) na`n"
+          $mppsCreate += "(0040,0270) SQ`n"
+          $mppsCreate += "  (fffe,e000) na`n"
+          $mppsCreate += "    (0040,0009) SH [200002]`n"
+          $mppsCreate += "    (0008,0060) CS [CT]`n"
+          $mppsCreate += "  (fffe,e00d) na`n"
+          $mppsCreate += "(fffe,e0dd) na`n"
 
           Set-Content -Path "$env:TEMP\mpps_create.dump" -Value $mppsCreate
           dump2dcm "$env:TEMP\mpps_create.dump" "$env:TEMP\mpps_create.dcm"
@@ -390,29 +387,27 @@ jobs:
         shell: pwsh
         run: |
           # Create MPPS N-SET dump file (procedure completed)
-          $mppsSet = @"
-# MPPS N-SET - Procedure Completed
-(0000,0002) UI [1.2.840.10008.3.1.2.3.3]      # Requested SOP Class UID
-(0000,0100) US [0x0120]                        # N-SET-RQ
-(0000,1001) UI [$env:MPPS_UID]                 # Requested SOP Instance UID
-(0000,0110) US [2]                             # Message ID
-(0040,0244) DA [$(Get-Date -Format 'yyyyMMdd')] # Performed Procedure Step Start Date
-(0040,0245) TM [$(Get-Date -Format 'HHmmss')]   # Performed Procedure Step Start Time
-(0040,0250) DA [$(Get-Date -Format 'yyyyMMdd')] # Performed Procedure Step End Date
-(0040,0251) TM [$(Get-Date -Format 'HHmmss')]   # Performed Procedure Step End Time
-(0040,0252) CS [COMPLETED]                     # Performed Procedure Step Status
-(0040,0340) SQ                                 # Performed Series Sequence
-  (fffe,e000) na                               # Item
-    (0020,000e) UI [1.2.826.0.1.3680043.8.498.12345678] # Series Instance UID
-    (0020,0011) IS [1]                         # Series Number
-    (0008,0021) DA [$(Get-Date -Format 'yyyyMMdd')] # Series Date
-    (0008,0031) TM [$(Get-Date -Format 'HHmmss')]   # Series Time
-    (0008,103e) LO [Test CT Series]            # Series Description
-    (0008,0060) CS [CT]                        # Modality
-    (0008,0070) LO [TEST]                      # Manufacturer
-  (fffe,e00d) na                               # Item Delimitation
-(fffe,e0dd) na                                 # Sequence Delimitation
-"@
+          # Note: Using @' instead of @" because we need to expand $env:MPPS_UID later
+          $mppsSet = "(0000,0002) UI [1.2.840.10008.3.1.2.3.3]`n"
+          $mppsSet += "(0000,0100) US [0x0120]`n"
+          $mppsSet += "(0000,1001) UI [$env:MPPS_UID]`n"
+          $mppsSet += "(0000,0110) US [2]`n"
+          $mppsSet += "(0040,0244) DA [$(Get-Date -Format 'yyyyMMdd')]`n"
+          $mppsSet += "(0040,0245) TM [$(Get-Date -Format 'HHmmss')]`n"
+          $mppsSet += "(0040,0250) DA [$(Get-Date -Format 'yyyyMMdd')]`n"
+          $mppsSet += "(0040,0251) TM [$(Get-Date -Format 'HHmmss')]`n"
+          $mppsSet += "(0040,0252) CS [COMPLETED]`n"
+          $mppsSet += "(0040,0340) SQ`n"
+          $mppsSet += "  (fffe,e000) na`n"
+          $mppsSet += "    (0020,000e) UI [1.2.826.0.1.3680043.8.498.12345678]`n"
+          $mppsSet += "    (0020,0011) IS [1]`n"
+          $mppsSet += "    (0008,0021) DA [$(Get-Date -Format 'yyyyMMdd')]`n"
+          $mppsSet += "    (0008,0031) TM [$(Get-Date -Format 'HHmmss')]`n"
+          $mppsSet += "    (0008,103e) LO [Test CT Series]`n"
+          $mppsSet += "    (0008,0060) CS [CT]`n"
+          $mppsSet += "    (0008,0070) LO [TEST]`n"
+          $mppsSet += "  (fffe,e00d) na`n"
+          $mppsSet += "(fffe,e0dd) na`n"
 
           Set-Content -Path "$env:TEMP\mpps_set.dump" -Value $mppsSet
           dump2dcm "$env:TEMP\mpps_set.dump" "$env:TEMP\mpps_set.dcm"

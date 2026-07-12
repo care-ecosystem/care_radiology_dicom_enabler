@@ -408,35 +408,33 @@ jobs:
 
           # Create MPPS N-CREATE dump file (procedure started)
           # Using ProcedureStepID=200002 which matches the worklist items
-          $mppsCreate = @"
-# MPPS N-CREATE - Procedure Started
-(0000,0002) UI [1.2.840.10008.3.1.2.3.3]      # Affected SOP Class UID: ModalityPerformedProcedureStep
-(0000,0100) US [0x0100]                        # N-CREATE-RQ
-(0000,1000) UI [$mppsUID]                      # Affected SOP Instance UID
-(0000,0110) US [1]                             # Message ID
-(0040,0241) AE [MODALITYSCP]                   # Performed Station AE Title
-(0040,0242) SH [CI-TestStation]                # Performed Station Name
-(0040,0243) SH [GitHub Actions CI]             # Performed Location
-(0040,0244) DA [$(Get-Date -Format 'yyyyMMdd')] # Performed Procedure Step Start Date
-(0040,0245) TM [$(Get-Date -Format 'HHmmss')]   # Performed Procedure Step Start Time
-(0040,0252) CS [IN PROGRESS]                   # Performed Procedure Step Status
-(0040,0253) SH [200002]                        # Performed Procedure Step ID (matches worklist)
-(0040,0254) LO [CI E2E Test - $accessionNo]    # Performed Procedure Step Description
-(0040,0260) SQ                                 # Performed Protocol Code Sequence
-  (fffe,e000) na                               # Item
-    (0008,0100) SH [CT-E2E]                    # Code Value
-    (0008,0102) SH [LOCAL]                     # Coding Scheme Designator
-    (0008,0104) LO [E2E Test Protocol]         # Code Meaning
-  (fffe,e00d) na                               # Item Delimitation
-(fffe,e0dd) na                                 # Sequence Delimitation
-(0040,0270) SQ                                 # Scheduled Step Attributes Sequence
-  (fffe,e000) na                               # Item
-    (0040,0009) SH [200002]                    # Scheduled Procedure Step ID (matches worklist)
-    (0008,0060) CS [CT]                        # Modality
-    (0008,0050) SH [$accessionNo]              # Accession Number
-  (fffe,e00d) na                               # Item Delimitation
-(fffe,e0dd) na                                 # Sequence Delimitation
-"@
+          $mppsCreate = "# MPPS N-CREATE - Procedure Started``n"
+          $mppsCreate += "(0000,0002) UI [1.2.840.10008.3.1.2.3.3]``n"
+          $mppsCreate += "(0000,0100) US [0x0100]``n"
+          $mppsCreate += "(0000,1000) UI [$mppsUID]``n"
+          $mppsCreate += "(0000,0110) US [1]``n"
+          $mppsCreate += "(0040,0241) AE [MODALITYSCP]``n"
+          $mppsCreate += "(0040,0242) SH [CI-TestStation]``n"
+          $mppsCreate += "(0040,0243) SH [GitHub Actions CI]``n"
+          $mppsCreate += "(0040,0244) DA [$(Get-Date -Format 'yyyyMMdd')]``n"
+          $mppsCreate += "(0040,0245) TM [$(Get-Date -Format 'HHmmss')]``n"
+          $mppsCreate += "(0040,0252) CS [IN PROGRESS]``n"
+          $mppsCreate += "(0040,0253) SH [200002]``n"
+          $mppsCreate += "(0040,0254) LO [CI E2E Test - $accessionNo]``n"
+          $mppsCreate += "(0040,0260) SQ``n"
+          $mppsCreate += "  (fffe,e000) na``n"
+          $mppsCreate += "    (0008,0100) SH [CT-E2E]``n"
+          $mppsCreate += "    (0008,0102) SH [LOCAL]``n"
+          $mppsCreate += "    (0008,0104) LO [E2E Test Protocol]``n"
+          $mppsCreate += "  (fffe,e00d) na``n"
+          $mppsCreate += "(fffe,e0dd) na``n"
+          $mppsCreate += "(0040,0270) SQ``n"
+          $mppsCreate += "  (fffe,e000) na``n"
+          $mppsCreate += "    (0040,0009) SH [200002]``n"
+          $mppsCreate += "    (0008,0060) CS [CT]``n"
+          $mppsCreate += "    (0008,0050) SH [$accessionNo]``n"
+          $mppsCreate += "  (fffe,e00d) na``n"
+          $mppsCreate += "(fffe,e0dd) na``n"
 
           Set-Content -Path "$env:TEMP\mpps_create.dump" -Value $mppsCreate
           dump2dcm "$env:TEMP\mpps_create.dump" "$env:TEMP\mpps_create.dcm"
@@ -472,58 +470,56 @@ jobs:
           $seriesUID = "$studyUID.1"
           $instanceUID = "$seriesUID.1"
 
-          $dicomDump = @"
-# DICOM CT Image with Real Accession Number from CARE Worklist
-(0002,0001) OB 00\01
-(0002,0002) UI =CTImageStorage
-(0002,0003) UI [$instanceUID]
-(0002,0010) UI =LittleEndianExplicit
-(0002,0012) UI [1.2.826.0.1.3680043.8.498.1]
-(0002,0013) SH [CARE-CI-TEST]
-(0008,0005) CS [ISO_IR 100]
-(0008,0008) CS [ORIGINAL\PRIMARY\AXIAL]
-(0008,0016) UI =CTImageStorage
-(0008,0018) UI [$instanceUID]
-(0008,0020) DA [$(Get-Date -Format 'yyyyMMdd')]
-(0008,0021) DA [$(Get-Date -Format 'yyyyMMdd')]
-(0008,0022) DA [$(Get-Date -Format 'yyyyMMdd')]
-(0008,0023) DA [$(Get-Date -Format 'yyyyMMdd')]
-(0008,0030) TM [$(Get-Date -Format 'HHmmss')]
-(0008,0031) TM [$(Get-Date -Format 'HHmmss')]
-(0008,0032) TM [$(Get-Date -Format 'HHmmss')]
-(0008,0033) TM [$(Get-Date -Format 'HHmmss')]
-(0008,0050) SH [$accessionNo]
-(0008,0060) CS [CT]
-(0008,0070) LO [CARE-CI]
-(0008,0090) PN [Referring^Physician]
-(0010,0010) PN [Test^Patient^CI]
-(0010,0020) LO [$patientId]
-(0010,0030) DA [19800101]
-(0010,0040) CS [M]
-(0018,0015) CS [CHEST]
-(0018,0050) DS [5.0]
-(0018,0060) DS [120]
-(0018,1030) LO [E2E Integration Test]
-(0020,000d) UI [$studyUID]
-(0020,000e) UI [$seriesUID]
-(0020,0010) SH [STUDY001]
-(0020,0011) IS [1]
-(0020,0013) IS [1]
-(0020,0032) DS [0\0\0]
-(0020,0037) DS [1\0\0\0\1\0]
-(0020,0052) UI [$studyUID.999]
-(0020,1041) DS [100.0]
-(0028,0002) US 1
-(0028,0004) CS [MONOCHROME2]
-(0028,0010) US 512
-(0028,0011) US 512
-(0028,0030) DS [0.5\0.5]
-(0028,0100) US 16
-(0028,0101) US 16
-(0028,0102) US 15
-(0028,0103) US 0
-(7fe0,0010) OW 0000\0000\0000\0000
-"@
+          $dicomDump = "# DICOM CT Image with Real Accession Number from CARE Worklist``n"
+          $dicomDump += "(0002,0001) OB 00\\01``n"
+          $dicomDump += "(0002,0002) UI =CTImageStorage``n"
+          $dicomDump += "(0002,0003) UI [$instanceUID]``n"
+          $dicomDump += "(0002,0010) UI =LittleEndianExplicit``n"
+          $dicomDump += "(0002,0012) UI [1.2.826.0.1.3680043.8.498.1]``n"
+          $dicomDump += "(0002,0013) SH [CARE-CI-TEST]``n"
+          $dicomDump += "(0008,0005) CS [ISO_IR 100]``n"
+          $dicomDump += "(0008,0008) CS [ORIGINAL\\PRIMARY\\AXIAL]``n"
+          $dicomDump += "(0008,0016) UI =CTImageStorage``n"
+          $dicomDump += "(0008,0018) UI [$instanceUID]``n"
+          $dicomDump += "(0008,0020) DA [$(Get-Date -Format 'yyyyMMdd')]``n"
+          $dicomDump += "(0008,0021) DA [$(Get-Date -Format 'yyyyMMdd')]``n"
+          $dicomDump += "(0008,0022) DA [$(Get-Date -Format 'yyyyMMdd')]``n"
+          $dicomDump += "(0008,0023) DA [$(Get-Date -Format 'yyyyMMdd')]``n"
+          $dicomDump += "(0008,0030) TM [$(Get-Date -Format 'HHmmss')]``n"
+          $dicomDump += "(0008,0031) TM [$(Get-Date -Format 'HHmmss')]``n"
+          $dicomDump += "(0008,0032) TM [$(Get-Date -Format 'HHmmss')]``n"
+          $dicomDump += "(0008,0033) TM [$(Get-Date -Format 'HHmmss')]``n"
+          $dicomDump += "(0008,0050) SH [$accessionNo]``n"
+          $dicomDump += "(0008,0060) CS [CT]``n"
+          $dicomDump += "(0008,0070) LO [CARE-CI]``n"
+          $dicomDump += "(0008,0090) PN [Referring^Physician]``n"
+          $dicomDump += "(0010,0010) PN [Test^Patient^CI]``n"
+          $dicomDump += "(0010,0020) LO [$patientId]``n"
+          $dicomDump += "(0010,0030) DA [19800101]``n"
+          $dicomDump += "(0010,0040) CS [M]``n"
+          $dicomDump += "(0018,0015) CS [CHEST]``n"
+          $dicomDump += "(0018,0050) DS [5.0]``n"
+          $dicomDump += "(0018,0060) DS [120]``n"
+          $dicomDump += "(0018,1030) LO [E2E Integration Test]``n"
+          $dicomDump += "(0020,000d) UI [$studyUID]``n"
+          $dicomDump += "(0020,000e) UI [$seriesUID]``n"
+          $dicomDump += "(0020,0010) SH [STUDY001]``n"
+          $dicomDump += "(0020,0011) IS [1]``n"
+          $dicomDump += "(0020,0013) IS [1]``n"
+          $dicomDump += "(0020,0032) DS [0\\0\\0]``n"
+          $dicomDump += "(0020,0037) DS [1\\0\\0\\0\\1\\0]``n"
+          $dicomDump += "(0020,0052) UI [$studyUID.999]``n"
+          $dicomDump += "(0020,1041) DS [100.0]``n"
+          $dicomDump += "(0028,0002) US 1``n"
+          $dicomDump += "(0028,0004) CS [MONOCHROME2]``n"
+          $dicomDump += "(0028,0010) US 512``n"
+          $dicomDump += "(0028,0011) US 512``n"
+          $dicomDump += "(0028,0030) DS [0.5\\0.5]``n"
+          $dicomDump += "(0028,0100) US 16``n"
+          $dicomDump += "(0028,0101) US 16``n"
+          $dicomDump += "(0028,0102) US 15``n"
+          $dicomDump += "(0028,0103) US 0``n"
+          $dicomDump += "(7fe0,0010) OW 0000\\0000\\0000\\0000``n"
 
           Set-Content -Path "$env:TEMP\e2e_test.dump" -Value $dicomDump
           dump2dcm "$env:TEMP\e2e_test.dump" "$env:TEMP\e2e_test.dcm"
@@ -558,29 +554,27 @@ jobs:
           Write-Output "  - Accession Number: $accessionNo"
 
           # Create MPPS N-SET dump file (procedure completed)
-          $mppsSet = @"
-# MPPS N-SET - Procedure Completed
-(0000,0002) UI [1.2.840.10008.3.1.2.3.3]      # Requested SOP Class UID
-(0000,0100) US [0x0120]                        # N-SET-RQ
-(0000,1001) UI [$env:MPPS_UID]                 # Requested SOP Instance UID
-(0000,0110) US [2]                             # Message ID
-(0040,0244) DA [$(Get-Date -Format 'yyyyMMdd')] # Performed Procedure Step Start Date
-(0040,0245) TM [$(Get-Date -Format 'HHmmss')]   # Performed Procedure Step Start Time
-(0040,0250) DA [$(Get-Date -Format 'yyyyMMdd')] # Performed Procedure Step End Date
-(0040,0251) TM [$(Get-Date -Format 'HHmmss')]   # Performed Procedure Step End Time
-(0040,0252) CS [COMPLETED]                     # Performed Procedure Step Status
-(0040,0340) SQ                                 # Performed Series Sequence
-  (fffe,e000) na                               # Item
-    (0020,000e) UI [1.2.826.0.1.3680043.8.498.12345678] # Series Instance UID
-    (0020,0011) IS [1]                         # Series Number
-    (0008,0021) DA [$(Get-Date -Format 'yyyyMMdd')] # Series Date
-    (0008,0031) TM [$(Get-Date -Format 'HHmmss')]   # Series Time
-    (0008,103e) LO [Test CT Series]            # Series Description
-    (0008,0060) CS [CT]                        # Modality
-    (0008,0070) LO [TEST]                      # Manufacturer
-  (fffe,e00d) na                               # Item Delimitation
-(fffe,e0dd) na                                 # Sequence Delimitation
-"@
+          $mppsSet = "# MPPS N-SET - Procedure Completed``n"
+          $mppsSet += "(0000,0002) UI [1.2.840.10008.3.1.2.3.3]``n"
+          $mppsSet += "(0000,0100) US [0x0120]``n"
+          $mppsSet += "(0000,1001) UI [$env:MPPS_UID]``n"
+          $mppsSet += "(0000,0110) US [2]``n"
+          $mppsSet += "(0040,0244) DA [$(Get-Date -Format 'yyyyMMdd')]``n"
+          $mppsSet += "(0040,0245) TM [$(Get-Date -Format 'HHmmss')]``n"
+          $mppsSet += "(0040,0250) DA [$(Get-Date -Format 'yyyyMMdd')]``n"
+          $mppsSet += "(0040,0251) TM [$(Get-Date -Format 'HHmmss')]``n"
+          $mppsSet += "(0040,0252) CS [COMPLETED]``n"
+          $mppsSet += "(0040,0340) SQ``n"
+          $mppsSet += "  (fffe,e000) na``n"
+          $mppsSet += "    (0020,000e) UI [1.2.826.0.1.3680043.8.498.12345678]``n"
+          $mppsSet += "    (0020,0011) IS [1]``n"
+          $mppsSet += "    (0008,0021) DA [$(Get-Date -Format 'yyyyMMdd')]``n"
+          $mppsSet += "    (0008,0031) TM [$(Get-Date -Format 'HHmmss')]``n"
+          $mppsSet += "    (0008,103e) LO [Test CT Series]``n"
+          $mppsSet += "    (0008,0060) CS [CT]``n"
+          $mppsSet += "    (0008,0070) LO [TEST]``n"
+          $mppsSet += "  (fffe,e00d) na``n"
+          $mppsSet += "(fffe,e0dd) na``n"
 
           Set-Content -Path "$env:TEMP\mpps_set.dump" -Value $mppsSet
           dump2dcm "$env:TEMP\mpps_set.dump" "$env:TEMP\mpps_set.dcm"
