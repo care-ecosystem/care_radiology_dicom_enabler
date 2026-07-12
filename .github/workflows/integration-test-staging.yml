@@ -307,13 +307,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "C-FIND FAILED (exit $LASTEXITCODE)"; exit 1 }
           Write-Output "PASS: C-FIND worklist query completed (fetched from CARE Server)"
 
-      - name: Validate CARE API Connection
+      - name: Validate CARE API Connection and Extract Worklist Item
         shell: pwsh
         run: |
           $serverUrl = "${{ inputs.care_server_url || 'https://staging.carehmis.dpdns.org' }}"
           $modality  = "${{ inputs.care_modality || 'CT' }}"
 
-          Write-Output "Validating CARE API connection..."
+          Write-Output "Validating CARE API connection and extracting worklist item..."
           Write-Output "  - Server: $serverUrl"
           Write-Output "  - Modality: $modality"
           Start-Sleep -Seconds 2  # Wait for logs to flush
@@ -322,6 +322,7 @@ jobs:
           $logPath = "bin\Release\logs\WorklistItems*.txt"
           $hasError = $false
           $errorMsg = ""
+          $accessionNumber = ""
 
           if (Test-Path $logPath) {
             $logs = Get-ChildItem -Path $logPath | Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -342,17 +343,33 @@ jobs:
               Write-Error "❌ $errorMsg"
             }
 
-            # Check if items were fetched
+            # Check if items were fetched and extract accession numbers
             if ($content -match "Successfully fetched(?: and populated)? (\d+) worklist items") {
               $count = $matches[1]
               $fromDate = "${{ inputs.care_from_date || '2024-01-01 00:00:00' }}"
               Write-Output "✓ CARE API Connection: Successfully fetched $count worklist items"
+
+              # Extract accession numbers from log
+              if ($content -match "Accession Numbers?: ([^\r\n]+)") {
+                $accNos = $matches[1].Trim()
+                Write-Output "  - Accession Numbers: $accNos"
+
+                # Get first accession number for testing
+                $accArray = $accNos -split ',\s*'
+                if ($accArray.Length -gt 0) {
+                  $accessionNumber = $accArray[0].Trim()
+                  Write-Output "  - Selected for E2E test: $accessionNumber"
+                  echo "TEST_ACCESSION_NO=$accessionNumber" >> $env:GITHUB_ENV
+                }
+              }
+
               if ([int]$count -eq 0) {
                 Write-Warning "⚠️  Warning: 0 worklist items returned from CARE Server"
                 Write-Output "This might indicate:"
                 Write-Output "  - No $modality worklist items exist in the date range ($fromDate to now)"
                 Write-Output "  - The modality filter ($modality) has no matches"
                 Write-Output "  - Authentication succeeded but query returned no results"
+                Write-Output "MPPS and DICOM upload tests will use synthetic data"
               }
             }
 
@@ -367,50 +384,30 @@ jobs:
             Write-Warning "WorklistItems log not found - cannot validate CARE API connection"
           }
 
-      - name: Build test DICOM file
+      - name: "Complete E2E Test - Step 1: Send MPPS N-CREATE (Scan Started)"
         shell: pwsh
         run: |
-          dump2dcm "ci\test.dump" "$env:TEMP\staging_test.dcm"
-          if (-not (Test-Path "$env:TEMP\staging_test.dcm")) {
-            Write-Error "dump2dcm failed"; exit 1
-          }
-          Write-Output "Test DICOM file: $((Get-Item "$env:TEMP\staging_test.dcm").Length) bytes"
+          Write-Output "=== COMPLETE END-TO-END WORKFLOW TEST ==="
+          Write-Output "This test simulates a complete radiology workflow:"
+          Write-Output "  1. MPPS N-CREATE → Scan Started webhook to CARE"
+          Write-Output "  2. C-STORE → Upload DICOM images"
+          Write-Output "  3. MPPS N-SET → Scan Completed webhook to CARE"
+          Write-Output ""
 
-      - name: "Test - C-STORE send DICOM to Store SCP (port 2007)"
-        shell: pwsh
-        run: |
-          $out = storescu -v localhost 2007 `
-            -aet GITHUBCI -aec STORAGESCP `
-            "$env:TEMP\staging_test.dcm" 2>&1
-          Write-Output $out
-          if ($LASTEXITCODE -ne 0) { Write-Error "C-STORE FAILED (exit $LASTEXITCODE)"; exit 1 }
-          Write-Output "PASS: C-STORE to Store SCP port 2007"
+          # Use real accession number from CARE worklist if available
+          $accessionNo = if ($env:TEST_ACCESSION_NO) { $env:TEST_ACCESSION_NO } else { "TEST-$(Get-Date -Format 'yyyyMMddHHmmss')" }
+          $patientId = "CI-PATIENT-$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
 
-      - name: Verify DICOM file received in SCP folder
-        shell: pwsh
-        run: |
-          Start-Sleep -Seconds 5
-          $total = 0
-          foreach ($p in @("bin\Release\SCP", "SCP")) {
-            if (Test-Path $p) {
-              $files = Get-ChildItem -Path $p -Recurse -Filter "*.dcm"
-              $total += $files.Count
-              Write-Output "SCP folder '$p': $($files.Count) file(s)"
-              $files | ForEach-Object { Write-Output "  $($_.FullName)" }
-            }
-          }
-          if ($total -gt 0) { Write-Output "PASS: $total DICOM file(s) received and stored" }
-          else              { Write-Warning "No .dcm files found in SCP folder(s)" }
+          Write-Output "Using Accession Number: $accessionNo"
+          echo "WORKFLOW_ACCESSION_NO=$accessionNo" >> $env:GITHUB_ENV
+          echo "WORKFLOW_PATIENT_ID=$patientId" >> $env:GITHUB_ENV
 
-      # -- 8b. MPPS tests and webhook verification ----------------------------
-      - name: "Test - Send MPPS N-CREATE (Scan Started)"
-        shell: pwsh
-        run: |
           # Generate a unique SOP Instance UID for this MPPS procedure
           $mppsUID = "1.2.826.0.1.3680043.8.498.$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
           echo "MPPS_UID=$mppsUID" >> $env:GITHUB_ENV
 
           # Create MPPS N-CREATE dump file (procedure started)
+          # Using ProcedureStepID=200002 which matches the worklist items
           $mppsCreate = @"
 # MPPS N-CREATE - Procedure Started
 (0000,0002) UI [1.2.840.10008.3.1.2.3.3]      # Affected SOP Class UID: ModalityPerformedProcedureStep
@@ -418,24 +415,25 @@ jobs:
 (0000,1000) UI [$mppsUID]                      # Affected SOP Instance UID
 (0000,0110) US [1]                             # Message ID
 (0040,0241) AE [MODALITYSCP]                   # Performed Station AE Title
-(0040,0242) SH [TestStation]                   # Performed Station Name
-(0040,0243) SH [Test Location]                 # Performed Location
+(0040,0242) SH [CI-TestStation]                # Performed Station Name
+(0040,0243) SH [GitHub Actions CI]             # Performed Location
 (0040,0244) DA [$(Get-Date -Format 'yyyyMMdd')] # Performed Procedure Step Start Date
 (0040,0245) TM [$(Get-Date -Format 'HHmmss')]   # Performed Procedure Step Start Time
 (0040,0252) CS [IN PROGRESS]                   # Performed Procedure Step Status
-(0040,0253) SH [200002]                        # Performed Procedure Step ID
-(0040,0254) LO [CT Scan Procedure]             # Performed Procedure Step Description
+(0040,0253) SH [200002]                        # Performed Procedure Step ID (matches worklist)
+(0040,0254) LO [CI E2E Test - $accessionNo]    # Performed Procedure Step Description
 (0040,0260) SQ                                 # Performed Protocol Code Sequence
   (fffe,e000) na                               # Item
-    (0008,0100) SH [CT001]                     # Code Value
+    (0008,0100) SH [CT-E2E]                    # Code Value
     (0008,0102) SH [LOCAL]                     # Coding Scheme Designator
-    (0008,0104) LO [CT Protocol]               # Code Meaning
+    (0008,0104) LO [E2E Test Protocol]         # Code Meaning
   (fffe,e00d) na                               # Item Delimitation
 (fffe,e0dd) na                                 # Sequence Delimitation
 (0040,0270) SQ                                 # Scheduled Step Attributes Sequence
   (fffe,e000) na                               # Item
-    (0040,0009) SH [200002]                    # Scheduled Procedure Step ID
+    (0040,0009) SH [200002]                    # Scheduled Procedure Step ID (matches worklist)
     (0008,0060) CS [CT]                        # Modality
+    (0008,0050) SH [$accessionNo]              # Accession Number
   (fffe,e00d) na                               # Item Delimitation
 (fffe,e0dd) na                                 # Sequence Delimitation
 "@
@@ -447,18 +445,117 @@ jobs:
             Write-Error "Failed to create MPPS N-CREATE file"; exit 1
           }
 
-          Write-Output "Sending MPPS N-CREATE (Scan Started) with UID: $mppsUID"
+          Write-Output ""
+          Write-Output "STEP 1: Sending MPPS N-CREATE (Scan Started)"
+          Write-Output "  - MPPS UID: $mppsUID"
+          Write-Output "  - Accession Number: $accessionNo"
+          Write-Output "  - Procedure Step ID: 200002"
           $out = storescu -v localhost 2008 -aet GITHUBCI -aec MODALITYSCP "$env:TEMP\mpps_create.dcm" 2>&1
           Write-Output $out
 
-          Write-Output "INFO: MPPS N-CREATE test completed"
-          Write-Output "      MPPS webhook should be sent to CARE server (backend=2)"
+          Write-Output ""
+          Write-Output "✓ STEP 1 COMPLETE: Scan Started webhook should be sent to CARE"
+          Start-Sleep -Seconds 2
 
-      - name: "Test - Send MPPS N-SET (Scan Completed)"
+      - name: "Complete E2E Test - Step 2: Upload DICOM File (C-STORE)"
         shell: pwsh
         run: |
-          # Wait a moment for N-CREATE to process
-          Start-Sleep -Seconds 2
+          $accessionNo = $env:WORKFLOW_ACCESSION_NO
+          $patientId = $env:WORKFLOW_PATIENT_ID
+
+          Write-Output "STEP 2: Building and uploading DICOM file with real accession number"
+          Write-Output "  - Accession Number: $accessionNo"
+          Write-Output "  - Patient ID: $patientId"
+
+          # Create a custom DICOM dump with the real accession number
+          $studyUID = "1.2.826.0.1.3680043.8.498.$(Get-Date -Format 'yyyyMMddHHmmss')"
+          $seriesUID = "$studyUID.1"
+          $instanceUID = "$seriesUID.1"
+
+          $dicomDump = @"
+# DICOM CT Image with Real Accession Number from CARE Worklist
+(0002,0001) OB 00\01
+(0002,0002) UI =CTImageStorage
+(0002,0003) UI [$instanceUID]
+(0002,0010) UI =LittleEndianExplicit
+(0002,0012) UI [1.2.826.0.1.3680043.8.498.1]
+(0002,0013) SH [CARE-CI-TEST]
+(0008,0005) CS [ISO_IR 100]
+(0008,0008) CS [ORIGINAL\PRIMARY\AXIAL]
+(0008,0016) UI =CTImageStorage
+(0008,0018) UI [$instanceUID]
+(0008,0020) DA [$(Get-Date -Format 'yyyyMMdd')]
+(0008,0021) DA [$(Get-Date -Format 'yyyyMMdd')]
+(0008,0022) DA [$(Get-Date -Format 'yyyyMMdd')]
+(0008,0023) DA [$(Get-Date -Format 'yyyyMMdd')]
+(0008,0030) TM [$(Get-Date -Format 'HHmmss')]
+(0008,0031) TM [$(Get-Date -Format 'HHmmss')]
+(0008,0032) TM [$(Get-Date -Format 'HHmmss')]
+(0008,0033) TM [$(Get-Date -Format 'HHmmss')]
+(0008,0050) SH [$accessionNo]
+(0008,0060) CS [CT]
+(0008,0070) LO [CARE-CI]
+(0008,0090) PN [Referring^Physician]
+(0010,0010) PN [Test^Patient^CI]
+(0010,0020) LO [$patientId]
+(0010,0030) DA [19800101]
+(0010,0040) CS [M]
+(0018,0015) CS [CHEST]
+(0018,0050) DS [5.0]
+(0018,0060) DS [120]
+(0018,1030) LO [E2E Integration Test]
+(0020,000d) UI [$studyUID]
+(0020,000e) UI [$seriesUID]
+(0020,0010) SH [STUDY001]
+(0020,0011) IS [1]
+(0020,0013) IS [1]
+(0020,0032) DS [0\0\0]
+(0020,0037) DS [1\0\0\0\1\0]
+(0020,0052) UI [$studyUID.999]
+(0020,1041) DS [100.0]
+(0028,0002) US 1
+(0028,0004) CS [MONOCHROME2]
+(0028,0010) US 512
+(0028,0011) US 512
+(0028,0030) DS [0.5\0.5]
+(0028,0100) US 16
+(0028,0101) US 16
+(0028,0102) US 15
+(0028,0103) US 0
+(7fe0,0010) OW 0000\0000\0000\0000
+"@
+
+          Set-Content -Path "$env:TEMP\e2e_test.dump" -Value $dicomDump
+          dump2dcm "$env:TEMP\e2e_test.dump" "$env:TEMP\e2e_test.dcm"
+
+          if (-not (Test-Path "$env:TEMP\e2e_test.dcm")) {
+            Write-Error "Failed to create DICOM test file"; exit 1
+          }
+
+          $fileSize = (Get-Item "$env:TEMP\e2e_test.dcm").Length
+          Write-Output "  - DICOM file created: $fileSize bytes"
+          Write-Output "  - Study UID: $studyUID"
+
+          Write-Output ""
+          Write-Output "Uploading DICOM file to Store SCP..."
+          $out = storescu -v localhost 2007 `
+            -aet GITHUBCI -aec STORAGESCP `
+            "$env:TEMP\e2e_test.dcm" 2>&1
+          Write-Output $out
+          if ($LASTEXITCODE -ne 0) { Write-Error "C-STORE FAILED (exit $LASTEXITCODE)"; exit 1 }
+
+          Write-Output ""
+          Write-Output "✓ STEP 2 COMPLETE: DICOM file uploaded with Accession Number: $accessionNo"
+          Start-Sleep -Seconds 3
+
+      - name: "Complete E2E Test - Step 3: Send MPPS N-SET (Scan Completed)"
+        shell: pwsh
+        run: |
+          $accessionNo = $env:WORKFLOW_ACCESSION_NO
+
+          Write-Output "STEP 3: Sending MPPS N-SET (Scan Completed)"
+          Write-Output "  - MPPS UID: $env:MPPS_UID"
+          Write-Output "  - Accession Number: $accessionNo"
 
           # Create MPPS N-SET dump file (procedure completed)
           $mppsSet = @"
@@ -492,67 +589,150 @@ jobs:
             Write-Error "Failed to create MPPS N-SET file"; exit 1
           }
 
-          Write-Output "Sending MPPS N-SET (Scan Completed) with UID: $env:MPPS_UID"
           $out = storescu -v localhost 2008 -aet GITHUBCI -aec MODALITYSCP "$env:TEMP\mpps_set.dcm" 2>&1
           Write-Output $out
 
-          Write-Output "INFO: MPPS N-SET test completed"
-          Write-Output "      MPPS webhook should be sent to CARE server"
+          Write-Output ""
+          Write-Output "✓ STEP 3 COMPLETE: Scan Completed webhook should be sent to CARE"
+          Write-Output ""
+          Write-Output "=== E2E WORKFLOW COMPLETE ==="
+          Write-Output "You can now check the CARE staging server for updates to:"
+          Write-Output "  - Accession Number: $accessionNo"
+          Write-Output "  - Expected status updates: 'Scan Started' → 'Scan Completed'"
+          Write-Output ""
 
-      - name: Verify MPPS Webhook Calls to CARE Server
+      - name: Verify DICOM file received in SCP folder
         shell: pwsh
         run: |
-          Start-Sleep -Seconds 3  # Wait for webhooks to be logged
+          Write-Output "Verifying DICOM file storage..."
+          Start-Sleep -Seconds 3
+          $total = 0
+          $foundAccession = $false
+          $accessionNo = $env:WORKFLOW_ACCESSION_NO
 
-          Write-Output "Checking for MPPS webhook calls in service logs..."
-
-          $logPath = "bin\Release\logs\ModalitySCP*.txt"
-          $webhookFound = $false
-          $webhookSuccess = $false
-
-          if (Test-Path $logPath) {
-            $logs = Get-ChildItem -Path $logPath | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            $content = Get-Content $logs.FullName -Raw
-
-            # Check for webhook success messages
-            if ($content -match "MPPS webhook sent to CARE.*Scan Started") {
-              Write-Output "✓ Found 'Scan Started' webhook call"
-              $webhookFound = $true
-              $webhookSuccess = $true
+          foreach ($p in @("bin\Release\SCP", "SCP")) {
+            if (Test-Path $p) {
+              $files = Get-ChildItem -Path $p -Recurse -Filter "*.dcm"
+              $total += $files.Count
+              Write-Output "SCP folder '$p': $($files.Count) file(s)"
+              $files | ForEach-Object {
+                Write-Output "  - $($_.Name) ($($_.Length) bytes)"
+                # Check if this is our test file by checking filename or using dcmdump if available
+                if ($_.Name -match $accessionNo -or $_.LastWriteTime -gt (Get-Date).AddMinutes(-5)) {
+                  $foundAccession = $true
+                }
+              }
             }
+          }
 
-            if ($content -match "MPPS webhook sent to CARE.*Scan Completed") {
-              Write-Output "✓ Found 'Scan Completed' webhook call"
-              $webhookFound = $true
-              $webhookSuccess = $true
-            }
-
-            # Check for webhook failures
-            if ($content -match "MPPS webhook failed") {
-              Write-Warning "⚠️  MPPS webhook call failed - check CARE server endpoint"
-              $webhookFound = $true
-              $webhookSuccess = $false
-            }
-
-            # Check if webhooks were skipped
-            if ($content -match "CARE server URL or token not configured") {
-              Write-Warning "⚠️  MPPS webhooks skipped - CARE server not configured"
-            }
-
-            if ($webhookSuccess) {
-              Write-Output "PASS: MPPS webhooks successfully sent to CARE server"
-            } elseif ($webhookFound) {
-              Write-Warning "MPPS webhooks were attempted but may have failed"
-              Write-Output "See logs for details"
-            } else {
-              Write-Warning "No MPPS webhook calls found in logs"
-              Write-Output "This could indicate:"
-              Write-Output "  - MPPS messages were not processed (DCMTK limitation)"
-              Write-Output "  - service_request_id was not available in worklist items"
-              Write-Output "  - Backend mode is not set to 2 (CARE Server)"
+          if ($total -gt 0) {
+            Write-Output ""
+            Write-Output "✓ PASS: $total DICOM file(s) received and stored"
+            if ($foundAccession) {
+              Write-Output "✓ Found recent upload (likely Accession: $accessionNo)"
             }
           } else {
-            Write-Warning "ModalitySCP log not found - cannot verify webhooks"
+            Write-Warning "No .dcm files found in SCP folder(s)"
+          }
+
+      - name: Verify Complete E2E Workflow and MPPS Webhooks
+        shell: pwsh
+        run: |
+          $accessionNo = $env:WORKFLOW_ACCESSION_NO
+          $serverUrl = "${{ inputs.care_server_url || 'https://staging.carehmis.dpdns.org' }}"
+
+          Write-Output "=== E2E WORKFLOW VERIFICATION ==="
+          Write-Output ""
+          Write-Output "Testing complete radiology workflow:"
+          Write-Output "  Accession Number: $accessionNo"
+          Write-Output "  CARE Server: $serverUrl"
+          Write-Output ""
+
+          Start-Sleep -Seconds 3  # Wait for all logs to flush
+
+          $workflowSteps = @{
+            WorklistFetch = $false
+            ScanStarted = $false
+            DicomUpload = $false
+            ScanCompleted = $false
+          }
+
+          # Check WorklistItems log
+          $wlLogPath = "bin\Release\logs\WorklistItems*.txt"
+          if (Test-Path $wlLogPath) {
+            $wlLogs = Get-ChildItem -Path $wlLogPath | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            $wlContent = Get-Content $wlLogs.FullName -Raw
+
+            if ($wlContent -match "Successfully fetched.*worklist items") {
+              Write-Output "✓ Step 1: Worklist fetched from CARE server"
+              $workflowSteps.WorklistFetch = $true
+            }
+          }
+
+          # Check ModalitySCP log for MPPS webhooks
+          $mppsLogPath = "bin\Release\logs\ModalitySCP*.txt"
+          if (Test-Path $mppsLogPath) {
+            $mppsLogs = Get-ChildItem -Path $mppsLogPath | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            $mppsContent = Get-Content $mppsLogs.FullName -Raw
+
+            if ($mppsContent -match "MPPS webhook sent to CARE.*Scan Started") {
+              Write-Output "✓ Step 2: MPPS 'Scan Started' webhook sent to CARE"
+              $workflowSteps.ScanStarted = $true
+            } elseif ($mppsContent -match "Procedure.*200002.*is started") {
+              Write-Output "⚠️  Step 2: MPPS N-CREATE received but webhook may not have fired"
+              Write-Output "   (Check if service_request_id was available for Procedure Step 200002)"
+            }
+
+            if ($mppsContent -match "MPPS webhook sent to CARE.*Scan Completed") {
+              Write-Output "✓ Step 4: MPPS 'Scan Completed' webhook sent to CARE"
+              $workflowSteps.ScanCompleted = $true
+            } elseif ($mppsContent -match "Procedure.*200002.*is completed") {
+              Write-Output "⚠️  Step 4: MPPS N-SET received but webhook may not have fired"
+            }
+
+            # Check for webhook errors
+            if ($mppsContent -match "MPPS webhook failed.*(\d{3})") {
+              $statusCode = $matches[1]
+              Write-Warning "⚠️  MPPS webhook failed with HTTP $statusCode"
+              Write-Output "   Check CARE server endpoint: $serverUrl/api/care_radiology/webhooks/status/"
+            }
+          }
+
+          # Check StoreSCP log for DICOM upload
+          $scpLogPath = "bin\Release\logs\StoreSCP*.txt"
+          if (Test-Path $scpLogPath) {
+            $scpLogs = Get-ChildItem -Path $scpLogPath | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            $scpContent = Get-Content $scpLogs.FullName -Raw
+
+            if ($scpContent -match "DICOM Upload Successful.*Accession Number: $accessionNo") {
+              Write-Output "✓ Step 3: DICOM file uploaded (Accession: $accessionNo)"
+              $workflowSteps.DicomUpload = $true
+            } elseif ($scpContent -match "DICOM Upload Successful") {
+              Write-Output "✓ Step 3: DICOM file uploaded"
+              $workflowSteps.DicomUpload = $true
+            }
+          }
+
+          Write-Output ""
+          Write-Output "=== WORKFLOW SUMMARY ==="
+          $completedSteps = ($workflowSteps.Values | Where-Object { $_ -eq $true }).Count
+          Write-Output "Completed: $completedSteps / 4 steps"
+
+          if ($completedSteps -eq 4) {
+            Write-Output ""
+            Write-Output "🎉 PASS: Complete E2E workflow verified!"
+            Write-Output ""
+            Write-Output "Next steps:"
+            Write-Output "  1. Login to CARE staging server: $serverUrl"
+            Write-Output "  2. Search for Accession Number: $accessionNo"
+            Write-Output "  3. Verify status shows: Scan Started → Scan Completed"
+            Write-Output "  4. Verify DICOM images are linked to the study"
+          } else {
+            Write-Output ""
+            Write-Warning "Partial workflow completion - see details above"
+            Write-Output ""
+            Write-Output "NOTE: DCMTK storescu has limitations with MPPS messages."
+            Write-Output "In production, real modalities will send proper MPPS that trigger webhooks."
           }
 
       # -- 9. Cleanup and log collection --------------------------------------
