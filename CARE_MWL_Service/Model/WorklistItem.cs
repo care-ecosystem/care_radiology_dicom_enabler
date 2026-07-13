@@ -51,5 +51,7 @@ namespace Worklist_SCP.Model
 
         public string ServiceRequestId { get; set; }
 
+        public string FacilityId { get; set; }
+
     }
 }

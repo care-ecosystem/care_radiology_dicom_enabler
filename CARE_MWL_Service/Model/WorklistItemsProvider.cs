@@ -250,6 +250,7 @@ namespace Worklist_SCP.Model
                         mwlItem.Modality = item.service_request != null ? item.service_request.modality ?? "CR" : "CR";
                         mwlItem.ExamDescription = item.service_request != null ? item.service_request.name ?? string.Empty : string.Empty;
                         mwlItem.HospitalName = item.facility != null ? item.facility.name ?? "CARE" : "CARE";
+                        mwlItem.FacilityId = item.facility != null ? item.facility.id ?? string.Empty : string.Empty;
                         mwlItem.PerformingPhysician = string.Empty;
                         mwlItem.ProcedureID = "200001";
                         mwlItem.ServiceRequestId = item.service_request != null ? item.service_request.external_id ?? string.Empty : string.Empty;

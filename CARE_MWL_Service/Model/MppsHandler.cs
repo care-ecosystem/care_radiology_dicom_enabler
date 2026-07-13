@@ -34,7 +34,7 @@ namespace Worklist_SCP.Model
         /// <summary>
         /// Sends MPPS status update to CARE server webhook
         /// </summary>
-        private async Task SendStatusToCareServerAsync(string serviceRequestId, string studyStatus)
+        private async Task SendStatusToCareServerAsync(string serviceRequestId, string facilityId, string studyStatus)
         {
             try
             {
@@ -54,11 +54,17 @@ namespace Worklist_SCP.Model
                     return;
                 }
 
+                if (string.IsNullOrWhiteSpace(facilityId))
+                {
+                    _logger.Warn($"[MPPS] facility_id missing for service_request {serviceRequestId} - sending webhook without it");
+                }
+
                 string webhookUrl = $"{baseUrl}/api/care_radiology/webhooks/status/";
 
                 var payload = new
                 {
                     service_request_id = serviceRequestId,
+                    facility_id = facilityId,
                     study_status = studyStatus
                 };
 
@@ -74,11 +80,11 @@ namespace Worklist_SCP.Model
 
                     if (response.IsSuccessStatusCode)
                     {
-                        _logger.Info($"✓ MPPS webhook sent to CARE: {studyStatus} for service_request {serviceRequestId}");
+                        _logger.Info($"✓ MPPS webhook sent to CARE: {studyStatus} for service_request {serviceRequestId} facility {facilityId}");
                     }
                     else
                     {
-                        _logger.Warn($"MPPS webhook failed: {response.StatusCode} for service_request {serviceRequestId}");
+                        _logger.Warn($"MPPS webhook failed: {response.StatusCode} for service_request {serviceRequestId} facility {facilityId}");
                     }
                 }
             }
@@ -112,7 +118,7 @@ namespace Worklist_SCP.Model
             PendingProcedures.Add(sopInstanceUID, workItem);
 
             // Send status update to CARE server
-            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, "Scan Started"));
+            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, workItem.FacilityId, "Scan Started"));
 
             return true;
         }
@@ -132,7 +138,7 @@ namespace Worklist_SCP.Model
             _logger.Info($"[MPPS] SetDiscontinued: ServiceRequestId={workItem.ServiceRequestId} AccessionNumber={workItem.AccessionNumber} for SOPInstanceUID={sopInstanceUID}");
 
             // Send status update to CARE server
-            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, "Scan Cancelled"));
+            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, workItem.FacilityId, "Scan Cancelled"));
 
             // since the procedure was stopped, we remove it from the list of pending procedures
             PendingProcedures.Remove(sopInstanceUID);
@@ -158,7 +164,7 @@ namespace Worklist_SCP.Model
             // the DICOM logfiles to see which informations the vendor sends
 
             // Send status update to CARE server
-            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, "Scan Completed"));
+            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, workItem.FacilityId, "Scan Completed"));
 
             // since the procedure was completed, we remove it from the list of pending procedures
             PendingProcedures.Remove(sopInstanceUID);
