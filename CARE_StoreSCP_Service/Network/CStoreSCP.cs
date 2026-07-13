@@ -223,7 +223,7 @@ namespace Plexus_StoreSCP_Service.Network
                 ReadDICOMPushDB(path, studyUid, instUid);
             }
 
-            _fileLogger.Information($"✓ DICOM Upload Successful: File saved and database updated");
+            _fileLogger.Information($" DICOM Upload Successful: File saved and database updated");
             _fileLogger.Information($"  - Study UID: {studyUid}");
             _fileLogger.Information($"  - Instance UID: {instUid}");
             _fileLogger.Information($"  - Accession Number: {accessionNo}");
@@ -275,7 +275,7 @@ namespace Plexus_StoreSCP_Service.Network
                 }
                 else
                 {
-                    _fileLogger.Information($"✓ Database Update Successful");
+                    _fileLogger.Information($" Database Update Successful");
                     _fileLogger.Information($"  - Patient ID: {patient_id}");
                     _fileLogger.Information($"  - Accession No: {accession_no}");
                     _fileLogger.Information($"  - Modality: {modality}");

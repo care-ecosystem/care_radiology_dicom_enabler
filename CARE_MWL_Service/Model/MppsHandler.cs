@@ -80,7 +80,7 @@ namespace Worklist_SCP.Model
 
                     if (response.IsSuccessStatusCode)
                     {
-                        _logger.Info($"✓ MPPS webhook sent to CARE: {studyStatus} for service_request {serviceRequestId} facility {facilityId}");
+                        _logger.Info($" MPPS webhook sent to CARE: {studyStatus} for service_request {serviceRequestId} facility {facilityId}");
                     }
                     else
                     {
