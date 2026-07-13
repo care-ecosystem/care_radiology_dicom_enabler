@@ -53,5 +53,15 @@ namespace Worklist_SCP.Model
 
         public string FacilityId { get; set; }
 
+        public string PatientUHID { get; set; }
+
+        public string TechnicianInstruction { get; set; }
+
+        public string PatientInstruction { get; set; }
+
+        public string Priority { get; set; }
+
+        public string ProcedureCode { get; set; }
+
     }
 }
