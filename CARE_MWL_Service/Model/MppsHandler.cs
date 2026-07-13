@@ -91,17 +91,21 @@ namespace Worklist_SCP.Model
 
         public bool SetInProgress(string sopInstanceUID, string procedureStepId)
         {
+            _logger.Info($"[MPPS] SetInProgress: looking up ProcedureStepID={procedureStepId} among {WorklistServer.CurrentWorklistItems.Count} cached worklist items");
+
             var workItem = WorklistServer.CurrentWorklistItems
                 .FirstOrDefault(w => w.ProcedureStepID == procedureStepId);
             if (workItem == null)
             {
                 // the procedureStepId provided cannot be found any more, so the data is invalid or the
                 // modality tries to start a procedure that has been deleted/changed on the ris side...
+                _logger.Warn($"[MPPS] SetInProgress: no worklist item matched ProcedureStepID={procedureStepId}");
                 return false;
             }
 
             // now here change the sate of the procedure in the database or do similar stuff...
             _logger.Info($"Procedure with id {workItem.ProcedureStepID} of Patient {workItem.Surname} {workItem.Forename} is started");
+            _logger.Info($"[MPPS] SetInProgress: matched ServiceRequestId={workItem.ServiceRequestId} AccessionNumber={workItem.AccessionNumber} PatientID={workItem.PatientID} for SOPInstanceUID={sopInstanceUID}");
 
             // remember the sopInstanceUID and store the worklistitem to which the sopInstanceUID belongs.
             // You should do this more permanent like in database or in file
@@ -125,6 +129,7 @@ namespace Worklist_SCP.Model
 
             // now here change the sate of the procedure in the database or do similar stuff...
             _logger.Info($"Procedure with id {workItem.ProcedureStepID} of Patient {workItem.Surname} {workItem.Forename} is discontinued for reason {reason}");
+            _logger.Info($"[MPPS] SetDiscontinued: ServiceRequestId={workItem.ServiceRequestId} AccessionNumber={workItem.AccessionNumber} for SOPInstanceUID={sopInstanceUID}");
 
             // Send status update to CARE server
             Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, "Scan Cancelled"));
@@ -146,6 +151,7 @@ namespace Worklist_SCP.Model
 
             // now here change the sate of the procedure in the database or do similar stuff...
             _logger.Info($"Procedure with id {workItem.ProcedureStepID} of Patient {workItem.Surname} {workItem.Forename} is completed");
+            _logger.Info($"[MPPS] SetCompleted: ServiceRequestId={workItem.ServiceRequestId} AccessionNumber={workItem.AccessionNumber} for SOPInstanceUID={sopInstanceUID}");
 
             // the MPPS completed message contains some additional informations about the performed procedure.
             // this informations are very vendor depending, so read the DICOM Conformance Statement or read

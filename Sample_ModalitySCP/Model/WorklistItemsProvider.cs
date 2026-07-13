@@ -418,7 +418,10 @@ namespace Worklist_SCP.Model
                         mwlItem.PerformingPhysician = string.Empty;
                         mwlItem.ProcedureID = "200001";
                         mwlItem.ServiceRequestId = item.service_request != null ? item.service_request.external_id ?? string.Empty : string.Empty;
-                        mwlItem.ProcedureStepID = "200002"; //item.service_request != null ? item.service_request.id ?? string.Empty : string.Empty;
+                        // Must be unique per item - MPPS N-CREATE correlation (MppsHandler.SetInProgress) matches
+                        // worklist items by this value, so every item sharing "200002" caused MPPS to always
+                        // resolve to the first CurrentWorklistItems entry regardless of which procedure was performed.
+                        mwlItem.ProcedureStepID = mwlItem.AccessionNumber;
                         mwlItem.StudyUID = "1.2.34.567890.1234567890.1";// string.Empty;
                         mwlItem.ScheduledAET = ConfigurationManager.AppSettings["careScheduledAET"]?.ToString() ?? "OEC9800";
                         mwlItem.ReferringPhysician = string.Empty;
