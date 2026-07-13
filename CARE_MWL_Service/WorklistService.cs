@@ -268,14 +268,30 @@ namespace Worklist_SCP
             }
             // on N-Create the UID is stored in AffectedSopInstanceUID, in N-Set the UID is stored in RequestedSopInstanceUID
             var affectedSopInstanceUID = request.Command.GetSingleValue<string>(DicomTag.AffectedSOPInstanceUID);
-            //Logger.Log(LogLevel.Info, $"reeiving N-Create with SOPUID {affectedSopInstanceUID}");
-            fileLogger.Information($"reeiving N-Create with SOPUID {affectedSopInstanceUID}");
+            fileLogger.Information($"[MPPS][N-CREATE] Received from AE={Association.CallingAE} SOPInstanceUID={affectedSopInstanceUID}");
+
             // get the procedureStepIds from the request
-            var procedureStepId = request.Dataset
+            var scheduledStepItem = request.Dataset
                 .GetSequence(DicomTag.ScheduledStepAttributesSequence)
-                .First()
-                .GetSingleValue<string>(DicomTag.ScheduledProcedureStepID);
+                .First();
+            var procedureStepId = scheduledStepItem.GetSingleValueOrDefault(DicomTag.ScheduledProcedureStepID, string.Empty);
+            var accessionNumber = scheduledStepItem.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
+            var requestedProcedureId = scheduledStepItem.GetSingleValueOrDefault(DicomTag.RequestedProcedureID, string.Empty);
+            var studyInstanceUid = scheduledStepItem.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, string.Empty);
+            fileLogger.Information($"[MPPS][N-CREATE] ScheduledStepAttributesSequence: ProcedureStepID={procedureStepId} AccessionNumber={accessionNumber} RequestedProcedureID={requestedProcedureId} StudyInstanceUID={studyInstanceUid}");
+
+            var matchCount = WorklistServer.CurrentWorklistItems.Count(w => w.ProcedureStepID == procedureStepId);
+            if (matchCount > 1)
+            {
+                fileLogger.Warning($"[MPPS][N-CREATE] {matchCount} worklist items share ProcedureStepID={procedureStepId} - the FIRST match will be used, which may be the wrong patient/service request. Verify ProcedureStepID is populated uniquely per item.");
+            }
+            else if (matchCount == 0)
+            {
+                fileLogger.Warning($"[MPPS][N-CREATE] No worklist item found with ProcedureStepID={procedureStepId} among {WorklistServer.CurrentWorklistItems.Count} cached items. The worklist may have been refreshed since the C-FIND that returned this item, or AccessionNumber={accessionNumber} should be used instead.");
+            }
+
             var ok = MppsSource.SetInProgress(affectedSopInstanceUID, procedureStepId);
+            fileLogger.Information($"[MPPS][N-CREATE] SetInProgress result={ok} for SOPInstanceUID={affectedSopInstanceUID}");
 
             return new DicomNCreateResponse(request, ok ? DicomStatus.Success : DicomStatus.ProcessingFailure);
         }
