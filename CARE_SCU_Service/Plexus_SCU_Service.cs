@@ -118,7 +118,7 @@ namespace Plexus_SCU_Service
                 DicomDataset dataset = DicomFile.Open(dcmfile).Dataset;
                 studyInstanceId = dataset.GetString(DicomTag.StudyInstanceUID);
                 string patientId = dataset.GetString(DicomTag.PatientID);
-                string serviceRequestId = dataset.GetSingleValueOrDefault(DicomTag.RequestedProcedureID, string.Empty);
+                string accessionNumber = dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
 
                 string fileName = Path.GetFileName(dcmfile);
                 using (var content = new MultipartFormDataContent())
@@ -139,7 +139,7 @@ namespace Plexus_SCU_Service
                     request.Headers.Add("Authorization", staticApiKey);
                     request.Content = content;
 
-                    WriteToLog($"Uploading to {uploadURL} (PatientID={patientId}, StudyUID={studyInstanceId}, ServiceRequestID={serviceRequestId})", true);
+                    WriteToLog($"Uploading to {uploadURL} (PatientID={patientId}, StudyUID={studyInstanceId}, AccessionNumber={accessionNumber})", true);
 
                     var response = httpClient.SendAsync(request).GetAwaiter().GetResult();
                     string responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
@@ -150,7 +150,8 @@ namespace Plexus_SCU_Service
                         UpdateStudyStatusDB(3, studyInstanceId, dcmfile);
 
                         string studyUid = ParseStudyUidFromResponse(responseBody);
-                        CallStudyWebhook(studyUid, serviceRequestId);
+                        WriteToLog($"Preparing to map SR — StudyInstanceUID={studyInstanceId}, PatientID={patientId}, AccessionNumber={accessionNumber}", true);
+                        CallStudyWebhook(studyUid, accessionNumber);
 
                         File.Delete(dcmfile);
                         WriteToLog($"Deleted local file: {dcmfile}", true);
@@ -186,7 +187,7 @@ namespace Plexus_SCU_Service
             return string.Empty;
         }
 
-        private void CallStudyWebhook(string studyUid, string serviceRequestId)
+        private void CallStudyWebhook(string studyUid, string accessionNumber)
         {
             try
             {
@@ -199,20 +200,20 @@ namespace Plexus_SCU_Service
                     WriteToLog("Skipping webhook — study_uid missing from upload response", false);
                     return;
                 }
-                if (!Guid.TryParse(serviceRequestId, out _))
+                if (string.IsNullOrWhiteSpace(accessionNumber))
                 {
-                    WriteToLog($"Skipping webhook — service_request_id '{serviceRequestId}' is not a valid UUID (file did not come from MWL flow)", false);
+                    WriteToLog("Skipping webhook — accession_number missing from DICOM file (file did not come from MWL flow)", false);
                     return;
                 }
 
                 string webhookUrl = careBackendURL + webhookPath;
-                string payload = $"{{\"service_request_id\":\"{serviceRequestId}\",\"study_id\":\"{studyUid}\"}}";
+                string payload = $"{{\"accession_number\":\"{accessionNumber}\",\"study_id\":\"{studyUid}\"}}";
 
                 var request = new HttpRequestMessage(HttpMethod.Post, webhookUrl);
                 request.Headers.Add("Authorization", staticApiKey);
                 request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
-                WriteToLog($"Calling webhook: {webhookUrl} (study_id={studyUid}, service_request_id={serviceRequestId})", true);
+                WriteToLog($"Calling webhook: {webhookUrl} (study_id={studyUid}, accession_number={accessionNumber})", true);
 
                 var response = httpClient.SendAsync(request).GetAwaiter().GetResult();
                 string responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
