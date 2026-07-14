@@ -218,7 +218,10 @@ namespace Worklist_SCP.Model
 
                         if (item.patient != null)
                         {
-                            mwlItem.PatientID = item.patient.external_id ?? item.patient.id ?? string.Empty;
+                            mwlItem.PatientUHID = item.patient.patient_uhid ?? string.Empty;
+                            mwlItem.PatientID = !string.IsNullOrWhiteSpace(item.patient.patient_uhid)
+                                ? item.patient.patient_uhid
+                                : (item.patient.id ?? item.patient.external_id ?? string.Empty);
 
                             if (!string.IsNullOrWhiteSpace(item.patient.name))
                             {
@@ -250,13 +253,21 @@ namespace Worklist_SCP.Model
                         mwlItem.Modality = item.service_request != null ? item.service_request.modality ?? "CR" : "CR";
                         mwlItem.ExamDescription = item.service_request != null ? item.service_request.name ?? string.Empty : string.Empty;
                         mwlItem.HospitalName = item.facility != null ? item.facility.name ?? "CARE" : "CARE";
+                        mwlItem.FacilityId = item.facility != null ? item.facility.id ?? string.Empty : string.Empty;
                         mwlItem.PerformingPhysician = string.Empty;
-                        mwlItem.ProcedureID = "200001";
                         mwlItem.ServiceRequestId = item.service_request != null ? item.service_request.external_id ?? string.Empty : string.Empty;
-                        mwlItem.ProcedureStepID = "200002"; //item.service_request != null ? item.service_request.id ?? string.Empty : string.Empty;
+                        // Must be unique per item - MPPS N-CREATE correlation (MppsHandler.SetInProgress) matches
+                        // worklist items by this value, so every item sharing "200002" caused MPPS to always
+                        // resolve to the first CurrentWorklistItems entry regardless of which procedure was performed.
+                        mwlItem.ProcedureStepID = mwlItem.AccessionNumber;
+                        mwlItem.ProcedureID = DeriveProcedureIdFromAccessionNumber(mwlItem.AccessionNumber);
                         mwlItem.StudyUID = "1.2.34.567890.1234567890.1";// string.Empty;
                         mwlItem.ScheduledAET = ConfigurationManager.AppSettings["careScheduledAET"]?.ToString() ?? "OEC9800";
-                        mwlItem.ReferringPhysician = string.Empty;
+                        mwlItem.ReferringPhysician = FormatReferringPhysician(item.service_request?.created_by);
+                        mwlItem.TechnicianInstruction = item.service_request?.technician_instruction ?? string.Empty;
+                        mwlItem.PatientInstruction = item.service_request?.patient_instruction ?? string.Empty;
+                        mwlItem.Priority = NormalizePriority(item.service_request?.priority);
+                        mwlItem.ProcedureCode = item.service_request?.procedure_id ?? string.Empty;
 
                         if (item.service_request != null && item.service_request.date.HasValue)
                             mwlItem.ExamDateAndTime = item.service_request.date.Value.ToLocalTime();
@@ -266,7 +277,7 @@ namespace Worklist_SCP.Model
 
                     // Log detailed success information
                     var accessionNumbers = objWorkListItems.Select(x => x.AccessionNumber).ToList();
-                    objReadWriteLog.WriteToLog($"✓ CARE Server: Successfully fetched and populated {objWorkListItems.Count} worklist items", true);
+                    objReadWriteLog.WriteToLog($" CARE Server: Successfully fetched and populated {objWorkListItems.Count} worklist items", true);
                     objReadWriteLog.WriteToLog($"  - Accession Numbers: {string.Join(", ", accessionNumbers)}", true);
                     objReadWriteLog.WriteToLog($"  - Facility: {objWorkListItems.FirstOrDefault()?.HospitalName ?? "N/A"}", true);
                 }
@@ -450,6 +461,67 @@ namespace Worklist_SCP.Model
             }
         }
 
+        /// <summary>
+        /// Maps CARE's free-text service_request.priority to a DICOM CS-compliant Priority value
+        /// (STAT/HIGH/MEDIUM/ROUTINE), mirroring the gender normalization done for PatientSex - CARE
+        /// returns lower-case/varied wording, but the Priority attribute is a constrained CS value set.
+        /// </summary>
+        private static string NormalizePriority(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "ROUTINE";
+            switch (value.ToLowerInvariant().Trim())
+            {
+                case "stat": case "emergency": case "urgent": return "STAT";
+                case "high": case "asap":                     return "HIGH";
+                case "medium":                                return "MEDIUM";
+                case "routine": case "normal":                return "ROUTINE";
+                default:                                      return "ROUTINE";
+            }
+        }
+
+        /// <summary>
+        /// Builds a DICOM PN-formatted (FamilyName^GivenName^MiddleName^Prefix^Suffix) referring physician
+        /// name from the CARE service_request.createdby object.
+        /// </summary>
+        private static string FormatReferringPhysician(CareCreatedBy createdBy)
+        {
+            if (createdBy == null)
+            {
+                return string.Empty;
+            }
+
+            string familyName = createdBy.last_name ?? string.Empty;
+            string givenName = createdBy.first_name ?? string.Empty;
+            string prefix = createdBy.prefix ?? string.Empty;
+
+            return $"{familyName}^{givenName}^^{prefix}".TrimEnd('^');
+        }
+
+        /// <summary>
+        /// Derives a stable numeric Requested Procedure ID (DICOM SH, max 16 chars) from an accession
+        /// number by hashing its character codes, so alphanumeric accession numbers like "ACJAY260005"
+        /// still map to a unique, reproducible RequestedProcedureID.
+        /// </summary>
+        private static string DeriveProcedureIdFromAccessionNumber(string accessionNumber)
+        {
+            if (string.IsNullOrWhiteSpace(accessionNumber))
+            {
+                return string.Empty;
+            }
+
+            unchecked
+            {
+                long hash = 17;
+                foreach (char c in accessionNumber)
+                {
+                    hash = hash * 31 + c;
+                }
+
+                long numeric = Math.Abs(hash % 1_000_000_000_000_000L);
+                return numeric.ToString();
+            }
+        }
+
         private async Task<string> authAndGetDetailsAsync()
         {
             string patientInfoResponseBody = string.Empty;
@@ -525,6 +597,18 @@ namespace Worklist_SCP.Model
         public DateTime? date { get; set; }
         public CareServiceRequestMeta? meta  { get; set; }
         public string modality { get; set; }
+        public CareCreatedBy? created_by { get; set; }
+        public string technician_instruction { get; set; }
+        public string patient_instruction { get; set; }
+        public string priority { get; set; }
+        public string procedure_id { get; set; }
+    }
+
+    public class CareCreatedBy
+    {
+        public string prefix { get; set; }
+        public string first_name { get; set; }
+        public string last_name { get; set; }
     }
 
     public class CareFacility
@@ -543,5 +627,6 @@ namespace Worklist_SCP.Model
         public string phone_number { get; set; }
         public string gender { get; set; }
         public int? age { get; set; }
+        public string patient_uhid { get; set; }
     }
 }

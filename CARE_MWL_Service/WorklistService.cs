@@ -96,20 +96,20 @@ namespace Worklist_SCP
                     fileLogger.Information($"Fetching Records from List");
                     var newWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItems();
                     WorklistServer.CurrentWorklistItems = newWorklistItems;
-                    fileLogger.Information($"✓ Successfully fetched {newWorklistItems?.Count ?? 0} worklist items from List");
+                    fileLogger.Information($" Successfully fetched {newWorklistItems?.Count ?? 0} worklist items from List");
                     break;
                 case 1:
                     fileLogger.Information($"Fetching Records from Plexus Database");
                     var dbWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromDB();
                     WorklistServer.CurrentWorklistItems = dbWorklistItems;
-                    fileLogger.Information($"✓ Successfully fetched {dbWorklistItems?.Count ?? 0} worklist items from Plexus Database");
+                    fileLogger.Information($" Successfully fetched {dbWorklistItems?.Count ?? 0} worklist items from Plexus Database");
                     break;
                 case 2:
                     fileLogger.Information($"Fetching Records from CARE Server API");
                     //var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromPellucidAsync();
                     var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync();
                     WorklistServer.CurrentWorklistItems = pellucidWorklistItems;
-                    fileLogger.Information($"✓ Successfully fetched {pellucidWorklistItems?.Count ?? 0} worklist items from CARE Server");
+                    fileLogger.Information($" Successfully fetched {pellucidWorklistItems?.Count ?? 0} worklist items from CARE Server");
                     break;
 
             }
@@ -124,7 +124,7 @@ namespace Worklist_SCP
                 returnedItemsCount++;
             }
             UpdateStatusinDB(accessionNos);
-            fileLogger.Information($"✓ C-FIND completed successfully: returned {returnedItemsCount} worklist items (Accession Numbers: {string.Join(", ", accessionNos)}) to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
+            fileLogger.Information($" C-FIND completed successfully: returned {returnedItemsCount} worklist items (Accession Numbers: {string.Join(", ", accessionNos)}) to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
             yield return new DicomCFindResponse(request, DicomStatus.Success);
             //}
         }
@@ -268,14 +268,30 @@ namespace Worklist_SCP
             }
             // on N-Create the UID is stored in AffectedSopInstanceUID, in N-Set the UID is stored in RequestedSopInstanceUID
             var affectedSopInstanceUID = request.Command.GetSingleValue<string>(DicomTag.AffectedSOPInstanceUID);
-            //Logger.Log(LogLevel.Info, $"reeiving N-Create with SOPUID {affectedSopInstanceUID}");
-            fileLogger.Information($"reeiving N-Create with SOPUID {affectedSopInstanceUID}");
+            fileLogger.Information($"[MPPS][N-CREATE] Received from AE={Association.CallingAE} SOPInstanceUID={affectedSopInstanceUID}");
+
             // get the procedureStepIds from the request
-            var procedureStepId = request.Dataset
+            var scheduledStepItem = request.Dataset
                 .GetSequence(DicomTag.ScheduledStepAttributesSequence)
-                .First()
-                .GetSingleValue<string>(DicomTag.ScheduledProcedureStepID);
+                .First();
+            var procedureStepId = scheduledStepItem.GetSingleValueOrDefault(DicomTag.ScheduledProcedureStepID, string.Empty);
+            var accessionNumber = scheduledStepItem.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
+            var requestedProcedureId = scheduledStepItem.GetSingleValueOrDefault(DicomTag.RequestedProcedureID, string.Empty);
+            var studyInstanceUid = scheduledStepItem.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, string.Empty);
+            fileLogger.Information($"[MPPS][N-CREATE] ScheduledStepAttributesSequence: ProcedureStepID={procedureStepId} AccessionNumber={accessionNumber} RequestedProcedureID={requestedProcedureId} StudyInstanceUID={studyInstanceUid}");
+
+            var matchCount = WorklistServer.CurrentWorklistItems.Count(w => w.ProcedureStepID == procedureStepId);
+            if (matchCount > 1)
+            {
+                fileLogger.Warning($"[MPPS][N-CREATE] {matchCount} worklist items share ProcedureStepID={procedureStepId} - the FIRST match will be used, which may be the wrong patient/service request. Verify ProcedureStepID is populated uniquely per item.");
+            }
+            else if (matchCount == 0)
+            {
+                fileLogger.Warning($"[MPPS][N-CREATE] No worklist item found with ProcedureStepID={procedureStepId} among {WorklistServer.CurrentWorklistItems.Count} cached items. The worklist may have been refreshed since the C-FIND that returned this item, or AccessionNumber={accessionNumber} should be used instead.");
+            }
+
             var ok = MppsSource.SetInProgress(affectedSopInstanceUID, procedureStepId);
+            fileLogger.Information($"[MPPS][N-CREATE] SetInProgress result={ok} for SOPInstanceUID={affectedSopInstanceUID}");
 
             return new DicomNCreateResponse(request, ok ? DicomStatus.Success : DicomStatus.ProcessingFailure);
         }

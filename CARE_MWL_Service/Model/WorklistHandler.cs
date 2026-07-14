@@ -111,6 +111,18 @@ namespace Worklist_SCP.Model
                 AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureDescription, result.ExamDescription); //T1C
 
                 AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureID, result.ProcedureID); // T1
+                AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureComments, result.PatientInstruction); // T3
+
+                // procedure_id is CARE's unique code identifying the type of exam ordered (e.g. "xray spine" = 1),
+                // distinct from RequestedProcedureID above (which identifies this specific order/request).
+                var requestedProcedureCode = new DicomDataset();
+                if (!string.IsNullOrWhiteSpace(result.ProcedureCode))
+                {
+                    requestedProcedureCode.AddOrUpdate(DicomTag.CodeValue, result.ProcedureCode);
+                    requestedProcedureCode.AddOrUpdate(DicomTag.CodingSchemeDesignator, "99CARE");
+                    requestedProcedureCode.AddOrUpdate(DicomTag.CodeMeaning, result.ExamDescription ?? string.Empty);
+                }
+                AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureCodeSequence, requestedProcedureCode); // T1C
 
                 // Scheduled Procedure Step sequence T1
                 // add results to procedure step dataset
@@ -127,12 +139,13 @@ namespace Worklist_SCP.Model
                     AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepID, result.ProcedureStepID); // T1
                     AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledStationName, result.ExamRoom); //T2
                     AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepLocation, result.ExamRoom); //T2
+                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.CommentsOnTheScheduledProcedureStep, result.TechnicianInstruction); //T3
                 }
 
                 // Put blanks in for unsupported fields which are type 2 (i.e. must have a value even if NULL)
                 // In a real server, you may wish to support some or all of these, but they are not commonly supported
                 AddIfExistsInRequest(resultDataset, request, DicomTag.ReferencedStudySequence, new DicomDataset());         // Ref//d Study Sequence
-                AddIfExistsInRequest(resultDataset, request, DicomTag.Priority, "");                                  // Priority
+                AddIfExistsInRequest(resultDataset, request, DicomTag.Priority, result.Priority);                     // Priority
                 AddIfExistsInRequest(resultDataset, request, DicomTag.PatientTransportArrangements, "");              // Transport Arrangements
                 AddIfExistsInRequest(resultDataset, request, DicomTag.AdmissionID, "");                               // Admission ID
                 AddIfExistsInRequest(resultDataset, request, DicomTag.CurrentPatientLocation, "");                    // Patient Location
