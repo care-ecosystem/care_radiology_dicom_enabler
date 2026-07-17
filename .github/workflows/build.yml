@@ -205,6 +205,14 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$binPath\logs"
           Write-Output "Configuration files and directories created in $binPath"
 
+      - name: Copy Emulator initializer scripts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path bin\Release\Emulator
+          Copy-Item Emulator\Initializer.bat bin\Release\Emulator\Initializer.bat
+          Copy-Item Emulator\Initializer.ps1 bin\Release\Emulator\Initializer.ps1
+          Copy-Item Emulator\schema.sql bin\Release\Emulator\schema.sql
+
       - name: Set short SHA and artifact suffix
         shell: pwsh
         run: |
