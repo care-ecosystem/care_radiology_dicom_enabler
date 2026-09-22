@@ -11,13 +11,12 @@ Env vars (all optional):
   DICOM_MYSQL_HOST         MySQL host              (default: localhost)
   DICOM_MYSQL_PORT         MySQL port              (default: 3306)
   DICOM_MYSQL_USER         MySQL user              (default: root)
-  DICOM_MYSQL_PWD          MySQL password          (default: none - blank password is tried)
+  DICOM_MYSQL_PWD          MySQL password          (default: prompted for, masked with *;
+                            pressing Enter at the prompt uses 'care')
   DICOM_MYSQL_BIN          Full path to mysql.exe  (default: auto-detected)
   DICOM_SKIP_SERVICE_CHECK Set to "1" to skip the Windows-service check
                             (use this if MySQL runs outside a Windows service,
                             e.g. Docker, WSL, XAMPP)
-  DICOM_INSTALL_DIR        Modality Emulator folder (default: auto-detected)
-  DICOM_EXE_NAME           Emulator executable      (default: dicom_enabler.exe)
   DICOM_SET_MYSQL_ROOT_PWD Set to "1" to also run the documented
                             ALTER USER 'root'@'localhost' step (see schema.sql
                             comment). Off by default - changing another
@@ -30,10 +29,9 @@ Env vars (all optional):
 $MySqlHost   = if ($env:DICOM_MYSQL_HOST) { $env:DICOM_MYSQL_HOST } else { 'localhost' }
 $MySqlPort   = if ($env:DICOM_MYSQL_PORT) { $env:DICOM_MYSQL_PORT } else { '3306' }
 $MySqlUser   = if ($env:DICOM_MYSQL_USER) { $env:DICOM_MYSQL_USER } else { 'root' }
-$MySqlPwd    = $env:DICOM_MYSQL_PWD
 $DbName      = 'plexus_mi2' # matches the database/tables baked into schema.sql - not independently configurable
-$ExeName     = if ($env:DICOM_EXE_NAME)   { $env:DICOM_EXE_NAME }   else { 'dicom_enabler.exe' }
 $SkipService = $env:DICOM_SKIP_SERVICE_CHECK -eq '1'
+$DefaultPwd  = 'care'
 
 $script:HadFailure = $false
 
@@ -55,10 +53,62 @@ function Write-Fail {
     $script:HadFailure = $true
 }
 
+function Read-MaskedInput {
+    param([string]$Prompt)
+
+    Write-Host $Prompt -NoNewline
+
+    if ([Console]::IsInputRedirected -or -not [Environment]::UserInteractive) {
+        $line = [Console]::ReadLine()
+        Write-Host ""
+        return $line
+    }
+
+    $buffer = New-Object System.Text.StringBuilder
+
+    try {
+        while ($true) {
+            $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+
+            if ($key.VirtualKeyCode -eq 13) { Write-Host ""; break }          # Enter
+
+            if ($key.VirtualKeyCode -eq 8) {                                   # Backspace
+                if ($buffer.Length -gt 0) {
+                    [void]$buffer.Remove($buffer.Length - 1, 1)
+                    Write-Host "`b `b" -NoNewline
+                }
+                continue
+            }
+
+            # Ignore keys with no printable character (arrows, function keys, ...)
+            if ($key.Character -and [int]$key.Character -ge 32) {
+                [void]$buffer.Append($key.Character)
+                Write-Host "*" -NoNewline
+            }
+        }
+    } catch {
+        # Host does not implement ReadKey: fall back to a plain line read.
+        Write-Host ""
+        return [Console]::ReadLine()
+    }
+
+    return $buffer.ToString()
+}
+
+# ---------------------------------------------------------------------------
+# MySQL password: taken from the environment when set, prompted for otherwise
+# ---------------------------------------------------------------------------
+if ($env:DICOM_MYSQL_PWD) {
+    $MySqlPwd = $env:DICOM_MYSQL_PWD
+} else {
+    $MySqlPwd = Read-MaskedInput "Enter MySQL password [Press Enter for default: $DefaultPwd]: "
+    if (-not $MySqlPwd) { $MySqlPwd = $DefaultPwd }
+}
+
 # ---------------------------------------------------------------------------
 # Step 1: MySQL client available
 # ---------------------------------------------------------------------------
-Write-Step "1/5 Checking for the MySQL client (mysql.exe)"
+Write-Step "1/3 Checking for the MySQL client (mysql.exe)"
 
 $mysqlExe = $null
 if ($env:DICOM_MYSQL_BIN -and (Test-Path $env:DICOM_MYSQL_BIN)) {
@@ -86,9 +136,9 @@ if ($mysqlExe) {
 # Step 2: MySQL Windows service running
 # ---------------------------------------------------------------------------
 if ($SkipService) {
-    Write-Step "2/5 Checking MySQL service (skipped - DICOM_SKIP_SERVICE_CHECK=1)"
+    Write-Step "2/3 Checking MySQL service (skipped - DICOM_SKIP_SERVICE_CHECK=1)"
 } else {
-    Write-Step "2/5 Checking MySQL Windows service"
+    Write-Step "2/3 Checking MySQL Windows service"
     $svc = Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*mysql*' -or $_.DisplayName -like '*mysql*' } | Select-Object -First 1
 
     if (-not $svc) {
@@ -111,7 +161,7 @@ if ($SkipService) {
 # ---------------------------------------------------------------------------
 # Step 3: MySQL connectivity + schema setup
 # ---------------------------------------------------------------------------
-Write-Step "3/5 Checking MySQL connectivity and creating database/table"
+Write-Step "3/3 Checking MySQL connectivity and creating database/table"
 
 if (-not $mysqlExe) {
     Write-Fail "Skipped - mysql.exe not available (see step 1)." $null
@@ -153,70 +203,6 @@ if (-not $mysqlExe) {
             Write-Host "  Skipped setting root@localhost's password (opt in with DICOM_SET_MYSQL_ROOT_PWD=1 to run the documented ALTER USER step)." -ForegroundColor DarkGray
         }
     }
-}
-
-# ---------------------------------------------------------------------------
-# Step 4: Locate the Modality Emulator install
-# ---------------------------------------------------------------------------
-Write-Step "4/5 Locating the Modality Emulator install"
-
-function Find-EmulatorInstallDir {
-    param([string]$ExeName)
-
-    if ($env:DICOM_INSTALL_DIR -and (Test-Path (Join-Path $env:DICOM_INSTALL_DIR $ExeName))) {
-        return $env:DICOM_INSTALL_DIR
-    }
-
-    $uninstallRoots = @(
-        'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
-        'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
-        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
-    )
-    $entry = Get-ItemProperty -Path $uninstallRoots -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -like '*Modality*Emulator*' -or $_.DisplayName -like '*PlexusDICOM*' -or $_.DisplayName -like '*DICOM Enabler*' } |
-        Select-Object -First 1
-    if ($entry -and $entry.InstallLocation -and (Test-Path (Join-Path $entry.InstallLocation $ExeName))) {
-        return $entry.InstallLocation
-    }
-
-    $commonPaths = @(
-        'C:\PlexusDICOM',
-        (Join-Path $env:ProgramFiles 'PlexusDICOM'),
-        (Join-Path ${env:ProgramFiles(x86)} 'PlexusDICOM')
-    )
-    foreach ($p in $commonPaths) {
-        if ($p -and (Test-Path (Join-Path $p $ExeName))) { return $p }
-    }
-
-    $found = Get-ChildItem -Path $env:ProgramFiles, ${env:ProgramFiles(x86)} -Filter $ExeName -Recurse -Depth 3 -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($found) { return $found.DirectoryName }
-
-    return $null
-}
-
-$installDir = Find-EmulatorInstallDir -ExeName $ExeName
-if ($installDir) {
-    Write-Ok "Found $ExeName in $installDir"
-} else {
-    Write-Fail "Could not find $ExeName anywhere (checked DICOM_INSTALL_DIR, registry, Program Files, and C:\PlexusDICOM)." `
-        "Install the Modality Emulator first: unzip and run Modality-Emulator-3.1.5.0.msi from this folder. If it's installed somewhere unusual, set DICOM_INSTALL_DIR to that folder."
-}
-
-# ---------------------------------------------------------------------------
-# Step 5: Launch the emulator
-# ---------------------------------------------------------------------------
-Write-Step "5/5 Launching the Modality Emulator"
-
-if ($installDir) {
-    try {
-        Start-Process -FilePath (Join-Path $installDir $ExeName) -WorkingDirectory $installDir
-        Write-Ok "Launched $ExeName from $installDir"
-    } catch {
-        Write-Fail "Failed to launch $ExeName from ${installDir}: $($_.Exception.Message)" $null
-    }
-} else {
-    Write-Fail "Skipped - install location not found (see step 4)." $null
 }
 
 Write-Host ""

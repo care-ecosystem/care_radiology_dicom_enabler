@@ -3,17 +3,9 @@ echo ========================================
 echo    DICOM Enabler - Auto Setup Script
 echo ========================================
 
-set "DICOM_INSTALL_DIR=%~dp0Modality-Emulator-3.1.5.0\"
-set "DICOM_EXE_NAME=Modality-Emulator-3.1.5.0.msi"
+REM The MySQL password is prompted for by Initializer.ps1, which masks it with *.
+REM Set DICOM_MYSQL_PWD before running this file to skip that prompt.
 
-set "DEFAULT_DICOM_MYSQL_PWD=care"
-
-echo.
-set /p DICOM_MYSQL_PWD=Enter MySQL password [Press Enter for default: %DEFAULT_DICOM_MYSQL_PWD%]: 
-
-if "%DICOM_MYSQL_PWD%"=="" set "DICOM_MYSQL_PWD=%DEFAULT_DICOM_MYSQL_PWD%"
-
-echo Using MySQL password: %DICOM_MYSQL_PWD%
 echo.
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Initializer.ps1" %*
