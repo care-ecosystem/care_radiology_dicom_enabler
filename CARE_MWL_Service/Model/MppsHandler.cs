@@ -84,7 +84,15 @@ namespace Worklist_SCP.Model
                     }
                     else
                     {
-                        _logger.Warn($"MPPS webhook failed: {response.StatusCode} for service_request {serviceRequestId} facility {facilityId}");
+                        // Include the server's own explanation - the status alone cannot tell a
+                        // rejected token apart from a payload CARE would not accept.
+                        string errorBody = await response.Content.ReadAsStringAsync();
+                        if (!string.IsNullOrWhiteSpace(errorBody) && errorBody.Length > 1000)
+                        {
+                            errorBody = errorBody.Substring(0, 1000) + "... (truncated)";
+                        }
+
+                        _logger.Warn($"MPPS webhook failed: {(int)response.StatusCode} ({response.ReasonPhrase}) for service_request {serviceRequestId} facility {facilityId}. Response body: {(string.IsNullOrWhiteSpace(errorBody) ? "(empty)" : errorBody.Trim())}");
                     }
                 }
             }

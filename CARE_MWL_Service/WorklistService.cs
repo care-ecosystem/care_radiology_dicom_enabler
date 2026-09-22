@@ -106,8 +106,9 @@ namespace Worklist_SCP
                     break;
                 case 2:
                     fileLogger.Information($"Fetching Records from CARE Server API");
+                    string facilityId = getFacilityId(Association.CallingAE);
                     //var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromPellucidAsync();
-                    var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync();
+                    var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync(facilityId);
                     WorklistServer.CurrentWorklistItems = pellucidWorklistItems;
                     fileLogger.Information($" Successfully fetched {pellucidWorklistItems?.Count ?? 0} worklist items from CARE Server");
                     break;
@@ -160,7 +161,46 @@ namespace Worklist_SCP
         }
 
         /// <summary>
-        /// 
+        /// Reads the Facility ID from the Server List so the CARE worklist request can be scoped to one
+        /// facility. A row matching the calling AE title wins; failing that, the single Facility ID
+        /// configured in the Server List is used. The Facility ID is mandatory: when none can be
+        /// resolved this returns empty, and the caller then fetches nothing rather than querying every
+        /// facility. The error naming the cause is written to the log.
+        /// </summary>
+        private string getFacilityId(string aeTitle)
+        {
+            string errorString = string.Empty;
+            string resolvedFrom = string.Empty;
+            string applicationPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+            try
+            {
+                if (objDal == null)
+                {
+                    objDal = new ucls_DAL(applicationPath);
+                }
+                string facilityId = objDal.GetFacilityId(aeTitle, ref resolvedFrom, ref errorString);
+                if (errorString != string.Empty)
+                {
+                    fileLogger?.Error($"[FACILITY] Lookup failed for AE={aeTitle}: {errorString}");
+                    return string.Empty;
+                }
+                if (string.IsNullOrWhiteSpace(facilityId))
+                {
+                    fileLogger?.Error($"[FACILITY] No Facility ID for AE={aeTitle} - {resolvedFrom}. The CARE worklist will not be queried; enter a Facility ID in the Server List tab.");
+                    return string.Empty;
+                }
+                fileLogger?.Information($"[FACILITY] AE={aeTitle} resolved to Facility ID={facilityId} from {resolvedFrom}");
+                return facilityId;
+            }
+            catch (Exception ex)
+            {
+                fileLogger?.Error($"[FACILITY] Lookup failed for AE={aeTitle} with exception {ex.Message}");
+                return string.Empty;
+            }
+        }
+
+        /// <summary>
+        ///
         /// </summary>
         /// <param name="accessionNos"></param>
         private void UpdateStatusinDB(List<string> accessionNos)

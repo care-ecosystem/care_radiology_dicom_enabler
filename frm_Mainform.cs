@@ -310,7 +310,8 @@ namespace Plexus_DICOM_Enabler
         {
             string errorString = string.Empty;
             if ( txt_ServerName.Text == string.Empty || txt_AETitle.Text == string.Empty ||
-                txt_HostAddress.Text == string.Empty || txt_PortNo.Text == string.Empty )
+                txt_HostAddress.Text == string.Empty || txt_PortNo.Text == string.Empty ||
+                txt_FacilityId.Text.Trim() == string.Empty )
             {
                 MessageBox.Show(this, "Please fill mandatory fields. All Fields are mandatory except description",
                                      "Check Mandatory", MessageBoxButtons.OK,
@@ -321,7 +322,7 @@ namespace Plexus_DICOM_Enabler
             // Add Server to Database
             if (objDAL != null )
             {
-                if ( objDAL.insertorUpdateServer(txt_ServerName.Text, txt_AETitle.Text, txt_HostAddress.Text, txt_PortNo.Text,rtb_Description.Text, primarykey, bUpdateServer, ref errorString)) {
+                if ( objDAL.insertorUpdateServer(txt_ServerName.Text, txt_AETitle.Text, txt_HostAddress.Text, txt_PortNo.Text, txt_FacilityId.Text, rtb_Description.Text, primarykey, bUpdateServer, ref errorString)) {
                     MessageBox.Show(this, "Server details added/updated Successfully!!",
                                     "Server added Successfully", MessageBoxButtons.OK,
                                     MessageBoxIcon.Information);
@@ -351,7 +352,7 @@ namespace Plexus_DICOM_Enabler
         /// </summary>
         private void ClearTextBoxes()
         {
-            txt_ServerName.Text = txt_AETitle.Text = txt_HostAddress.Text = txt_PortNo.Text = rtb_Description.Text = string.Empty;
+            txt_ServerName.Text = txt_AETitle.Text = txt_HostAddress.Text = txt_PortNo.Text = txt_FacilityId.Text = rtb_Description.Text = string.Empty;
             primarykey = string.Empty;
         }
 
@@ -417,6 +418,8 @@ namespace Plexus_DICOM_Enabler
                         txt_HostAddress.Text = dgv_ServerList.Rows[e.RowIndex].Cells["serverHost"].Value.ToString();
                     if (dgv_ServerList.Rows[e.RowIndex].Cells["serverPort"] != null)
                         txt_PortNo.Text = dgv_ServerList.Rows[e.RowIndex].Cells["serverPort"].Value.ToString();
+                    if (dgv_ServerList.Rows[e.RowIndex].Cells["serverFacilityId"] != null)
+                        txt_FacilityId.Text = dgv_ServerList.Rows[e.RowIndex].Cells["serverFacilityId"].Value?.ToString() ?? string.Empty;
                     if (dgv_ServerList.Rows[e.RowIndex].Cells["description"] != null)
                         rtb_Description.Text = dgv_ServerList.Rows[e.RowIndex].Cells["description"].Value.ToString();
                     if (dgv_ServerList.Rows[e.RowIndex].Cells["pk"] != null)

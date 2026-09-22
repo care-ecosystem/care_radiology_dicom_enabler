@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using System.Data;
 using System.IO;
@@ -103,11 +103,12 @@ namespace Plexus.Common.Database
         /// <param name="aetitle"></param>
         /// <param name="hostaddress"></param>
         /// <param name="port"></param>
+        /// <param name="facilityId"></param>
         /// <param name="description"></param>
         /// <param name="updateServer"></param>
         /// <param name="errorString"></param>
         /// <returns></returns>
-        public bool insertorUpdateServer(string serverName,string aetitle,string hostaddress,string port,string description,string primarykey,bool updateServer , ref string errorString)
+        public bool insertorUpdateServer(string serverName,string aetitle,string hostaddress,string port,string facilityId,string description,string primarykey,bool updateServer , ref string errorString)
         {
             try
             {
@@ -116,12 +117,12 @@ namespace Plexus.Common.Database
                 {
                     if (!updateServer)
                     {
-                        query = "INSERT INTO dcm_servers(name,aetitle,hostaddress,portnumber,description) " +
-                            "VALUES ('" + serverName + "','" + aetitle + "','" + hostaddress + "','" + port + "','" + description + "')";
+                        query = "INSERT INTO dcm_servers(name,aetitle,hostaddress,portnumber,facilityid,description) " +
+                            "VALUES ('" + serverName + "','" + aetitle + "','" + hostaddress + "','" + port + "','" + facilityId + "','" + description + "')";
                     }
                     else
                     {
-                        query = "UPDATE dcm_servers SET name='"+serverName+ "',aetitle='" + aetitle + "',hostaddress='" + hostaddress + "',portnumber='" + port + "'," +
+                        query = "UPDATE dcm_servers SET name='"+serverName+ "',aetitle='" + aetitle + "',hostaddress='" + hostaddress + "',portnumber='" + port + "',facilityid='" + facilityId + "'," +
                             "description='" + description + "' WHERE pk="+ primarykey + "" ;
                     }
                     MySqlCommand command = new MySqlCommand(query, conConnection);
@@ -211,7 +212,7 @@ namespace Plexus.Common.Database
             {
                 if (openDBConnection(ref errorString))
                 {
-                    string query = "SELECT pk,name,aetitle,hostaddress,portnumber,description FROM dcm_servers";
+                    string query = "SELECT pk,name,aetitle,hostaddress,portnumber,facilityid,description FROM dcm_servers";
                     dsResult = new DataSet();
                     adpAdapter = new MySqlDataAdapter(query, conConnection);
                     adpAdapter.Fill(dsResult);
@@ -413,6 +414,76 @@ namespace Plexus.Common.Database
                 bRetVal = false;
             }
             return bRetVal;
+        }
+
+
+        /// <summary>
+        /// Get the Facility ID to filter the CARE worklist by, from the Facility ID column of the
+        /// Server List.
+        /// </summary>
+        /// <param name="resolvedFrom">Set to a human-readable description of how the value was found,
+        /// for logging - or why it could not be.</param>
+        public string GetFacilityId(string callingAET, ref string resolvedFrom, ref string errorString)
+        {
+            string facilityId = string.Empty;
+            resolvedFrom = "not resolved";
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    // 1. Exact match on the querying modality's AE title.
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "SELECT facilityid FROM dcm_servers WHERE aetitle = @aetitle AND facilityid IS NOT NULL AND facilityid <> '' LIMIT 1",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@aetitle", callingAET ?? string.Empty);
+                        var result = cmd.ExecuteScalar();
+                        if (result != null && result != DBNull.Value)
+                        {
+                            facilityId = result.ToString();
+                            resolvedFrom = $"Server List row for AE {callingAET}";
+                        }
+                    }
+
+                    // 2. No row for this AE - fall back to the only Facility ID configured, if there
+                    //    is exactly one.
+                    if (string.IsNullOrWhiteSpace(facilityId))
+                    {
+                        var distinctIds = new System.Collections.Generic.List<string>();
+                        using (MySqlCommand cmd = new MySqlCommand(
+                            "SELECT DISTINCT facilityid FROM dcm_servers WHERE facilityid IS NOT NULL AND facilityid <> ''",
+                            conConnection))
+                        using (MySqlDataReader reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                distinctIds.Add(reader.GetString(0));
+                            }
+                        }
+
+                        if (distinctIds.Count == 1)
+                        {
+                            facilityId = distinctIds[0];
+                            resolvedFrom = "the only Facility ID in the Server List";
+                        }
+                        else if (distinctIds.Count > 1)
+                        {
+                            resolvedFrom = $"ambiguous - {distinctIds.Count} different Facility IDs in the Server List and no row matches AE {callingAET}; add a row for this AE title to disambiguate";
+                        }
+                        else
+                        {
+                            resolvedFrom = "no Facility ID entered in the Server List";
+                        }
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                errorString = $"Getting Facility ID for AETitle {callingAET} failed with expection" + ex.Message;
+                facilityId = string.Empty;
+            }
+            return facilityId;
         }
 
 

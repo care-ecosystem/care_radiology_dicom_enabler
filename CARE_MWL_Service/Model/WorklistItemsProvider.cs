@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2012-2022 fo-dicom contributors.
+// Copyright (c) 2012-2022 fo-dicom contributors.
 // Licensed under the Microsoft Public License (MS-PL).
 
 
@@ -181,16 +181,22 @@ namespace Worklist_SCP.Model
             return objWorkListItems;
         }
 
-        public List<WorklistItem> GetAllCurrentWorklistItemsFromCareAsync()
+        public List<WorklistItem> GetAllCurrentWorklistItemsFromCareAsync(string facilityId)
         {
             List<WorklistItem> objWorkListItems = new List<WorklistItem>();
             ucls_ReadWriteLog objReadWriteLog = new ucls_ReadWriteLog();
+
+            if (string.IsNullOrWhiteSpace(facilityId))
+            {
+                objReadWriteLog.WriteToLog("Not calling the CARE worklist API: no Facility ID resolved. Enter a Facility ID against this server in the Server List tab.", false);
+                return objWorkListItems;
+            }
 
             try
             {
                 string errorString = string.Empty;
 
-                Task<string> task = GetCareWorklistDetailsAsync();
+                Task<string> task = GetCareWorklistDetailsAsync(facilityId);
                 string responseBody = task.Result;
 
                 CareWorklistResponse careResponse = JsonConvert.DeserializeObject<CareWorklistResponse>(responseBody);
@@ -303,10 +309,13 @@ namespace Worklist_SCP.Model
 
 
         /// <summary>
-        /// 
+        /// Calls the CARE worklist API, always scoped to one facility via the facility query param.
+        /// Callers reach this only after GetAllCurrentWorklistItemsFromCareAsync has established that a
+        /// Facility ID is present.
         /// </summary>
+        /// <param name="facilityId">Facility ID to filter on. Required.</param>
         /// <returns></returns>
-        private async Task<string> GetCareWorklistDetailsAsync()
+        private async Task<string> GetCareWorklistDetailsAsync(string facilityId)
         {
             string responseBody = string.Empty;
             ucls_ReadWriteLog objReadWriteLog = new ucls_ReadWriteLog();
@@ -324,6 +333,8 @@ namespace Worklist_SCP.Model
                                     "&from=" + Uri.EscapeDataString(fromDate) +
                                     "&to=" + Uri.EscapeDataString(toDate);
 
+                requestUrl += "&facility=" + Uri.EscapeDataString(facilityId.Trim());
+
                 objReadWriteLog.WriteToLog("CARE Worklist URL: " + requestUrl, true);
 
                 using (HttpClient client = new HttpClient())
@@ -332,8 +343,30 @@ namespace Worklist_SCP.Model
                     client.DefaultRequestHeaders.Add("Authorization", token);
 
                     HttpResponseMessage response = await client.GetAsync(requestUrl);
-                    response.EnsureSuccessStatusCode();
+
+                    // Read the body BEFORE throwing. EnsureSuccessStatusCode discards it, which
+                    // made a rejected token, a moved route and a permissions failure all surface
+                    // as a bare "403 (Forbidden)" - the server's own explanation was thrown away.
                     responseBody = await response.Content.ReadAsStringAsync();
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        objReadWriteLog.WriteToLog(
+                            $"CARE Worklist API returned {(int)response.StatusCode} ({response.ReasonPhrase}). Response body: {Truncate(responseBody, 1000)}", false);
+
+                        // A 401/403 is nearly always the careToken not matching the server's
+                        // CARE_RADIOLOGY_WEBHOOK_SECRET. Log a fingerprint of the token in use so
+                        // it can be compared against the server without either side echoing it:
+                        //   echo -n "$SECRET" | sha256sum
+                        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+                            response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                        {
+                            objReadWriteLog.WriteToLog(
+                                $"Authorization rejected by CARE. careToken in use: {DescribeToken(token)}. Verify it matches CARE_RADIOLOGY_WEBHOOK_SECRET on the server.", false);
+                        }
+
+                        response.EnsureSuccessStatusCode();
+                    }
                 }
 
                 objReadWriteLog.WriteToLog("CARE Worklist API call successful. Returning the value", true);
@@ -449,6 +482,33 @@ namespace Worklist_SCP.Model
 
 
 
+
+        /// <summary>
+        /// Caps a logged response body so an HTML error page cannot flood the log file, which
+        /// rolls at 5 KB per part.
+        /// </summary>
+        private static string Truncate(string value, int maxLength)
+        {
+            if (string.IsNullOrEmpty(value)) return "(empty)";
+            value = value.Trim();
+            return value.Length <= maxLength ? value : value.Substring(0, maxLength) + "... (truncated)";
+        }
+
+        /// <summary>
+        /// Describes the configured token without writing it to the log: its length plus a short
+        /// SHA-256 fingerprint, which is enough to compare against the server's own secret.
+        /// </summary>
+        private static string DescribeToken(string token)
+        {
+            if (string.IsNullOrEmpty(token)) return "(not configured)";
+
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(token));
+                string hex = BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
+                return $"{token.Length} chars, sha256:{hex.Substring(0, 16)}";
+            }
+        }
 
         private static string NormalizeSex(string value)
         {

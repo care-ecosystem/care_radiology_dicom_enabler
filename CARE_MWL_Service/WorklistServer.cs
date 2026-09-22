@@ -6,7 +6,11 @@ using FellowOakDicom.Log;
 using FellowOakDicom.Network;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 using System.Threading;
+using Plexus.Common.Database;
+using Serilog;
 
 using Worklist_SCP.Model;
 
@@ -18,6 +22,8 @@ namespace Worklist_SCP
 
         private static IDicomServer _server;
         private static Timer _itemsLoaderTimer;
+        private static Serilog.ILogger _refreshLogger;
+        private static ucls_DAL _refreshDal;
 
 
         protected WorklistServer()
@@ -75,7 +81,19 @@ namespace Worklist_SCP
                             WorklistServer.CurrentWorklistItems = dbWorklistItems;
                             break;
                         case 2:
-                            var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync();
+                            // This refresh has no DICOM association, so there is no calling AE to key
+                            // on - GetFacilityId falls back to the single Facility ID in the Server
+                            // List, which is what makes a facility-scoped background fetch possible.
+                            string refreshFacilityId = ResolveFacilityIdForRefresh();
+                            if (string.IsNullOrWhiteSpace(refreshFacilityId))
+                            {
+                                // Facility ID is mandatory. Skipping beats issuing an unfiltered
+                                // request, which would overwrite the facility-scoped cache with items
+                                // from every facility and mislead MPPS correlation.
+                                RefreshLogger.Warning("[REFRESH] Skipping periodic CARE worklist fetch - no Facility ID resolved");
+                                break;
+                            }
+                            var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync(refreshFacilityId);
                             WorklistServer.CurrentWorklistItems = pellucidWorklistItems;
                             break;
 
@@ -92,6 +110,67 @@ namespace Worklist_SCP
         }
 
        
+
+
+        /// <summary>
+        /// Logger for the periodic refresh. Separate from WorklistService.fileLogger, which only
+        /// exists once a modality has opened an association - the timer can fire before that.
+        /// </summary>
+        private static Serilog.ILogger RefreshLogger
+        {
+            get
+            {
+                if (_refreshLogger == null)
+                {
+                    string logFilePath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "logs/ModalitySCP.txt");
+                    _refreshLogger = new LoggerConfiguration()
+                        .WriteTo.File(logFilePath,
+                            restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information,
+                            shared: true,
+                            retainedFileCountLimit: 3,
+                            rollOnFileSizeLimit: true,
+                            fileSizeLimitBytes: 5120)
+                        .CreateLogger();
+                }
+                return _refreshLogger;
+            }
+        }
+
+        /// <summary>
+        /// Resolves the Facility ID for the periodic refresh from the Server List. Passes no AE title,
+        /// so resolution falls to the single Facility ID configured. Returns empty when none is set or
+        /// when several facilities are configured and no single one can be chosen without a calling AE.
+        /// </summary>
+        private static string ResolveFacilityIdForRefresh()
+        {
+            string errorString = string.Empty;
+            string resolvedFrom = string.Empty;
+            try
+            {
+                if (_refreshDal == null)
+                {
+                    _refreshDal = new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
+                }
+
+                string facilityId = _refreshDal.GetFacilityId(string.Empty, ref resolvedFrom, ref errorString);
+                if (errorString != string.Empty)
+                {
+                    RefreshLogger.Error($"[FACILITY][REFRESH] Lookup failed: {errorString}");
+                    return string.Empty;
+                }
+                if (string.IsNullOrWhiteSpace(facilityId))
+                {
+                    RefreshLogger.Information($"[FACILITY][REFRESH] No Facility ID - {resolvedFrom}");
+                    return string.Empty;
+                }
+                return facilityId;
+            }
+            catch (Exception ex)
+            {
+                RefreshLogger.Error($"[FACILITY][REFRESH] Lookup failed with exception {ex.Message}");
+                return string.Empty;
+            }
+        }
 
 
         public static void Stop()

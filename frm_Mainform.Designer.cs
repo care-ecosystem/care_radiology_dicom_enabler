@@ -69,7 +69,9 @@ namespace Plexus_DICOM_Enabler
             this.label4 = new System.Windows.Forms.Label();
             this.label3 = new System.Windows.Forms.Label();
             this.label2 = new System.Windows.Forms.Label();
+            this.label7 = new System.Windows.Forms.Label();
             this.rtb_Description = new System.Windows.Forms.RichTextBox();
+            this.txt_FacilityId = new System.Windows.Forms.TextBox();
             this.txt_PortNo = new System.Windows.Forms.TextBox();
             this.txt_HostAddress = new System.Windows.Forms.TextBox();
             this.txt_AETitle = new System.Windows.Forms.TextBox();
@@ -82,6 +84,7 @@ namespace Plexus_DICOM_Enabler
             this.serverAETitle = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.serverHost = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.serverPort = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.serverFacilityId = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.description = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.delete = new System.Windows.Forms.DataGridViewImageColumn();
             this.tdp_ViewPatients = new System.Windows.Forms.TabPage();
@@ -626,7 +629,9 @@ namespace Plexus_DICOM_Enabler
             this.tbp_ServerList.Controls.Add(this.label4);
             this.tbp_ServerList.Controls.Add(this.label3);
             this.tbp_ServerList.Controls.Add(this.label2);
+            this.tbp_ServerList.Controls.Add(this.label7);
             this.tbp_ServerList.Controls.Add(this.rtb_Description);
+            this.tbp_ServerList.Controls.Add(this.txt_FacilityId);
             this.tbp_ServerList.Controls.Add(this.txt_PortNo);
             this.tbp_ServerList.Controls.Add(this.txt_HostAddress);
             this.tbp_ServerList.Controls.Add(this.txt_AETitle);
@@ -664,12 +669,22 @@ namespace Plexus_DICOM_Enabler
             // 
             this.label6.AutoSize = true;
             this.label6.Font = new System.Drawing.Font("Microsoft Sans Serif", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.label6.Location = new System.Drawing.Point(129, 127);
+            this.label6.Location = new System.Drawing.Point(345, 118);
             this.label6.Name = "label6";
             this.label6.Size = new System.Drawing.Size(98, 16);
             this.label6.TabIndex = 14;
             this.label6.Text = "Description : ";
-            // 
+            //
+            // label7
+            //
+            this.label7.AutoSize = true;
+            this.label7.Font = new System.Drawing.Font("Microsoft Sans Serif", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.label7.Location = new System.Drawing.Point(129, 118);
+            this.label7.Name = "label7";
+            this.label7.Size = new System.Drawing.Size(98, 16);
+            this.label7.TabIndex = 16;
+            this.label7.Text = "Facility ID : ";
+            //
             // label5
             // 
             this.label5.AutoSize = true;
@@ -712,15 +727,23 @@ namespace Plexus_DICOM_Enabler
             // 
             // rtb_Description
             // 
-            this.rtb_Description.Location = new System.Drawing.Point(129, 146);
+            this.rtb_Description.Location = new System.Drawing.Point(345, 140);
             this.rtb_Description.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.rtb_Description.Name = "rtb_Description";
-            this.rtb_Description.Size = new System.Drawing.Size(465, 75);
-            this.rtb_Description.TabIndex = 8;
+            this.rtb_Description.Size = new System.Drawing.Size(599, 75);
+            this.rtb_Description.TabIndex = 9;
             this.rtb_Description.Text = "";
-            // 
+            //
+            // txt_FacilityId
+            //
+            this.txt_FacilityId.Location = new System.Drawing.Point(129, 140);
+            this.txt_FacilityId.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
+            this.txt_FacilityId.Name = "txt_FacilityId";
+            this.txt_FacilityId.Size = new System.Drawing.Size(183, 22);
+            this.txt_FacilityId.TabIndex = 8;
+            //
             // txt_PortNo
-            // 
+            //
             this.txt_PortNo.Location = new System.Drawing.Point(761, 84);
             this.txt_PortNo.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.txt_PortNo.Name = "txt_PortNo";
@@ -769,7 +792,7 @@ namespace Plexus_DICOM_Enabler
             this.mtbtn_AddUpdateServer.Depth = 0;
             this.mtbtn_AddUpdateServer.HighEmphasis = true;
             this.mtbtn_AddUpdateServer.Icon = null;
-            this.mtbtn_AddUpdateServer.Location = new System.Drawing.Point(836, 186);
+            this.mtbtn_AddUpdateServer.Location = new System.Drawing.Point(836, 228);
             this.mtbtn_AddUpdateServer.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
             this.mtbtn_AddUpdateServer.MouseState = MaterialSkin.MouseState.HOVER;
             this.mtbtn_AddUpdateServer.Name = "mtbtn_AddUpdateServer";
@@ -791,15 +814,16 @@ namespace Plexus_DICOM_Enabler
             this.serverAETitle,
             this.serverHost,
             this.serverPort,
+            this.serverFacilityId,
             this.description,
             this.delete});
             this.dgv_ServerList.EditMode = System.Windows.Forms.DataGridViewEditMode.EditProgrammatically;
-            this.dgv_ServerList.Location = new System.Drawing.Point(80, 242);
+            this.dgv_ServerList.Location = new System.Drawing.Point(80, 285);
             this.dgv_ServerList.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.dgv_ServerList.Name = "dgv_ServerList";
             this.dgv_ServerList.RowHeadersWidth = 51;
             this.dgv_ServerList.RowTemplate.Height = 24;
-            this.dgv_ServerList.Size = new System.Drawing.Size(947, 519);
+            this.dgv_ServerList.Size = new System.Drawing.Size(947, 470);
             this.dgv_ServerList.TabIndex = 0;
             this.dgv_ServerList.CellClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgv_ServerList_CellClick);
             this.dgv_ServerList.CellContentClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgv_ServerList_CellContentClick);
@@ -847,9 +871,18 @@ namespace Plexus_DICOM_Enabler
             this.serverPort.MinimumWidth = 6;
             this.serverPort.Name = "serverPort";
             this.serverPort.Width = 125;
-            // 
+            //
+            // serverFacilityId
+            //
+            this.serverFacilityId.DataPropertyName = "facilityid";
+            this.serverFacilityId.FillWeight = 150F;
+            this.serverFacilityId.HeaderText = "Facility ID";
+            this.serverFacilityId.MinimumWidth = 6;
+            this.serverFacilityId.Name = "serverFacilityId";
+            this.serverFacilityId.Width = 125;
+            //
             // description
-            // 
+            //
             this.description.DataPropertyName = "description";
             this.description.FillWeight = 200F;
             this.description.HeaderText = "Description";
@@ -1242,6 +1275,7 @@ namespace Plexus_DICOM_Enabler
         private MaterialSkin.Controls.MaterialButton mtbtn_AddUpdateServer;
         private MaterialSkin.Controls.MaterialLabel materialLabel12;
         private System.Windows.Forms.TextBox txt_PortNo;
+        private System.Windows.Forms.TextBox txt_FacilityId;
         private System.Windows.Forms.TextBox txt_HostAddress;
         private System.Windows.Forms.TextBox txt_AETitle;
         private System.Windows.Forms.TextBox txt_ServerName;
@@ -1251,6 +1285,7 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.Label label4;
         private System.Windows.Forms.Label label5;
         private System.Windows.Forms.Label label6;
+        private System.Windows.Forms.Label label7;
         private System.Windows.Forms.TabControl tbc_Logs;
         private System.Windows.Forms.TabPage tp_MWLLog;
         private System.Windows.Forms.RichTextBox rtb_MWLLog;
@@ -1264,6 +1299,7 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.DataGridViewTextBoxColumn serverAETitle;
         private System.Windows.Forms.DataGridViewTextBoxColumn serverHost;
         private System.Windows.Forms.DataGridViewTextBoxColumn serverPort;
+        private System.Windows.Forms.DataGridViewTextBoxColumn serverFacilityId;
         private System.Windows.Forms.DataGridViewTextBoxColumn description;
         private System.Windows.Forms.DataGridViewImageColumn delete;
         private System.Windows.Forms.TabPage tbp_SCUSettings;

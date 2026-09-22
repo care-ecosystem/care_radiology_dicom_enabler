@@ -11,6 +11,23 @@ name: Build CARE DICOM Enabler
 #     - CARE API Token
 #     - DICOM Modality Filter
 #     - Worklist From Date
+#
+# CARE settings resolve in this order (first non-empty wins):
+#   1. workflow_dispatch input   - one-off override for a manual run
+#   2. repository secret / var   - the standing default
+#   3. App.config committed value
+#
+# Configure the standing defaults once under
+# Settings > Secrets and variables > Actions.
+#
+#   Secrets tab (masked in logs):
+#     CARE_BASE_URL    e.g. https://care.example.org
+#     CARE_API_TOKEN   the radiology plugin API token
+#
+#   Variables tab (appear in the artifact filename, so not secrets):
+#     CARE_MODALITY    optional, e.g. CT   (leave unset for all modalities)
+#     CARE_FROM_DATE   optional, e.g. 2025-01-01 08:00:00
+#     CARE_BACKEND     optional, 0=List 1=Database 2=CARE Server
 
 on:
   push:
@@ -83,49 +100,133 @@ jobs:
   build:
     runs-on: windows-latest
 
+    # Resolve CARE settings once: manual input wins, then repository secret/var.
+    # Reading these through env (rather than inline ${{ }} in the script) keeps
+    # GitHub's secret masking intact and avoids shell injection.
+    env:
+      # Sensitive -> Secrets (masked in logs)
+      CARE_BASE_URL:  ${{ inputs.care_server_url != '' && inputs.care_server_url || secrets.CARE_BASE_URL }}
+      CARE_API_TOKEN: ${{ inputs.care_api_token  != '' && inputs.care_api_token  || secrets.CARE_API_TOKEN }}
+      # Non-sensitive -> Variables. These end up in the artifact filename, and a
+      # masked secret would render there as "***", so they must not be secrets.
+      CARE_MODALITY:  ${{ inputs.care_modality   != '' && inputs.care_modality   || vars.CARE_MODALITY }}
+      CARE_FROM_DATE: ${{ inputs.care_from_date  != '' && inputs.care_from_date  || vars.CARE_FROM_DATE }}
+      CARE_BACKEND:   ${{ inputs.care_backend    != '' && inputs.care_backend    || vars.CARE_BACKEND }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Patch CARE_MWL_Service App.config (if CARE settings provided)
-        if: ${{ inputs.care_server_url != '' || inputs.care_api_token != '' || inputs.care_modality != '' || inputs.care_backend != '' }}
+      # Two services talk to CARE, through DIFFERENTLY NAMED keys in separate
+      # config files. Patching only the MWL service leaves image upload and the
+      # study webhook pointing at whatever is committed, which is the shared
+      # staging server:
+      #
+      #   CARE_MWL_Service  careBaseUrl    -> worklist C-FIND, MPPS webhook
+      #                     careToken
+      #   CARE_SCU_Service  careBackendURL -> DICOM upload, study webhook
+      #                     staticAPIKey
+      #
+      # The root App.config (CARE_DICOM_Enabler.exe.config) carries a stale
+      # copy of the SCU keys that no code reads; it is patched too so the
+      # archive does not ship the staging URL and token in a third place.
+      - name: Patch CARE settings into all service App.config files
         shell: pwsh
         run: |
-          $serverUrl = "${{ inputs.care_server_url }}"
-          $apiToken  = "${{ inputs.care_api_token }}"
-          $modality  = "${{ inputs.care_modality }}"
-          $fromDate  = "${{ inputs.care_from_date }}"
-          $backend   = "${{ inputs.care_backend }}"
+          $serverUrl = "$env:CARE_BASE_URL"
+          $apiToken  = "$env:CARE_API_TOKEN"
+          $modality  = "$env:CARE_MODALITY"
+          $fromDate  = "$env:CARE_FROM_DATE"
+          $backend   = "$env:CARE_BACKEND"
 
-          Write-Output "Patching CARE_MWL_Service App.config with custom CARE settings..."
-
-          [xml]$xml = Get-Content "CARE_MWL_Service\App.config"
-          $s = $xml.configuration.appSettings.add
-
-          # Only patch values that were provided (not empty)
-          if ($backend -ne '') {
-            ($s | Where-Object key -eq "backend").value = $backend
-            Write-Output "  - Backend: $backend"
-          }
-          if ($serverUrl -ne '') {
-            ($s | Where-Object key -eq "careBaseUrl").value = $serverUrl
-            Write-Output "  - Server URL: $serverUrl"
-          }
-          if ($apiToken -ne '') {
-            ($s | Where-Object key -eq "careToken").value = $apiToken
-            Write-Output "  - API Token: $($apiToken.Substring(0, [Math]::Min(4, $apiToken.Length)))***"
-          }
-          if ($modality -ne '') {
-            ($s | Where-Object key -eq "careModality").value = $modality
-            Write-Output "  - Modality: $modality"
-          }
-          if ($fromDate -ne '') {
-            ($s | Where-Object key -eq "careFromDate").value = $fromDate
-            Write-Output "  - From Date: $fromDate"
+          if (-not ($serverUrl -or $apiToken -or $modality -or $fromDate -or $backend)) {
+            Write-Output "No CARE settings supplied - keeping App.config defaults."
+            exit 0
           }
 
-          $xml.Save((Resolve-Path "CARE_MWL_Service\App.config").Path)
-          Write-Output "App.config patched successfully - settings baked into EXE"
+          # Keys whose values are credentials: log a length, never the value.
+          $secretKeys = @('careToken', 'staticAPIKey', 'jwtToken')
+
+          function Update-ConfigFile([string]$path, [hashtable]$settings) {
+            if (-not (Test-Path $path)) {
+              Write-Warning "$path not found - skipped"
+              return
+            }
+
+            [xml]$xml = Get-Content $path
+            $adds = $xml.configuration.appSettings.add
+            Write-Output "Patching $path"
+            $applied = 0
+
+            foreach ($key in $settings.Keys) {
+              $value = $settings[$key]
+              if ([string]::IsNullOrEmpty($value)) { continue }
+
+              $node = $adds | Where-Object key -eq $key
+              if ($null -eq $node) {
+                Write-Warning "  key '$key' absent from $path - skipped"
+                continue
+              }
+
+              $node.value = $value
+              $applied++
+
+              if ($secretKeys -contains $key) {
+                Write-Output "  - $key = (set, $($value.Length) chars)"
+              } else {
+                Write-Output "  - $key = $value"
+              }
+            }
+
+            if ($applied -gt 0) {
+              $xml.Save((Resolve-Path $path).Path)
+              Write-Output "  saved ($applied setting(s))"
+            } else {
+              Write-Output "  nothing to change"
+            }
+          }
+
+          # Worklist + MPPS webhook
+          Update-ConfigFile "CARE_MWL_Service\App.config" @{
+            backend      = $backend
+            careBaseUrl  = $serverUrl
+            careToken    = $apiToken
+            careModality = $modality
+            careFromDate = $fromDate
+          }
+
+          # DICOM upload + study webhook
+          Update-ConfigFile "CARE_SCU_Service\App.config" @{
+            careBackendURL = $serverUrl
+            staticAPIKey   = $apiToken
+          }
+
+          # Stale duplicates shipped in CARE_DICOM_Enabler.exe.config. The
+          # WinForms UI reads cfg\common.cfg via cls_PlexusConfig, never its own
+          # .exe.config, so nothing consumes these - they are rewritten only so
+          # the archive stops shipping the staging URL in a third place.
+          $authUrl = if ($serverUrl) { "$($serverUrl.TrimEnd('/'))/api/token/" } else { '' }
+          Update-ConfigFile "App.config" @{
+            careBackendURL = $serverUrl
+            staticAPIKey   = $apiToken
+            authURL        = $authUrl
+          }
+
+          Write-Output ""
+          Write-Output "All CARE settings baked in - every service now targets the same server."
+
+          # A wrong token is invisible until a modality issues a C-FIND and the
+          # worklist comes back empty, because the .NET client swallows the HTTP
+          # error. Print a fingerprint so the operator can compare it against the
+          # server's CARE_RADIOLOGY_WEBHOOK_SECRET without either side echoing the
+          # secret:  echo -n "$SECRET" | sha256sum
+          if ($apiToken) {
+            $sha = [System.Security.Cryptography.SHA256]::Create()
+            $hash = [BitConverter]::ToString(
+              $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($apiToken))
+            ).Replace('-', '').ToLower()
+            Write-Output "Token fingerprint (sha256, first 16): $($hash.Substring(0, 16))"
+          }
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -143,9 +244,9 @@ jobs:
           $platform  = "${{ inputs.build_platform || 'Any CPU' }}"
           $parallel  = "${{ inputs.parallel_build }}"
           $artifact  = "${{ inputs.upload_artifact }}"
-          $serverUrl = "${{ inputs.care_server_url }}"
-          $modality  = "${{ inputs.care_modality }}"
-          $backend   = "${{ inputs.care_backend }}"
+          $serverUrl = "$env:CARE_BASE_URL"
+          $modality  = "$env:CARE_MODALITY"
+          $backend   = "$env:CARE_BACKEND"
 
           Write-Output "Build Configuration:"
           Write-Output "  - Configuration: $config"
@@ -205,24 +306,43 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$binPath\logs"
           Write-Output "Configuration files and directories created in $binPath"
 
-      - name: Copy Emulator initializer scripts
+          # common.cfg is read by CARE.Common (cls_PlexusConfig), not by
+          # ConfigurationManager, so the App.config patching above never touches
+          # it. Its authURL is what CARE_Auth_Service authenticates the app user
+          # against (PlexusAuthService.cs:234 -> WebRequest.Create at :139), and
+          # a failure there stops the DICOM services - so it must not be left
+          # pointing at the shared staging server.
+          #
+          # connectString / uname / pwd are deliberately NOT rewritten: they are
+          # AES-encrypted and the workflow holds no plaintext to re-encrypt.
+          # Regenerate them locally with the GenerateConnectionString project.
+          if ($env:CARE_BASE_URL) {
+            $cfgPath = "$binPath\cfg\common.cfg"
+            [xml]$cfg = Get-Content $cfgPath
+            $node = $cfg.SelectSingleNode('/configurations/authURL')
+            if ($node) {
+              $node.InnerText = "$($env:CARE_BASE_URL.TrimEnd('/'))/api/token/"
+              $cfg.Save((Resolve-Path $cfgPath).Path)
+              Write-Output "  - cfg\common.cfg authURL = $($node.InnerText)"
+            } else {
+              Write-Warning "  authURL element absent from common.cfg - skipped"
+            }
+          }
+
+      - name: Set short SHA and artifact name
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path bin\Release\Emulator
-          Copy-Item Emulator\Initializer.bat bin\Release\Emulator\Initializer.bat
-          Copy-Item Emulator\Initializer.ps1 bin\Release\Emulator\Initializer.ps1
-          Copy-Item Emulator\schema.sql bin\Release\Emulator\schema.sql
+          $shortSha = $env:GITHUB_SHA.Substring(0,7)
+          echo "SHORT_SHA=$shortSha" >> $env:GITHUB_ENV
 
-      - name: Set short SHA and artifact suffix
-        shell: pwsh
-        run: |
-          echo "SHORT_SHA=$($env:GITHUB_SHA.Substring(0,7))" >> $env:GITHUB_ENV
+          # Add suffix if CARE settings are customized. Read through env so a build
+          # driven by the repository secret/var defaults is labelled the same way
+          # as one driven by a manual input.
+          $serverUrl = "$env:CARE_BASE_URL"
+          $modality  = "$env:CARE_MODALITY"
+          $backend   = "$env:CARE_BACKEND"
 
-          # Add suffix if CARE settings are customized
-          $serverUrl = "${{ inputs.care_server_url }}"
-          $modality  = "${{ inputs.care_modality }}"
-          $backend   = "${{ inputs.care_backend }}"
-
+          $suffix = ""
           if ($serverUrl -ne '' -or $modality -ne '' -or $backend -ne '') {
             $suffix = "-custom"
             if ($modality -ne '') {
@@ -235,15 +355,28 @@ jobs:
             } elseif ($backend -eq '0') {
               $suffix += "-List"
             }
-            echo "ARTIFACT_SUFFIX=$suffix" >> $env:GITHUB_ENV
-          } else {
-            echo "ARTIFACT_SUFFIX=" >> $env:GITHUB_ENV
           }
+          echo "ARTIFACT_SUFFIX=$suffix" >> $env:GITHUB_ENV
+
+          # Build the artifact name here rather than inline in the upload step: upload-artifact
+          # rejects names containing " : < > | * ? \ / CR LF, and a branch such as
+          # "enhanc/facility_id" reaches us through github.ref_name with a slash in it.
+          $config   = "${{ inputs.build_configuration || 'Release' }}"
+          $platform = "${{ inputs.build_platform || 'AnyCPU' }}"
+          $refLabel = "${{ github.event.pull_request.number || github.ref_name }}"
+
+          $artifactName = "CARE_DICOM_Enabler-$config-$platform$suffix-$refLabel-$($env:GITHUB_RUN_NUMBER)-$shortSha"
+          $artifactName = $artifactName -replace '[\\/:"<>|*?\r\n]', '-'   # invalid chars -> dash
+          $artifactName = $artifactName -replace '\s+', ''                 # "Any CPU" -> "AnyCPU"
+          $artifactName = $artifactName -replace '-{2,}', '-'              # collapse runs of dashes
+
+          Write-Output "Artifact name: $artifactName"
+          echo "ARTIFACT_NAME=$artifactName" >> $env:GITHUB_ENV
 
       - name: Upload Build Artifact
         if: ${{ inputs.upload_artifact != 'false' }}
         uses: actions/upload-artifact@v4
         with:
-          name: CARE_DICOM_Enabler-${{ inputs.build_configuration || 'Release' }}-${{ inputs.build_platform || 'AnyCPU' }}${{ env.ARTIFACT_SUFFIX }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_number }}-${{ env.SHORT_SHA }}
+          name: ${{ env.ARTIFACT_NAME }}
           path: bin\${{ inputs.build_configuration || 'Release' }}\
           if-no-files-found: error
