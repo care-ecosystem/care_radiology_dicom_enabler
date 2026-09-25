@@ -1,5 +1,5 @@
 using System;
-
+using System.Collections.Generic;
 using System.Data;
 using System.IO;
 
@@ -487,5 +487,178 @@ namespace Plexus.Common.Database
         }
 
 
+        /// <summary>
+        /// Brings the local care_worklist table in line with one CARE worklist response. Accession
+        /// numbers not yet in the table are inserted; rows already there are left untouched. Rows
+        /// still SCHEDULED whose accession number is not in this response are marked COMPLETED.
+        /// Call only with a response the CARE API reported as successful - an empty list marks every
+        /// scheduled row completed.
+        /// </summary>
+        public bool SyncCareWorklist(List<CareWorklistRecord> records, ref int insertedCount, ref int completedCount, ref string errorString)
+        {
+            insertedCount = 0;
+            completedCount = 0;
+            MySqlTransaction transaction = null;
+            try
+            {
+                if (!openDBConnection(ref errorString))
+                    return false;
+
+                transaction = conConnection.BeginTransaction();
+
+                const string insertQuery =
+                    "INSERT IGNORE INTO care_worklist (accession_number, status, service_request_id, service_request_external_id, service_request_name, " +
+                    "service_request_date, service_request_body_site, service_request_description, service_request_modality, service_request_procedure_id, " +
+                    "service_request_priority, service_request_technician_instruction, service_request_patient_instruction, created_by_prefix, " +
+                    "created_by_first_name, created_by_last_name, facility_id, facility_name, patient_id, patient_external_id, patient_name, " +
+                    "patient_address, patient_phone_number, patient_gender, patient_age, patient_uhid) VALUES " +
+                    "(@accession_number, 'SCHEDULED', @service_request_id, @service_request_external_id, @service_request_name, " +
+                    "@service_request_date, @service_request_body_site, @service_request_description, @service_request_modality, @service_request_procedure_id, " +
+                    "@service_request_priority, @service_request_technician_instruction, @service_request_patient_instruction, @created_by_prefix, " +
+                    "@created_by_first_name, @created_by_last_name, @facility_id, @facility_name, @patient_id, @patient_external_id, @patient_name, " +
+                    "@patient_address, @patient_phone_number, @patient_gender, @patient_age, @patient_uhid)";
+
+                var accessionNumbers = new List<string>();
+                foreach (CareWorklistRecord record in records)
+                {
+                    if (string.IsNullOrWhiteSpace(record.AccessionNumber))
+                        continue;
+                    accessionNumbers.Add(record.AccessionNumber);
+
+                    using (MySqlCommand cmd = new MySqlCommand(insertQuery, conConnection, transaction))
+                    {
+                        cmd.Parameters.AddWithValue("@accession_number", record.AccessionNumber);
+                        cmd.Parameters.AddWithValue("@service_request_id", DbValue(record.ServiceRequestId));
+                        cmd.Parameters.AddWithValue("@service_request_external_id", DbValue(record.ServiceRequestExternalId));
+                        cmd.Parameters.AddWithValue("@service_request_name", DbValue(record.ServiceRequestName));
+                        cmd.Parameters.AddWithValue("@service_request_date", record.ServiceRequestDate.HasValue ? (object)record.ServiceRequestDate.Value : DBNull.Value);
+                        cmd.Parameters.AddWithValue("@service_request_body_site", DbValue(record.ServiceRequestBodySite));
+                        cmd.Parameters.AddWithValue("@service_request_description", DbValue(record.ServiceRequestDescription));
+                        cmd.Parameters.AddWithValue("@service_request_modality", DbValue(record.ServiceRequestModality));
+                        cmd.Parameters.AddWithValue("@service_request_procedure_id", DbValue(record.ServiceRequestProcedureId));
+                        cmd.Parameters.AddWithValue("@service_request_priority", DbValue(record.ServiceRequestPriority));
+                        cmd.Parameters.AddWithValue("@service_request_technician_instruction", DbValue(record.ServiceRequestTechnicianInstruction));
+                        cmd.Parameters.AddWithValue("@service_request_patient_instruction", DbValue(record.ServiceRequestPatientInstruction));
+                        cmd.Parameters.AddWithValue("@created_by_prefix", DbValue(record.CreatedByPrefix));
+                        cmd.Parameters.AddWithValue("@created_by_first_name", DbValue(record.CreatedByFirstName));
+                        cmd.Parameters.AddWithValue("@created_by_last_name", DbValue(record.CreatedByLastName));
+                        cmd.Parameters.AddWithValue("@facility_id", DbValue(record.FacilityId));
+                        cmd.Parameters.AddWithValue("@facility_name", DbValue(record.FacilityName));
+                        cmd.Parameters.AddWithValue("@patient_id", DbValue(record.PatientId));
+                        cmd.Parameters.AddWithValue("@patient_external_id", DbValue(record.PatientExternalId));
+                        cmd.Parameters.AddWithValue("@patient_name", DbValue(record.PatientName));
+                        cmd.Parameters.AddWithValue("@patient_address", DbValue(record.PatientAddress));
+                        cmd.Parameters.AddWithValue("@patient_phone_number", DbValue(record.PatientPhoneNumber));
+                        cmd.Parameters.AddWithValue("@patient_gender", DbValue(record.PatientGender));
+                        cmd.Parameters.AddWithValue("@patient_age", record.PatientAge.HasValue ? (object)record.PatientAge.Value : DBNull.Value);
+                        cmd.Parameters.AddWithValue("@patient_uhid", DbValue(record.PatientUhid));
+                        insertedCount += cmd.ExecuteNonQuery();
+                    }
+                }
+
+                string completeQuery = "UPDATE care_worklist SET status = 'COMPLETED' WHERE status <> 'COMPLETED'";
+                using (MySqlCommand cmd = new MySqlCommand(string.Empty, conConnection, transaction))
+                {
+                    if (accessionNumbers.Count > 0)
+                    {
+                        var placeholders = new List<string>();
+                        for (int i = 0; i < accessionNumbers.Count; i++)
+                        {
+                            placeholders.Add("@acc" + i);
+                            cmd.Parameters.AddWithValue("@acc" + i, accessionNumbers[i]);
+                        }
+                        completeQuery += " AND accession_number NOT IN (" + string.Join(",", placeholders) + ")";
+                    }
+                    cmd.CommandText = completeQuery;
+                    completedCount = cmd.ExecuteNonQuery();
+                }
+
+                transaction.Commit();
+                closeDBConnection(ref errorString);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try { transaction?.Rollback(); } catch { }
+                closeDBConnection(ref errorString);
+                errorString = "Syncing CARE worklist to care_worklist failed with exception " + ex.Message;
+                insertedCount = 0;
+                completedCount = 0;
+                return false;
+            }
+        }
+
+
+        /// <summary>
+        /// Returns the CARE patient external ID (UUID) saved in care_worklist for an accession number,
+        /// or empty when the accession number is not in the table.
+        /// </summary>
+        public string GetCarePatientIdByAccessionNo(string accessionNo, ref string errorString)
+        {
+            string patientId = string.Empty;
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "SELECT patient_external_id FROM care_worklist WHERE accession_number = @accession_number LIMIT 1",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@accession_number", accessionNo ?? string.Empty);
+                        var result = cmd.ExecuteScalar();
+                        if (result != null && result != DBNull.Value)
+                            patientId = result.ToString();
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                errorString = $"Getting CARE patient ID for Accession No {accessionNo} failed with exception " + ex.Message;
+                patientId = string.Empty;
+            }
+            return patientId;
+        }
+
+
+        private static object DbValue(string value)
+        {
+            return string.IsNullOrEmpty(value) ? (object)DBNull.Value : value;
+        }
+
+
+    }
+
+
+    /// <summary>
+    /// One CARE worklist API result flattened into the columns of the care_worklist table.
+    /// </summary>
+    public class CareWorklistRecord
+    {
+        public string AccessionNumber { get; set; }
+        public string ServiceRequestId { get; set; }
+        public string ServiceRequestExternalId { get; set; }
+        public string ServiceRequestName { get; set; }
+        public DateTime? ServiceRequestDate { get; set; }
+        public string ServiceRequestBodySite { get; set; }
+        public string ServiceRequestDescription { get; set; }
+        public string ServiceRequestModality { get; set; }
+        public string ServiceRequestProcedureId { get; set; }
+        public string ServiceRequestPriority { get; set; }
+        public string ServiceRequestTechnicianInstruction { get; set; }
+        public string ServiceRequestPatientInstruction { get; set; }
+        public string CreatedByPrefix { get; set; }
+        public string CreatedByFirstName { get; set; }
+        public string CreatedByLastName { get; set; }
+        public string FacilityId { get; set; }
+        public string FacilityName { get; set; }
+        public string PatientId { get; set; }
+        public string PatientExternalId { get; set; }
+        public string PatientName { get; set; }
+        public string PatientAddress { get; set; }
+        public string PatientPhoneNumber { get; set; }
+        public string PatientGender { get; set; }
+        public int? PatientAge { get; set; }
+        public string PatientUhid { get; set; }
     }
 }

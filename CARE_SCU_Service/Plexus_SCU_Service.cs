@@ -120,13 +120,18 @@ namespace Plexus_SCU_Service
                 string patientId = dataset.GetString(DicomTag.PatientID);
                 string accessionNumber = dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
 
+                // patient_id is only ever the CARE patient external_id saved in care_worklist, matched
+                // by the file's accession number. The DICOM PatientID is never sent.
+                string carePatientId = GetCarePatientId(accessionNumber);
+
                 string fileName = Path.GetFileName(dcmfile);
                 using (var content = new MultipartFormDataContent())
                 {
-                    if (!string.IsNullOrWhiteSpace(patientId) && Guid.TryParse(patientId, out _))
-                        content.Add(new StringContent(patientId), "patient_id");
-                    else if (!string.IsNullOrWhiteSpace(patientId))
-                        WriteToLog($"PatientID '{patientId}' is not a UUID — skipping patient_id field", false);
+                    if (!string.IsNullOrWhiteSpace(carePatientId))
+                    {
+                        content.Add(new StringContent(carePatientId), "patient_id");
+                        WriteToLog($"Sending patient_id={carePatientId} from care_worklist for AccessionNumber={accessionNumber}", true);
+                    }
 
                     content.Add(new StringContent(fileName), "filename");
 
@@ -139,7 +144,7 @@ namespace Plexus_SCU_Service
                     request.Headers.Add("Authorization", staticApiKey);
                     request.Content = content;
 
-                    WriteToLog($"Uploading to {uploadURL} (PatientID={patientId}, StudyUID={studyInstanceId}, AccessionNumber={accessionNumber})", true);
+                    WriteToLog($"Uploading to {uploadURL} (patient_id={carePatientId}, DICOM PatientID={patientId}, StudyUID={studyInstanceId}, AccessionNumber={accessionNumber})", true);
 
                     var response = httpClient.SendAsync(request).GetAwaiter().GetResult();
                     string responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
@@ -226,6 +231,31 @@ namespace Plexus_SCU_Service
             catch (Exception ex)
             {
                 WriteToLog($"Webhook call exception: {ex.Message}", false);
+            }
+        }
+
+        private string GetCarePatientId(string accessionNumber)
+        {
+            if (string.IsNullOrWhiteSpace(accessionNumber))
+            {
+                WriteToLog("No AccessionNumber in the DICOM file — uploading without patient_id", false);
+                return string.Empty;
+            }
+
+            string errorString = string.Empty;
+            try
+            {
+                string carePatientId = objDAL.GetCarePatientIdByAccessionNo(accessionNumber, ref errorString);
+                if (!string.IsNullOrEmpty(errorString))
+                    WriteToLog($"care_worklist lookup failed for AccessionNumber={accessionNumber}: {errorString}", false);
+                else if (string.IsNullOrWhiteSpace(carePatientId))
+                    WriteToLog($"AccessionNumber={accessionNumber} not found in care_worklist — uploading without patient_id", false);
+                return carePatientId;
+            }
+            catch (Exception ex)
+            {
+                WriteToLog($"care_worklist lookup exception for AccessionNumber={accessionNumber}: {ex.Message}", false);
+                return string.Empty;
             }
         }
 

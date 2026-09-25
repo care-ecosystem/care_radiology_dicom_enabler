@@ -186,7 +186,7 @@ if (-not $mysqlExe) {
             if ($LASTEXITCODE -ne 0) {
                 Write-Fail "Failed applying schema.sql (database/tables/stored procedures) to '$DbName'." "Ensure user '$MySqlUser' has CREATE/DROP privileges on '$DbName', then re-run this script."
             } else {
-                Write-Ok "Database '$DbName' is ready: dcm_servers, patient, study, series, instance, userdetails tables and the push_pat_data / push_patdicom_details / updatestatus / updatestatus_ascno procedures."
+                Write-Ok "Database '$DbName' is ready: dcm_servers, patient, study, series, instance, userdetails, care_worklist tables and the push_pat_data / push_patdicom_details / updatestatus / updatestatus_ascno procedures."
             }
         }
 

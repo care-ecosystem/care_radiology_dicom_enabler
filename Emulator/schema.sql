@@ -274,6 +274,42 @@ CREATE TABLE IF NOT EXISTS `userdetails` (
   KEY `userroleid_fk` (`userroleid_fk`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
+-- Local copy of the CARE worklist, one row per accession number. 
+CREATE TABLE IF NOT EXISTS `care_worklist` (
+  `pk` bigint(20) NOT NULL AUTO_INCREMENT,
+  `accession_number` varchar(64) NOT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'SCHEDULED',
+  `service_request_id` varchar(64) DEFAULT NULL,
+  `service_request_external_id` varchar(64) DEFAULT NULL,
+  `service_request_name` varchar(255) DEFAULT NULL,
+  `service_request_date` datetime DEFAULT NULL,
+  `service_request_body_site` text DEFAULT NULL,
+  `service_request_description` text DEFAULT NULL,
+  `service_request_modality` varchar(16) DEFAULT NULL,
+  `service_request_procedure_id` varchar(64) DEFAULT NULL,
+  `service_request_priority` varchar(32) DEFAULT NULL,
+  `service_request_technician_instruction` text DEFAULT NULL,
+  `service_request_patient_instruction` text DEFAULT NULL,
+  `created_by_prefix` varchar(64) DEFAULT NULL,
+  `created_by_first_name` varchar(255) DEFAULT NULL,
+  `created_by_last_name` varchar(255) DEFAULT NULL,
+  `facility_id` varchar(64) DEFAULT NULL,
+  `facility_name` varchar(255) DEFAULT NULL,
+  `patient_id` varchar(64) DEFAULT NULL,
+  `patient_external_id` varchar(64) DEFAULT NULL,
+  `patient_name` varchar(255) DEFAULT NULL,
+  `patient_address` text DEFAULT NULL,
+  `patient_phone_number` varchar(32) DEFAULT NULL,
+  `patient_gender` varchar(16) DEFAULT NULL,
+  `patient_age` int(11) DEFAULT NULL,
+  `patient_uhid` varchar(64) DEFAULT NULL,
+  `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`pk`),
+  UNIQUE KEY `uq_care_worklist_accession_number` (`accession_number`),
+  KEY `idx_care_worklist_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ---------------------------------------------------------------------------
 -- Stored procedures (dropped and recreated so this script is safe to re-run)
 -- ---------------------------------------------------------------------------

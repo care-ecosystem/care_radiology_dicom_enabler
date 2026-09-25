@@ -200,6 +200,7 @@ namespace Worklist_SCP.Model
                 string responseBody = task.Result;
 
                 CareWorklistResponse careResponse = JsonConvert.DeserializeObject<CareWorklistResponse>(responseBody);
+                List<CareWorklistRecord> careRecords = new List<CareWorklistRecord>();
 
                 if (careResponse != null &&
                     careResponse.status != null &&
@@ -279,6 +280,7 @@ namespace Worklist_SCP.Model
                             mwlItem.ExamDateAndTime = item.service_request.date.Value.ToLocalTime();
 
                         objWorkListItems.Add(mwlItem);
+                        careRecords.Add(ToCareWorklistRecord(item, mwlItem.AccessionNumber));
                     }
 
                     // Log detailed success information
@@ -298,6 +300,15 @@ namespace Worklist_SCP.Model
                         objReadWriteLog.WriteToLog("No Record returned from CARE API", true);
                     }
                 }
+
+                // Only a response CARE reported as successful may be synced: an empty successful
+                // response legitimately completes every scheduled row, a failed one must not.
+                if (careResponse != null &&
+                    careResponse.status != null &&
+                    careResponse.status.Equals("success", StringComparison.OrdinalIgnoreCase))
+                {
+                    SyncCareWorklistToDB(careRecords, objReadWriteLog);
+                }
             }
             catch (Exception ex)
             {
@@ -305,6 +316,70 @@ namespace Worklist_SCP.Model
             }
 
             return objWorkListItems;
+        }
+
+
+        /// <summary>
+        /// Saves the fetched worklist to care_worklist: new accession numbers are inserted, existing
+        /// rows are left untouched, and rows missing from this response are marked COMPLETED. A
+        /// failure here is logged and does not affect the C-FIND response.
+        /// </summary>
+        private void SyncCareWorklistToDB(List<CareWorklistRecord> careRecords, ucls_ReadWriteLog objReadWriteLog)
+        {
+            string errorString = string.Empty;
+            int insertedCount = 0;
+            int completedCount = 0;
+            ucls_DAL objDal = null;
+            try
+            {
+                objDal = new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
+                if (objDal.SyncCareWorklist(careRecords, ref insertedCount, ref completedCount, ref errorString))
+                    objReadWriteLog.WriteToLog($"care_worklist synced: {insertedCount} new row(s) inserted, {completedCount} row(s) marked COMPLETED, {careRecords.Count} item(s) in the CARE response", true);
+                else
+                    objReadWriteLog.WriteToLog(errorString, false);
+            }
+            catch (Exception ex)
+            {
+                objReadWriteLog.WriteToLog("Syncing CARE worklist to care_worklist failed with exception " + ex.Message, false);
+            }
+            finally
+            {
+                objDal?.Dispose();
+            }
+        }
+
+
+        private static CareWorklistRecord ToCareWorklistRecord(CareWorklistResult item, string accessionNumber)
+        {
+            CareServiceRequest sr = item.service_request;
+            return new CareWorklistRecord
+            {
+                AccessionNumber = accessionNumber,
+                ServiceRequestId = sr?.id,
+                ServiceRequestExternalId = sr?.external_id,
+                ServiceRequestName = sr?.name,
+                ServiceRequestDate = sr?.date?.ToLocalTime(),
+                ServiceRequestBodySite = sr?.body_site == null || sr.body_site.Type == JTokenType.Null ? null : sr.body_site.ToString(Formatting.None),
+                ServiceRequestDescription = sr?.description,
+                ServiceRequestModality = sr?.modality,
+                ServiceRequestProcedureId = sr?.procedure_id,
+                ServiceRequestPriority = sr?.priority,
+                ServiceRequestTechnicianInstruction = sr?.technician_instruction,
+                ServiceRequestPatientInstruction = sr?.patient_instruction,
+                CreatedByPrefix = sr?.created_by?.prefix,
+                CreatedByFirstName = sr?.created_by?.first_name,
+                CreatedByLastName = sr?.created_by?.last_name,
+                FacilityId = item.facility?.id,
+                FacilityName = item.facility?.name,
+                PatientId = item.patient?.id,
+                PatientExternalId = item.patient?.external_id,
+                PatientName = item.patient?.name,
+                PatientAddress = item.patient?.address,
+                PatientPhoneNumber = item.patient?.phone_number,
+                PatientGender = item.patient?.gender,
+                PatientAge = item.patient?.age,
+                PatientUhid = item.patient?.patient_uhid
+            };
         }
 
 
@@ -656,6 +731,9 @@ namespace Worklist_SCP.Model
         public string name { get; set; }
         public DateTime? date { get; set; }
         public CareServiceRequestMeta? meta  { get; set; }
+        // Kept as raw JSON: CARE sends null or an object, and it is only stored, never read.
+        public JToken body_site { get; set; }
+        public string description { get; set; }
         public string modality { get; set; }
         public CareCreatedBy? created_by { get; set; }
         public string technician_instruction { get; set; }
