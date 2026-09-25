@@ -19,7 +19,7 @@ using Plexus.Common.config;
 
 namespace Worklist_SCP
 {
-    public class WorklistService : DicomService, IDicomServiceProvider, IDicomCFindProvider ,IDicomCEchoProvider , IDicomNServiceProvider
+    public class WorklistService : DicomService, IDicomServiceProvider, IDicomCFindProvider ,IDicomCEchoProvider , IDicomNServiceProvider, IDicomCStoreProvider
     {
         public static IWorklistItemsSource CreateItemsSourceService => new WorklistItemsProvider();
         public static Serilog.ILogger fileLogger = null;
@@ -282,6 +282,16 @@ namespace Worklist_SCP
                     pc.AcceptTransferSyntaxes(_acceptedTransferSyntaxes);
                     fileLogger?.Information($"[ASSOC] PC accepted: {pc.AbstractSyntax.Name} (ID={pc.ID})");
                 }
+                else if (pc.AbstractSyntax.StorageCategory != DicomStorageCategory.None)
+                {
+                    // A modality that has this port configured as its image destination is misconfigured
+                    // - images belong on the Store SCP port. Accept anyway so the study is not lost: the
+                    // instance is written to the SCP folder and CARE_SCU_Service uploads it from there.
+                    // Whatever the modality proposes is accepted, because the file is written to disk
+                    // exactly as received and its pixel data is never decoded here.
+                    pc.AcceptTransferSyntaxes(pc.GetTransferSyntaxes().ToArray());
+                    fileLogger?.Warning($"[ASSOC] Storage PC accepted on worklist port: {pc.AbstractSyntax.Name} (ID={pc.ID}) from AE={association.CallingAE} IP={association.RemoteHost}. Configure this modality to send images to the Store SCP port.");
+                }
                 else
                 {
                     fileLogger?.Warning($"[ASSOC] PC rejected: {pc.AbstractSyntax} not supported");
@@ -297,6 +307,68 @@ namespace Worklist_SCP
         public void Clean()
         {
             // cleanup, like cancel outstanding move- or get-jobs
+        }
+
+
+        /// <summary>
+        /// Handles an image sent to the worklist port by a modality that should have been pointed at the
+        /// Store SCP port. This service has no upload path of its own, so it only drops the instance into
+        /// the SCP folder using the same layout the Store SCP writes. CARE_SCU_Service already scans that
+        /// folder on its timer and uploads to the CARE backend, so nothing further is needed here.
+        /// </summary>
+        public async Task<DicomCStoreResponse> OnCStoreRequestAsync(DicomCStoreRequest request)
+        {
+            string studyUid = request.Dataset.GetSingleValue<string>(DicomTag.StudyInstanceUID).Trim();
+            string instUid = request.SOPInstanceUID.UID;
+
+            fileLogger?.Warning($"[MWL][C-STORE] Image received on the worklist port from AE={Association.CallingAE} IP={Association.RemoteHost} StudyInstanceUID={studyUid} SOPInstanceUID={instUid}");
+
+            if (!validateServer(Association.CallingAE, Association.RemoteHost))
+            {
+                fileLogger?.Error($"[MWL][C-STORE] Rejected AE={Association.CallingAE}");
+                return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
+            }
+
+            try
+            {
+                string storageFolder = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "SCP", studyUid);
+                if (!Directory.Exists(storageFolder))
+                {
+                    Directory.CreateDirectory(storageFolder);
+                }
+
+                string filePath = Path.Combine(storageFolder, instUid) + ".dcm";
+                await request.File.SaveAsync(filePath);
+
+                if (!File.Exists(filePath))
+                {
+                    fileLogger?.Error($"[MWL][C-STORE] File was not written to {filePath}; the SCU service will have nothing to upload.");
+                    return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
+                }
+
+                fileLogger?.Information($"[MWL][C-STORE] Transferred to SCP folder, awaiting upload by the SCU service");
+                fileLogger?.Information($"[MWL][C-STORE]   - Calling AE: {Association.CallingAE}");
+                fileLogger?.Information($"[MWL][C-STORE]   - Patient ID: {request.Dataset.GetSingleValueOrDefault(DicomTag.PatientID, "N/A")}");
+                fileLogger?.Information($"[MWL][C-STORE]   - Accession Number: {request.Dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, "N/A")}");
+                fileLogger?.Information($"[MWL][C-STORE]   - Modality: {request.Dataset.GetSingleValueOrDefault(DicomTag.Modality, "N/A")}");
+                fileLogger?.Information($"[MWL][C-STORE]   - Study UID: {studyUid}");
+                fileLogger?.Information($"[MWL][C-STORE]   - Instance UID: {instUid}");
+                fileLogger?.Information($"[MWL][C-STORE]   - File Path: {filePath}");
+            }
+            catch (Exception ex)
+            {
+                fileLogger?.Error($"[MWL][C-STORE] Writing StudyInstanceUID={studyUid} SOPInstanceUID={instUid} to the SCP folder failed with exception : " + ex.Message);
+                return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
+            }
+
+            return new DicomCStoreResponse(request, DicomStatus.Success);
+        }
+
+
+        public Task OnCStoreRequestExceptionAsync(string tempFileName, Exception e)
+        {
+            // let library handle logging and error response
+            return Task.CompletedTask;
         }
 
 
