@@ -8,6 +8,7 @@ using System.Reflection;
 using System.ServiceProcess;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
 using System.Timers;
 using FellowOakDicom;
 using Plexus.Common.Database;
@@ -21,6 +22,9 @@ namespace Plexus_SCU_Service
         private static readonly HttpClient httpClient = new HttpClient();
         Timer timer = new Timer(TimeSpan.FromHours(24).TotalMilliseconds);
         public ucls_DAL objDAL = null;
+        // Used when maxUploadFailures / maxUploadRetries are missing or invalid in App.config.
+        private const int DefaultMaxUploadFailures = 3;
+        private const int DefaultMaxUploadRetries = 10;
 
         public Plexus_SCU_Service()
         {
@@ -111,6 +115,7 @@ namespace Plexus_SCU_Service
         private void UploadDicomFileViaHttp(string dcmfile, string uploadURL, string staticApiKey)
         {
             string studyInstanceId = string.Empty;
+            string accessionNumber = string.Empty;
             try
             {
                 WriteToLog($"Preparing upload for: {dcmfile}", true);
@@ -118,7 +123,7 @@ namespace Plexus_SCU_Service
                 DicomDataset dataset = DicomFile.Open(dcmfile).Dataset;
                 studyInstanceId = dataset.GetString(DicomTag.StudyInstanceUID);
                 string patientId = dataset.GetString(DicomTag.PatientID);
-                string accessionNumber = dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
+                accessionNumber = dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
 
                 // patient_id is only ever the CARE patient external_id saved in care_worklist, matched
                 // by the file's accession number. The DICOM PatientID is never sent.
@@ -153,6 +158,7 @@ namespace Plexus_SCU_Service
                     {
                         WriteToLog($"Upload succeeded ({(int)response.StatusCode}) for {dcmfile}", true);
                         UpdateStudyStatusDB(3, studyInstanceId, dcmfile);
+                        SaveStudyUploadDB(studyInstanceId, accessionNumber, dcmfile, "SUCCESS", null, false);
 
                         string studyUid = ParseStudyUidFromResponse(responseBody);
                         WriteToLog($"Preparing to map SR — StudyInstanceUID={studyInstanceId}, PatientID={patientId}, AccessionNumber={accessionNumber}", true);
@@ -165,6 +171,12 @@ namespace Plexus_SCU_Service
                     {
                         WriteToLog($"Upload failed ({(int)response.StatusCode}) for {dcmfile}: {responseBody}", false);
                         UpdateStudyStatusDB(-10, studyInstanceId, dcmfile);
+
+                        // 429 (CARE rate limiting), 401, 403 and any 5xx (server-side) keep retrying without counting as a failure.
+                        int statusCode = (int)response.StatusCode;
+                        bool countAsFailure = statusCode != 429 && statusCode != 401 && statusCode != 403 && (statusCode < 500 || statusCode > 599);
+                        string failureLog = $"HTTP {statusCode} ({response.ReasonPhrase}): {responseBody}";
+                        RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, failureLog, countAsFailure);
                     }
                 }
             }
@@ -172,6 +184,104 @@ namespace Plexus_SCU_Service
             {
                 WriteToLog($"Upload exception for {dcmfile}: {ex.Message}", false);
                 UpdateStudyStatusDB(-10, studyInstanceId, dcmfile);
+
+                // A network failure leaves the file in SCP to retry without counting as a failure.
+                bool countAsFailure = !IsNetworkError(ex);
+                string failureLog = (countAsFailure ? "Exception: " : "Network error: ") + ex.Message;
+                RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, failureLog, countAsFailure);
+            }
+        }
+
+        // Saves the failed attempt to care_study_upload, then moves the file out of SCP once it
+        // reaches maxUploadFailures counted failures or maxUploadRetries retries of any kind.
+        private void RecordUploadFailure(string dcmfile, string studyInstanceId, string accessionNumber, string failureLog, bool countAsFailure)
+        {
+            int maxFailures = GetIntSetting("maxUploadFailures", DefaultMaxUploadFailures);
+            int maxRetries = GetIntSetting("maxUploadRetries", DefaultMaxUploadRetries);
+
+            SaveStudyUploadDB(studyInstanceId, accessionNumber, dcmfile, "FAILED", failureLog, countAsFailure, out int failureCount, out int retryCount);
+
+            if (countAsFailure && failureCount >= maxFailures)
+                MoveToFailedSCP(dcmfile, "MaxFailures", studyInstanceId, accessionNumber, failureCount, retryCount, failureLog);
+            else if (retryCount >= maxRetries)
+                MoveToFailedSCP(dcmfile, "MaxRetries", studyInstanceId, accessionNumber, failureCount, retryCount, failureLog);
+        }
+
+        private int GetIntSetting(string key, int defaultValue)
+        {
+            string value = ConfigurationManager.AppSettings[key];
+            if (int.TryParse(value, out int parsed) && parsed > 0)
+                return parsed;
+            if (!string.IsNullOrWhiteSpace(value))
+                WriteToLog($"{key}='{value}' in App.config is not a positive number — using {defaultValue}", false);
+            return defaultValue;
+        }
+
+        // True when the exception (or one it wraps) comes from reaching the CARE server: connection
+        // refused, DNS failure, dropped connection or HttpClient timeout.
+        private static bool IsNetworkError(Exception ex)
+        {
+            for (Exception e = ex; e != null; e = e.InnerException)
+            {
+                if (e is HttpRequestException || e is TaskCanceledException ||
+                    e is System.Net.WebException || e is System.Net.Sockets.SocketException)
+                    return true;
+            }
+            return false;
+        }
+
+        private void SaveStudyUploadDB(string studyInstanceId, string accessionNumber, string dcmfile, string status, string log, bool countAsFailure)
+        {
+            SaveStudyUploadDB(studyInstanceId, accessionNumber, dcmfile, status, log, countAsFailure, out _, out _);
+        }
+
+        private void SaveStudyUploadDB(string studyInstanceId, string accessionNumber, string dcmfile, string status, string log, bool countAsFailure, out int failureCount, out int retryCount)
+        {
+            string errorString = string.Empty;
+            failureCount = 0;
+            retryCount = 0;
+            try
+            {
+                objDAL.SaveStudyUpload(studyInstanceId, accessionNumber, Path.GetFileName(dcmfile), status, log, countAsFailure, ref failureCount, ref retryCount, ref errorString);
+                if (!string.IsNullOrEmpty(errorString))
+                    WriteToLog($"care_study_upload update failed for {dcmfile}: {errorString}", false);
+            }
+            catch (Exception ex)
+            {
+                WriteToLog($"care_study_upload update exception for {dcmfile}: {ex.Message}", false);
+            }
+        }
+
+        // Moves a file that hit an upload limit out of SCP so it is no longer picked up, and appends the
+        // details to error.log in the destination folder. reason is "MaxFailures" (moved to
+        // FailedSCP\<dd-MM-yyyy>\) or "MaxRetries" (moved to FailedSCP\OtherFailure\<dd-MM-yyyy>\, since
+        // those retries come from server-side errors rather than a problem with the DICOM file).
+        private void MoveToFailedSCP(string dcmfile, string reason, string studyInstanceId, string accessionNumber, int failureCount, int retryCount, string failureLog)
+        {
+            try
+            {
+                string failedRoot = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "FailedSCP");
+                if (reason == "MaxRetries")
+                    failedRoot = Path.Combine(failedRoot, "OtherFailure");
+                string failedFolder = Path.Combine(failedRoot, DateTime.Now.ToString("dd-MM-yyyy"));
+                if (!Directory.Exists(failedFolder))
+                    Directory.CreateDirectory(failedFolder);
+
+                string fileName = Path.GetFileName(dcmfile);
+                string destination = Path.Combine(failedFolder, fileName);
+                if (File.Exists(destination))
+                    File.Delete(destination);
+                File.Move(dcmfile, destination);
+
+                string entry = $"{DateTime.Now:dd-MM-yyyy HH:mm:ss} | Reason: {reason} | File: {fileName} | AccessionNumber: {accessionNumber} | StudyUID: {studyInstanceId} | " +
+                               $"Failures: {failureCount} | Retries: {retryCount} | Response: {failureLog}{Environment.NewLine}";
+                File.AppendAllText(Path.Combine(failedFolder, "error.log"), entry);
+
+                WriteToLog($"Moved {dcmfile} to {destination} ({reason}: {failureCount} failures, {retryCount} retries)", false);
+            }
+            catch (Exception ex)
+            {
+                WriteToLog($"Moving {dcmfile} to FailedSCP failed: {ex.Message}", false);
             }
         }
 

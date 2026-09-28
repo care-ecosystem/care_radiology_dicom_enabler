@@ -186,7 +186,19 @@ if (-not $mysqlExe) {
             if ($LASTEXITCODE -ne 0) {
                 Write-Fail "Failed applying schema.sql (database/tables/stored procedures) to '$DbName'." "Ensure user '$MySqlUser' has CREATE/DROP privileges on '$DbName', then re-run this script."
             } else {
-                Write-Ok "Database '$DbName' is ready: dcm_servers, patient, study, series, instance, userdetails, care_worklist tables and the push_pat_data / push_patdicom_details / updatestatus / updatestatus_ascno procedures."
+                Write-Ok "Database '$DbName' is ready: dcm_servers, patient, study, series, instance, userdetails tables and the push_pat_data / push_patdicom_details / updatestatus / updatestatus_ascno procedures."
+
+                $careTablesPath = Join-Path $PSScriptRoot 'care_tables.sql'
+                if (-not (Test-Path $careTablesPath)) {
+                    Write-Fail "care_tables.sql was not found next to Initializer.ps1 ($careTablesPath)." "Restore Emulator\care_tables.sql from source control."
+                } else {
+                    Get-Content -Path $careTablesPath -Raw | & $mysqlExe @mysqlArgs
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Fail "Failed applying care_tables.sql (care_worklist / care_study_upload) to '$DbName'." "Ensure user '$MySqlUser' has CREATE privileges on '$DbName', then re-run this script."
+                    } else {
+                        Write-Ok "CARE tables are ready: care_worklist, care_study_upload."
+                    }
+                }
             }
         }
 

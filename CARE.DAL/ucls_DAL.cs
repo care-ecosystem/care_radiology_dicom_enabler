@@ -621,6 +621,62 @@ namespace Plexus.Common.Database
         }
 
 
+        /// <summary>
+        /// Records the outcome of uploading one DICOM file to CARE in care_study_upload. A retry of
+        /// the same file updates its existing row with the latest status and log and increments
+        /// retry_count. When countAsFailure is true failure_count is incremented as well, and
+        /// failureCount and retryCount return the row's failure_count and retry_count after the save.
+        /// </summary>
+        public bool SaveStudyUpload(string studyUid, string accessionNumber, string fileName, string status, string log, bool countAsFailure, ref int failureCount, ref int retryCount, ref string errorString)
+        {
+            bool saved = false;
+            failureCount = 0;
+            retryCount = 0;
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "INSERT INTO care_study_upload (study_uid, accession_number, file_name, status, log, failure_count) VALUES (@study_uid, @accession_number, @file_name, @status, @log, @failure_increment) " +
+                        "ON DUPLICATE KEY UPDATE status = VALUES(status), log = VALUES(log), retry_count = retry_count + 1, failure_count = failure_count + VALUES(failure_count)",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@study_uid", studyUid ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@accession_number", DbValue(accessionNumber));
+                        cmd.Parameters.AddWithValue("@file_name", fileName ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@status", status);
+                        cmd.Parameters.AddWithValue("@log", DbValue(log));
+                        cmd.Parameters.AddWithValue("@failure_increment", countAsFailure ? 1 : 0);
+                        cmd.ExecuteNonQuery();
+                        saved = true;
+                    }
+
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "SELECT failure_count, retry_count FROM care_study_upload WHERE study_uid = @study_uid AND file_name = @file_name",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@study_uid", studyUid ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@file_name", fileName ?? string.Empty);
+                        using (MySqlDataReader reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                failureCount = Convert.ToInt32(reader["failure_count"]);
+                                retryCount = Convert.ToInt32(reader["retry_count"]);
+                            }
+                        }
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                errorString = $"Saving upload status for file {fileName} failed with exception " + ex.Message;
+            }
+            return saved;
+        }
+
+
         private static object DbValue(string value)
         {
             return string.IsNullOrEmpty(value) ? (object)DBNull.Value : value;
