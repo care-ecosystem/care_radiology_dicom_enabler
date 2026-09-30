@@ -6,6 +6,7 @@ using FellowOakDicom.Log;
 using FellowOakDicom.Network;
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.IO;
 using System.Reflection;
 using System.Threading;
@@ -66,7 +67,11 @@ namespace Worklist_SCP
                     .RegisterServices(s => s.AddFellowOakDicom().AddLogManager<ConsoleLogManager>())
                     .Build();
                 _server = DicomServerFactory.Create<WorklistService>(port);
-                // every 30 seconds the worklist source is queried and the current list of items is cached in _currentWorklistItems
+                // The worklist source is first queried worklistRefreshStartSeconds after start, then every
+                // worklistRefreshIntervalSeconds, and the current list of items is cached in CurrentWorklistItems.
+                int refreshStartSeconds = GetSecondsSetting("worklistRefreshStartSeconds", 30, 0);
+                int refreshIntervalSeconds = GetSecondsSetting("worklistRefreshIntervalSeconds", 30, 1);
+                RefreshLogger.Information($"[REFRESH] Worklist refresh starts after {refreshStartSeconds}s, then every {refreshIntervalSeconds}s");
                 _itemsLoaderTimer = new System.Threading.Timer((state) =>
                 {
                     switch(backend)
@@ -99,7 +104,7 @@ namespace Worklist_SCP
 
                     }
 
-                }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+                }, null, TimeSpan.FromSeconds(refreshStartSeconds), TimeSpan.FromSeconds(refreshIntervalSeconds));
             }
             catch(Exception ex)
             {
@@ -107,6 +112,20 @@ namespace Worklist_SCP
             }
 
 
+        }
+
+        /// <summary>
+        /// Reads a whole number of seconds from App.config, falling back to defaultValue when the key is
+        /// missing, not a number or below minValue.
+        /// </summary>
+        private static int GetSecondsSetting(string key, int defaultValue, int minValue)
+        {
+            string value = ConfigurationManager.AppSettings[key];
+            if (int.TryParse(value, out int parsed) && parsed >= minValue)
+                return parsed;
+            if (!string.IsNullOrWhiteSpace(value))
+                RefreshLogger.Warning($"[REFRESH] {key}='{value}' in App.config is invalid (must be a whole number >= {minValue}) - using {defaultValue}");
+            return defaultValue;
         }
 
        
