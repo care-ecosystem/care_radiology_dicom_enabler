@@ -213,11 +213,11 @@ namespace Worklist_SCP.Model
                     {
                         WorklistItem mwlItem = new WorklistItem();
                         mwlItem.AccessionNumber = string.Empty;
-                        string acc_servicerequestid = item.service_request != null ? item.service_request.external_id ?? string.Empty : string.Empty;
+                        string acc_servicerequestid = item.service_request != null ? item.service_request.id ?? string.Empty : string.Empty;
 
                         string[] parts = acc_servicerequestid.Split('-');
 
-                        string result = parts[parts.Length - 2] + parts[parts.Length - 1];
+                        string result = parts.Length >= 2 ? parts[parts.Length - 2] + parts[parts.Length - 1] : acc_servicerequestid;
 
                         string accNum =  item.service_request.meta !=null ?item.service_request.meta.accession_number ?? string.Empty : string.Empty;
 
@@ -262,7 +262,7 @@ namespace Worklist_SCP.Model
                         mwlItem.HospitalName = item.facility != null ? item.facility.name ?? "CARE" : "CARE";
                         mwlItem.FacilityId = item.facility != null ? item.facility.id ?? string.Empty : string.Empty;
                         mwlItem.PerformingPhysician = string.Empty;
-                        mwlItem.ServiceRequestId = item.service_request != null ? item.service_request.external_id ?? string.Empty : string.Empty;
+                        mwlItem.ServiceRequestId = item.service_request != null ? item.service_request.id ?? string.Empty : string.Empty;
                         // Must be unique per item - MPPS N-CREATE correlation (MppsHandler.SetInProgress) matches
                         // worklist items by this value, so every item sharing "200002" caused MPPS to always
                         // resolve to the first CurrentWorklistItems entry regardless of which procedure was performed.
@@ -356,7 +356,6 @@ namespace Worklist_SCP.Model
             {
                 AccessionNumber = accessionNumber,
                 ServiceRequestId = sr?.id,
-                ServiceRequestExternalId = sr?.external_id,
                 ServiceRequestName = sr?.name,
                 ServiceRequestDate = sr?.date?.ToLocalTime(),
                 ServiceRequestBodySite = sr?.body_site == null || sr.body_site.Type == JTokenType.Null ? null : sr.body_site.ToString(Formatting.None),
@@ -372,10 +371,7 @@ namespace Worklist_SCP.Model
                 FacilityId = item.facility?.id,
                 FacilityName = item.facility?.name,
                 PatientId = item.patient?.id,
-                PatientExternalId = item.patient?.external_id,
                 PatientName = item.patient?.name,
-                PatientAddress = item.patient?.address,
-                PatientPhoneNumber = item.patient?.phone_number,
                 PatientGender = item.patient?.gender,
                 PatientAge = item.patient?.age,
                 PatientUhid = item.patient?.patient_uhid

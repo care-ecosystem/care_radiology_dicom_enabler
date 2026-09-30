@@ -488,11 +488,13 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// Brings the local care_worklist table in line with one CARE worklist response. Accession
-        /// numbers not yet in the table are inserted; rows already there are left untouched. Rows
-        /// still SCHEDULED whose accession number is not in this response are marked COMPLETED.
-        /// Call only with a response the CARE API reported as successful - an empty list marks every
-        /// scheduled row completed.
+        /// Brings the local CARE tables in line with one CARE worklist response. Each item's patient
+        /// and service request are inserted into care_patient and care_service_request, or refreshed
+        /// with the latest values if already there. Accession numbers not yet in care_worklist are
+        /// inserted, linked to that patient and service request; worklist rows already there are left
+        /// untouched. Rows still SCHEDULED whose accession number is not in this response are marked
+        /// COMPLETED. Call only with a response the CARE API reported as successful - an empty list
+        /// marks every scheduled row completed.
         /// </summary>
         public bool SyncCareWorklist(List<CareWorklistRecord> records, ref int insertedCount, ref int completedCount, ref string errorString)
         {
@@ -506,17 +508,25 @@ namespace Plexus.Common.Database
 
                 transaction = conConnection.BeginTransaction();
 
-                const string insertQuery =
-                    "INSERT IGNORE INTO care_worklist (accession_number, status, service_request_id, service_request_external_id, service_request_name, " +
-                    "service_request_date, service_request_body_site, service_request_description, service_request_modality, service_request_procedure_id, " +
-                    "service_request_priority, service_request_technician_instruction, service_request_patient_instruction, created_by_prefix, " +
-                    "created_by_first_name, created_by_last_name, facility_id, facility_name, patient_id, patient_external_id, patient_name, " +
-                    "patient_address, patient_phone_number, patient_gender, patient_age, patient_uhid) VALUES " +
-                    "(@accession_number, 'SCHEDULED', @service_request_id, @service_request_external_id, @service_request_name, " +
-                    "@service_request_date, @service_request_body_site, @service_request_description, @service_request_modality, @service_request_procedure_id, " +
-                    "@service_request_priority, @service_request_technician_instruction, @service_request_patient_instruction, @created_by_prefix, " +
-                    "@created_by_first_name, @created_by_last_name, @facility_id, @facility_name, @patient_id, @patient_external_id, @patient_name, " +
-                    "@patient_address, @patient_phone_number, @patient_gender, @patient_age, @patient_uhid)";
+                const string patientQuery =
+                    "INSERT INTO care_patient (patient_id, name, gender, age, patient_uhid) VALUES " +
+                    "(@patient_id, @name, @gender, @age, @patient_uhid) " +
+                    "ON DUPLICATE KEY UPDATE name = VALUES(name), gender = VALUES(gender), age = VALUES(age), patient_uhid = VALUES(patient_uhid)";
+
+                const string serviceRequestQuery =
+                    "INSERT INTO care_service_request (service_request_id, name, date, body_site, description, modality, procedure_id, priority, " +
+                    "technician_instruction, patient_instruction, created_by_prefix, created_by_first_name, created_by_last_name) VALUES " +
+                    "(@service_request_id, @name, @date, @body_site, @description, @modality, @procedure_id, @priority, " +
+                    "@technician_instruction, @patient_instruction, @created_by_prefix, @created_by_first_name, @created_by_last_name) " +
+                    "ON DUPLICATE KEY UPDATE name = VALUES(name), date = VALUES(date), body_site = VALUES(body_site), description = VALUES(description), " +
+                    "modality = VALUES(modality), procedure_id = VALUES(procedure_id), priority = VALUES(priority), " +
+                    "technician_instruction = VALUES(technician_instruction), patient_instruction = VALUES(patient_instruction), " +
+                    "created_by_prefix = VALUES(created_by_prefix), created_by_first_name = VALUES(created_by_first_name), created_by_last_name = VALUES(created_by_last_name)";
+
+                const string worklistQuery =
+                    "INSERT IGNORE INTO care_worklist (accession_number, status, service_request_pk, patient_pk, facility_id, facility_name) VALUES " +
+                    "(@accession_number, 'SCHEDULED', (SELECT pk FROM care_service_request WHERE service_request_id = @service_request_id), " +
+                    "(SELECT pk FROM care_patient WHERE patient_id = @patient_id), @facility_id, @facility_name)";
 
                 var accessionNumbers = new List<string>();
                 foreach (CareWorklistRecord record in records)
@@ -525,33 +535,47 @@ namespace Plexus.Common.Database
                         continue;
                     accessionNumbers.Add(record.AccessionNumber);
 
-                    using (MySqlCommand cmd = new MySqlCommand(insertQuery, conConnection, transaction))
+                    if (!string.IsNullOrWhiteSpace(record.PatientId))
+                    {
+                        using (MySqlCommand cmd = new MySqlCommand(patientQuery, conConnection, transaction))
+                        {
+                            cmd.Parameters.AddWithValue("@patient_id", record.PatientId);
+                            cmd.Parameters.AddWithValue("@name", DbValue(record.PatientName));
+                            cmd.Parameters.AddWithValue("@gender", DbValue(record.PatientGender));
+                            cmd.Parameters.AddWithValue("@age", record.PatientAge.HasValue ? (object)record.PatientAge.Value : DBNull.Value);
+                            cmd.Parameters.AddWithValue("@patient_uhid", DbValue(record.PatientUhid));
+                            cmd.ExecuteNonQuery();
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(record.ServiceRequestId))
+                    {
+                        using (MySqlCommand cmd = new MySqlCommand(serviceRequestQuery, conConnection, transaction))
+                        {
+                            cmd.Parameters.AddWithValue("@service_request_id", record.ServiceRequestId);
+                            cmd.Parameters.AddWithValue("@name", DbValue(record.ServiceRequestName));
+                            cmd.Parameters.AddWithValue("@date", record.ServiceRequestDate.HasValue ? (object)record.ServiceRequestDate.Value : DBNull.Value);
+                            cmd.Parameters.AddWithValue("@body_site", DbValue(record.ServiceRequestBodySite));
+                            cmd.Parameters.AddWithValue("@description", DbValue(record.ServiceRequestDescription));
+                            cmd.Parameters.AddWithValue("@modality", DbValue(record.ServiceRequestModality));
+                            cmd.Parameters.AddWithValue("@procedure_id", DbValue(record.ServiceRequestProcedureId));
+                            cmd.Parameters.AddWithValue("@priority", DbValue(record.ServiceRequestPriority));
+                            cmd.Parameters.AddWithValue("@technician_instruction", DbValue(record.ServiceRequestTechnicianInstruction));
+                            cmd.Parameters.AddWithValue("@patient_instruction", DbValue(record.ServiceRequestPatientInstruction));
+                            cmd.Parameters.AddWithValue("@created_by_prefix", DbValue(record.CreatedByPrefix));
+                            cmd.Parameters.AddWithValue("@created_by_first_name", DbValue(record.CreatedByFirstName));
+                            cmd.Parameters.AddWithValue("@created_by_last_name", DbValue(record.CreatedByLastName));
+                            cmd.ExecuteNonQuery();
+                        }
+                    }
+
+                    using (MySqlCommand cmd = new MySqlCommand(worklistQuery, conConnection, transaction))
                     {
                         cmd.Parameters.AddWithValue("@accession_number", record.AccessionNumber);
                         cmd.Parameters.AddWithValue("@service_request_id", DbValue(record.ServiceRequestId));
-                        cmd.Parameters.AddWithValue("@service_request_external_id", DbValue(record.ServiceRequestExternalId));
-                        cmd.Parameters.AddWithValue("@service_request_name", DbValue(record.ServiceRequestName));
-                        cmd.Parameters.AddWithValue("@service_request_date", record.ServiceRequestDate.HasValue ? (object)record.ServiceRequestDate.Value : DBNull.Value);
-                        cmd.Parameters.AddWithValue("@service_request_body_site", DbValue(record.ServiceRequestBodySite));
-                        cmd.Parameters.AddWithValue("@service_request_description", DbValue(record.ServiceRequestDescription));
-                        cmd.Parameters.AddWithValue("@service_request_modality", DbValue(record.ServiceRequestModality));
-                        cmd.Parameters.AddWithValue("@service_request_procedure_id", DbValue(record.ServiceRequestProcedureId));
-                        cmd.Parameters.AddWithValue("@service_request_priority", DbValue(record.ServiceRequestPriority));
-                        cmd.Parameters.AddWithValue("@service_request_technician_instruction", DbValue(record.ServiceRequestTechnicianInstruction));
-                        cmd.Parameters.AddWithValue("@service_request_patient_instruction", DbValue(record.ServiceRequestPatientInstruction));
-                        cmd.Parameters.AddWithValue("@created_by_prefix", DbValue(record.CreatedByPrefix));
-                        cmd.Parameters.AddWithValue("@created_by_first_name", DbValue(record.CreatedByFirstName));
-                        cmd.Parameters.AddWithValue("@created_by_last_name", DbValue(record.CreatedByLastName));
+                        cmd.Parameters.AddWithValue("@patient_id", DbValue(record.PatientId));
                         cmd.Parameters.AddWithValue("@facility_id", DbValue(record.FacilityId));
                         cmd.Parameters.AddWithValue("@facility_name", DbValue(record.FacilityName));
-                        cmd.Parameters.AddWithValue("@patient_id", DbValue(record.PatientId));
-                        cmd.Parameters.AddWithValue("@patient_external_id", DbValue(record.PatientExternalId));
-                        cmd.Parameters.AddWithValue("@patient_name", DbValue(record.PatientName));
-                        cmd.Parameters.AddWithValue("@patient_address", DbValue(record.PatientAddress));
-                        cmd.Parameters.AddWithValue("@patient_phone_number", DbValue(record.PatientPhoneNumber));
-                        cmd.Parameters.AddWithValue("@patient_gender", DbValue(record.PatientGender));
-                        cmd.Parameters.AddWithValue("@patient_age", record.PatientAge.HasValue ? (object)record.PatientAge.Value : DBNull.Value);
-                        cmd.Parameters.AddWithValue("@patient_uhid", DbValue(record.PatientUhid));
                         insertedCount += cmd.ExecuteNonQuery();
                     }
                 }
@@ -590,8 +614,8 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// Returns the CARE patient external ID (UUID) saved in care_worklist for an accession number,
-        /// or empty when the accession number is not in the table.
+        /// Returns the CARE patient ID (UUID) from care_patient for the care_worklist row with an
+        /// accession number, or empty when the accession number is not in care_worklist.
         /// </summary>
         public string GetCarePatientIdByAccessionNo(string accessionNo, ref string errorString)
         {
@@ -601,7 +625,7 @@ namespace Plexus.Common.Database
                 if (openDBConnection(ref errorString))
                 {
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "SELECT patient_external_id FROM care_worklist WHERE accession_number = @accession_number LIMIT 1",
+                        "SELECT p.patient_id FROM care_worklist w JOIN care_patient p ON p.pk = w.patient_pk WHERE w.accession_number = @accession_number LIMIT 1",
                         conConnection))
                     {
                         cmd.Parameters.AddWithValue("@accession_number", accessionNo ?? string.Empty);
@@ -626,6 +650,7 @@ namespace Plexus.Common.Database
         /// the same file updates its existing row with the latest status and log and increments
         /// retry_count. When countAsFailure is true failure_count is incremented as well, and
         /// failureCount and retryCount return the row's failure_count and retry_count after the save.
+        /// worklist_pk is set from the care_worklist row with the accession number, when there is one.
         /// </summary>
         public bool SaveStudyUpload(string studyUid, string accessionNumber, string fileName, string status, string log, bool countAsFailure, ref int failureCount, ref int retryCount, ref string errorString)
         {
@@ -637,8 +662,10 @@ namespace Plexus.Common.Database
                 if (openDBConnection(ref errorString))
                 {
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "INSERT INTO care_study_upload (study_uid, accession_number, file_name, status, log, failure_count) VALUES (@study_uid, @accession_number, @file_name, @status, @log, @failure_increment) " +
-                        "ON DUPLICATE KEY UPDATE status = VALUES(status), log = VALUES(log), retry_count = retry_count + 1, failure_count = failure_count + VALUES(failure_count)",
+                        "INSERT INTO care_study_upload (worklist_pk, study_uid, accession_number, file_name, status, log, failure_count) VALUES " +
+                        "((SELECT pk FROM care_worklist WHERE accession_number = @accession_number LIMIT 1), @study_uid, @accession_number, @file_name, @status, @log, @failure_increment) " +
+                        "ON DUPLICATE KEY UPDATE worklist_pk = COALESCE(VALUES(worklist_pk), worklist_pk), status = VALUES(status), log = VALUES(log), " +
+                        "retry_count = retry_count + 1, failure_count = failure_count + VALUES(failure_count)",
                         conConnection))
                     {
                         cmd.Parameters.AddWithValue("@study_uid", studyUid ?? string.Empty);
@@ -687,13 +714,13 @@ namespace Plexus.Common.Database
 
 
     /// <summary>
-    /// One CARE worklist API result flattened into the columns of the care_worklist table.
+    /// One CARE worklist API result, split by SyncCareWorklist across care_service_request,
+    /// care_patient and care_worklist.
     /// </summary>
     public class CareWorklistRecord
     {
         public string AccessionNumber { get; set; }
         public string ServiceRequestId { get; set; }
-        public string ServiceRequestExternalId { get; set; }
         public string ServiceRequestName { get; set; }
         public DateTime? ServiceRequestDate { get; set; }
         public string ServiceRequestBodySite { get; set; }
@@ -709,10 +736,7 @@ namespace Plexus.Common.Database
         public string FacilityId { get; set; }
         public string FacilityName { get; set; }
         public string PatientId { get; set; }
-        public string PatientExternalId { get; set; }
         public string PatientName { get; set; }
-        public string PatientAddress { get; set; }
-        public string PatientPhoneNumber { get; set; }
         public string PatientGender { get; set; }
         public int? PatientAge { get; set; }
         public string PatientUhid { get; set; }

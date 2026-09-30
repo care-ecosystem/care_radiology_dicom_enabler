@@ -125,8 +125,8 @@ namespace Plexus_SCU_Service
                 string patientId = dataset.GetString(DicomTag.PatientID);
                 accessionNumber = dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
 
-                // patient_id is only ever the CARE patient external_id saved in care_worklist, matched
-                // by the file's accession number. The DICOM PatientID is never sent.
+                // patient_id is only ever the CARE patient id saved in care_patient, found through the
+                // care_worklist row with the file's accession number. The DICOM PatientID is never sent.
                 string carePatientId = GetCarePatientId(accessionNumber);
 
                 string fileName = Path.GetFileName(dcmfile);
