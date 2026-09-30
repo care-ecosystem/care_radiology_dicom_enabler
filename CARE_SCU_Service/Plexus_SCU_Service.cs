@@ -25,6 +25,9 @@ namespace Plexus_SCU_Service
         // Used when maxUploadFailures / maxUploadRetries are missing or invalid in App.config.
         private const int DefaultMaxUploadFailures = 3;
         private const int DefaultMaxUploadRetries = 10;
+        // The CARE worklist is fetched at most once per upload cycle, however many files in the
+        // cycle have an accession number that is not in care_worklist.
+        private bool worklistRefreshedThisCycle = false;
 
         public Plexus_SCU_Service()
         {
@@ -95,6 +98,7 @@ namespace Plexus_SCU_Service
                 WriteToLog($"Found {dcmfiles.Length} file(s) to upload from {dcmPushPath}", true);
 
                 string uploadURL = careBackendURL + uploadPath;
+                worklistRefreshedThisCycle = false;
 
                 foreach (string dcmfile in dcmfiles)
                 {
@@ -127,16 +131,25 @@ namespace Plexus_SCU_Service
 
                 // patient_id is only ever the CARE patient id saved in care_patient, found through the
                 // care_worklist row with the file's accession number. The DICOM PatientID is never sent.
+                // Without a patient_id the file is not uploaded: it stays in SCP and is retried without
+                // counting as a failure, so after maxUploadRetries it moves to FailedSCP\OtherFailure.
                 string carePatientId = GetCarePatientId(accessionNumber);
+                if (string.IsNullOrWhiteSpace(carePatientId))
+                {
+                    string notFoundLog = string.IsNullOrWhiteSpace(accessionNumber)
+                        ? "No AccessionNumber in the DICOM file - not uploaded"
+                        : $"AccessionNumber={accessionNumber} not found in care_worklist after refreshing it from the CARE worklist API - not uploaded";
+                    WriteToLog($"{notFoundLog}: {dcmfile}", false);
+                    UpdateStudyStatusDB(-10, studyInstanceId, dcmfile);
+                    RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, notFoundLog, false);
+                    return;
+                }
 
                 string fileName = Path.GetFileName(dcmfile);
                 using (var content = new MultipartFormDataContent())
                 {
-                    if (!string.IsNullOrWhiteSpace(carePatientId))
-                    {
-                        content.Add(new StringContent(carePatientId), "patient_id");
-                        WriteToLog($"Sending patient_id={carePatientId} from care_worklist for AccessionNumber={accessionNumber}", true);
-                    }
+                    content.Add(new StringContent(carePatientId), "patient_id");
+                    WriteToLog($"Sending patient_id={carePatientId} from care_worklist for AccessionNumber={accessionNumber}", true);
 
                     content.Add(new StringContent(fileName), "filename");
 
@@ -344,28 +357,77 @@ namespace Plexus_SCU_Service
             }
         }
 
+        // Looks the accession number up in care_worklist. When it is not there, refreshes care_worklist
+        // from the CARE worklist API (once per upload cycle) and looks it up again. Returns empty when
+        // the file has no accession number or it is still not found.
         private string GetCarePatientId(string accessionNumber)
         {
             if (string.IsNullOrWhiteSpace(accessionNumber))
-            {
-                WriteToLog("No AccessionNumber in the DICOM file — uploading without patient_id", false);
                 return string.Empty;
-            }
 
+            string carePatientId = LookupCarePatientId(accessionNumber);
+            if (!string.IsNullOrWhiteSpace(carePatientId))
+                return carePatientId;
+
+            if (worklistRefreshedThisCycle)
+                return string.Empty;
+
+            WriteToLog($"AccessionNumber={accessionNumber} not found in care_worklist — refreshing it from the CARE worklist API", true);
+            worklistRefreshedThisCycle = true;
+            RefreshCareWorklist();
+            return LookupCarePatientId(accessionNumber);
+        }
+
+        private string LookupCarePatientId(string accessionNumber)
+        {
             string errorString = string.Empty;
             try
             {
                 string carePatientId = objDAL.GetCarePatientIdByAccessionNo(accessionNumber, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
                     WriteToLog($"care_worklist lookup failed for AccessionNumber={accessionNumber}: {errorString}", false);
-                else if (string.IsNullOrWhiteSpace(carePatientId))
-                    WriteToLog($"AccessionNumber={accessionNumber} not found in care_worklist — uploading without patient_id", false);
                 return carePatientId;
             }
             catch (Exception ex)
             {
                 WriteToLog($"care_worklist lookup exception for AccessionNumber={accessionNumber}: {ex.Message}", false);
                 return string.Empty;
+            }
+        }
+
+        // Fetches the worklist for the Facility ID in the Server List and saves it to care_worklist,
+        // the same way the MWL service's periodic refresh does. careModality and careFromDate must match
+        // CARE_MWL_Service App.config: the sync marks scheduled rows missing from the response COMPLETED.
+        private void RefreshCareWorklist()
+        {
+            string errorString = string.Empty;
+            string resolvedFrom = string.Empty;
+            try
+            {
+                string facilityId = objDAL.GetFacilityId(string.Empty, ref resolvedFrom, ref errorString);
+                if (!string.IsNullOrEmpty(errorString))
+                {
+                    WriteToLog($"Not refreshing care_worklist: Facility ID lookup failed: {errorString}", false);
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(facilityId))
+                {
+                    WriteToLog($"Not refreshing care_worklist: no Facility ID - {resolvedFrom}", false);
+                    return;
+                }
+
+                ucls_CareWorklist.RefreshCareWorklist(
+                    objDAL,
+                    ConfigurationManager.AppSettings["careBackendURL"]?.TrimEnd('/') ?? string.Empty,
+                    ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty,
+                    ConfigurationManager.AppSettings["careModality"] ?? string.Empty,
+                    ConfigurationManager.AppSettings["careFromDate"] ?? string.Empty,
+                    facilityId,
+                    WriteToLog);
+            }
+            catch (Exception ex)
+            {
+                WriteToLog($"Refreshing care_worklist failed with exception {ex.Message}", false);
             }
         }
 

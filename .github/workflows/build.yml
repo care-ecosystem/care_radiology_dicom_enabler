@@ -245,12 +245,15 @@ jobs:
             worklistRefreshIntervalSeconds = $refreshInterval
           }
 
-          # DICOM upload + study webhook
+          # DICOM upload + study webhook, and the worklist refresh done when an uploaded file's
+          # accession number is not in care_worklist (same modality / from date as the MWL service)
           Update-ConfigFile "CARE_SCU_Service\App.config" @{
             careBackendURL    = $serverUrl
             staticAPIKey      = $apiToken
             maxUploadFailures = $maxFailures
             maxUploadRetries  = $maxRetries
+            careModality      = $modality
+            careFromDate      = $fromDate
           }
 
           # Stale duplicates shipped in CARE_DICOM_Enabler.exe.config. The
