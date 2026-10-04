@@ -151,6 +151,7 @@ namespace Plexus_DICOM_Enabler
             this.imgList_Icons.Images.SetKeyName(4, "ViewLogs.png");
             this.imgList_Icons.Images.SetKeyName(5, "patientlist.png");
             this.imgList_Icons.Images.SetKeyName(6, "scusetting.png");
+            this.imgList_Icons.Images.SetKeyName(7, "configuration.png");
             // 
             // mtc_Modules
             // 
@@ -1084,7 +1085,7 @@ namespace Plexus_DICOM_Enabler
             this.tbp_Configuration.Controls.Add(this.mbtn_ReloadConfig);
             this.tbp_Configuration.Controls.Add(this.mbtn_SaveConfig);
             this.tbp_Configuration.Controls.Add(this.dgv_Config);
-            this.tbp_Configuration.ImageKey = "settings.png";
+            this.tbp_Configuration.ImageKey = "configuration.png";
             this.tbp_Configuration.Location = new System.Drawing.Point(4, 25);
             this.tbp_Configuration.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.tbp_Configuration.Name = "tbp_Configuration";
