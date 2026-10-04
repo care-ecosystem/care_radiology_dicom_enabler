@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using System.Timers;
 using FellowOakDicom;
 using Plexus.Common.Database;
+using Plexus_MWL_Service.logs;
 using Serilog;
 
 namespace Plexus_SCU_Service
@@ -444,14 +445,8 @@ namespace Plexus_SCU_Service
 
         private Serilog.ILogger GetFileLogger()
         {
-            string logFilePath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "logs/StoreSCU.txt");
             return new LoggerConfiguration()
-                .WriteTo.File(logFilePath,
-                    shared: true,
-                    restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information,
-                    rollingInterval: RollingInterval.Day,
-                    rollOnFileSizeLimit: false,
-                    fileSizeLimitBytes: 10240000)
+                .WriteTo.Sink(new DailyFolderSink("StoreSCU.txt"), Serilog.Events.LogEventLevel.Information)
                 .CreateLogger();
         }
 

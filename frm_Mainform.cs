@@ -331,7 +331,8 @@ namespace Plexus_DICOM_Enabler
                 return null;
             }
             var directory = new DirectoryInfo(logDirectory);
-            FileInfo[] files = directory.GetFiles(searchPattern + "*.txt");
+            // Services write into a logs/yyyy-MM-dd folder per day
+            FileInfo[] files = directory.GetFiles(searchPattern + "*.txt", SearchOption.AllDirectories);
             if (files.Length > 0 ) {
                 return files.OrderByDescending(f => f.LastWriteTime).First().FullName;
             }
@@ -677,23 +678,26 @@ namespace Plexus_DICOM_Enabler
                     return;
                 }
 
-                // The label under each box shows what each service uses while a value is left blank
                 var fields = GetConfigFields();
-                foreach (var field in fields)
-                {
-                    field.Value.Text = string.Empty;
-                    GetDefaultLabel(field.Value).Text = field.Key == "facility_id" ? "Required" : "Default: " + GetConfigDefault(field.Key);
-                }
-
                 loadedConfigValues.Clear();
                 foreach (DataRow row in dsResult.Tables[0].Rows)
                 {
                     string key = row["config_key"].ToString();
-                    if (fields.TryGetValue(key, out MaterialTextBox textBox))
+                    if (fields.ContainsKey(key))
+                        loadedConfigValues[key] = row["config_value"].ToString().Trim();
+                }
+
+                // A blank setting shows the value the services use for it instead
+                filledDefaults.Clear();
+                foreach (var field in fields)
+                {
+                    loadedConfigValues.TryGetValue(field.Key, out string value);
+                    if (string.IsNullOrEmpty(value))
                     {
-                        textBox.Text = row["config_value"].ToString();
-                        loadedConfigValues[key] = textBox.Text.Trim();
+                        value = GetConfigDefault(field.Key);
+                        filledDefaults[field.Key] = value;
                     }
+                    field.Value.Text = value;
                 }
             }
             catch (Exception ex)
@@ -720,7 +724,9 @@ namespace Plexus_DICOM_Enabler
                     return;
                 }
 
-                string fromDate = mtxtb_CareFromDate.Text.Trim();
+                var values = GetConfigFields().ToDictionary(field => field.Key, field => GetValueToSave(field.Key, field.Value));
+
+                string fromDate = values["care_from_date"];
                 if (fromDate != string.Empty && !DateTime.TryParseExact(fromDate, ConfigDateFormat,
                         System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _))
                 {
@@ -733,14 +739,14 @@ namespace Plexus_DICOM_Enabler
                 // Blank uses the default; otherwise a whole number of at least minValue, as the services require
                 var wholeNumberFields = new[]
                 {
-                    new { TextBox = mtxtb_ScuPollInterval, Name = "Poll Interval (sec)", MinValue = 1 },
-                    new { TextBox = mtxtb_WorklistRefreshStart, Name = "Refresh Start (sec)", MinValue = 0 },
-                    new { TextBox = mtxtb_WorklistRefreshInterval, Name = "Refresh Interval (sec)", MinValue = 1 },
-                    new { TextBox = mtxtb_MaxUploadRetries, Name = "Max Upload Retries", MinValue = 1 },
+                    new { Key = "scu_poll_interval_seconds", Name = "Poll Interval (sec)", MinValue = 1 },
+                    new { Key = "worklist_refresh_start_seconds", Name = "Refresh Start (sec)", MinValue = 0 },
+                    new { Key = "worklist_refresh_interval_seconds", Name = "Refresh Interval (sec)", MinValue = 1 },
+                    new { Key = "max_upload_retries", Name = "Max Upload Retries", MinValue = 1 },
                 };
                 foreach (var field in wholeNumberFields)
                 {
-                    string value = field.TextBox.Text.Trim();
+                    string value = values[field.Key];
                     if (value != string.Empty && (!int.TryParse(value, out int number) || number < field.MinValue))
                     {
                         MessageBox.Show(this, field.Name + " must be a whole number of " + field.MinValue + " or more, or left blank to use the default.",
@@ -749,8 +755,6 @@ namespace Plexus_DICOM_Enabler
                         return;
                     }
                 }
-
-                var values = GetConfigFields().ToDictionary(field => field.Key, field => field.Value.Text);
 
                 // One entry per changed setting, e.g. "scu_poll_interval_seconds: 5 -> 10"
                 var changes = new System.Collections.Generic.Dictionary<string, string>();
@@ -811,31 +815,19 @@ namespace Plexus_DICOM_Enabler
         private const string StoreScpServiceName = "Care Store SCP Service";
         private const string StoreScuServiceName = "Care Store SCU Service";
 
-        // The "Default: ..." label under each Configuration text box
-        private readonly System.Collections.Generic.Dictionary<MaterialTextBox, Label> defaultLabels = new System.Collections.Generic.Dictionary<MaterialTextBox, Label>();
+        // The default put into each box whose care_config setting was blank when the tab was loaded
+        private readonly System.Collections.Generic.Dictionary<string, string> filledDefaults = new System.Collections.Generic.Dictionary<string, string>();
 
         /// <summary>
-        /// The label under a Configuration text box that shows its default, created the first time it is needed.
-        /// A label is used instead of the text box hint, which overlaps the cursor when the box has focus.
+        /// The value to store for a box. A default filled in for a blank setting is stored as blank again, so
+        /// saving without changing it does not pin the default in care_config or restart the services.
         /// </summary>
-        private Label GetDefaultLabel(MaterialTextBox textBox)
+        private string GetValueToSave(string configKey, MaterialTextBox textBox)
         {
-            if (!defaultLabels.TryGetValue(textBox, out Label label))
-            {
-                Font labelFont = new Font("Microsoft Sans Serif", 7.8F);
-                label = new Label
-                {
-                    AutoSize = false,
-                    AutoEllipsis = true,   // long folder paths end in "..." and show in full as a tooltip
-                    ForeColor = Color.Gray,
-                    Font = labelFont,
-                    Location = new Point(textBox.Left, textBox.Bottom + 2),
-                    Size = new Size(textBox.Width, labelFont.Height + 2)
-                };
-                textBox.Parent.Controls.Add(label);
-                defaultLabels[textBox] = label;
-            }
-            return label;
+            string value = textBox.Text.Trim();
+            if (filledDefaults.TryGetValue(configKey, out string filledDefault) && value == filledDefault.Trim())
+                return string.Empty;
+            return value;
         }
 
         // The care_config values shown when the Configuration tab was last loaded, to find what Save changes
@@ -931,7 +923,7 @@ namespace Plexus_DICOM_Enabler
         /// </summary>
         private void mbtn_PickFromDate_Click(object sender, EventArgs e)
         {
-            // Start from the entered value, else the default shown in the hint, else today
+            // Start from the entered value, else the default, else today
             DateTime initial = DateTime.Today;
             string current = mtxtb_CareFromDate.Text.Trim();
             if (current == string.Empty)
@@ -1106,20 +1098,12 @@ namespace Plexus_DICOM_Enabler
         }
 
         /// <summary>
-        /// One value when the MWL and SCU services agree, otherwise each service's value.
+        /// The value when the MWL and SCU services agree. Empty when they differ or App.config has none,
+        /// as no single value can be shown in the box.
         /// </summary>
         private static string CombineServiceDefaults(string mwlValue, string scuValue)
         {
-            if (mwlValue == scuValue)
-                return DisplayDefault(mwlValue);
-            return "MWL: " + DisplayDefault(mwlValue) + " | SCU: " + DisplayDefault(scuValue);
-        }
-
-        private static string DisplayDefault(string value)
-        {
-            if (value == null)
-                return "(not found in App.config)";
-            return value.Trim() == string.Empty ? "(blank)" : value.Trim();
+            return mwlValue == scuValue ? (mwlValue ?? string.Empty).Trim() : string.Empty;
         }
 
         /// <summary>

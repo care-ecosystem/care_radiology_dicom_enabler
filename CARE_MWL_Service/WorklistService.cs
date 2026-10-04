@@ -16,6 +16,7 @@ using System.IO;
 using System.Reflection;
 using Plexus.Common.Database;
 using Plexus.Common.config;
+using Plexus_MWL_Service.logs;
 
 namespace Worklist_SCP
 {
@@ -55,14 +56,8 @@ namespace Worklist_SCP
 
         private Serilog.ILogger GetFileLogger()
         {
-            string logFilePath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "logs/ModalitySCP.txt");
-            return new LoggerConfiguration().
-                WriteTo.File(logFilePath,
-                restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information,
-                shared: true,
-                retainedFileCountLimit: 3,
-                rollOnFileSizeLimit: true,
-                fileSizeLimitBytes: 5120)
+            return new LoggerConfiguration()
+                .WriteTo.Sink(new DailyFolderSink("ModalitySCP.txt"), Serilog.Events.LogEventLevel.Information)
                 .CreateLogger();
         }
 

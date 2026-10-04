@@ -83,6 +83,7 @@
     <Reference Include="System.Configuration" />
     <Reference Include="System.Configuration.Install" />
     <Reference Include="System.Core" />
+    <Reference Include="System.IO.Compression" />
     <Reference Include="System.Management" />
     <Reference Include="System.Memory, Version=4.0.1.1, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
       <HintPath>..\packages\System.Memory.4.5.4\lib\net461\System.Memory.dll</HintPath>
@@ -123,6 +124,12 @@
     </Compile>
     <Compile Include="Plexus_SCU_Service.Designer.cs">
       <DependentUpon>Plexus_SCU_Service.cs</DependentUpon>
+    </Compile>
+    <Compile Include="..\CARE_MWL_Service\Logging\DailyFolderSink.cs">
+      <Link>Logging\DailyFolderSink.cs</Link>
+    </Compile>
+    <Compile Include="..\CARE_MWL_Service\Logging\ZipOnDeleteHooks.cs">
+      <Link>Logging\ZipOnDeleteHooks.cs</Link>
     </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="PlexusStoreSCU_Installer.cs">

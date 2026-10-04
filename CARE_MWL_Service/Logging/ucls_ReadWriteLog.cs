@@ -10,12 +10,8 @@ namespace Plexus_MWL_Service.logs
 
         public ucls_ReadWriteLog()
         {
-            string logPath = Path.Combine(
-                Path.GetDirectoryName(Assembly.GetEntryAssembly().Location),
-                "logs", "WorklistItems.txt");
-            Directory.CreateDirectory(Path.GetDirectoryName(logPath));
             _logger = new LoggerConfiguration()
-                .WriteTo.File(logPath, rollingInterval: RollingInterval.Day, shared: true)
+                .WriteTo.Sink(new DailyFolderSink("ModalitySCP.txt"), Serilog.Events.LogEventLevel.Information)
                 .CreateLogger();
         }
 

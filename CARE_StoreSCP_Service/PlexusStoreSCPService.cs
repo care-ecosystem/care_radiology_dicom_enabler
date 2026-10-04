@@ -4,6 +4,7 @@ using FellowOakDicom.Network;
 using Plexus.Common.config;
 using Plexus.Common.Database;
 using Plexus_StoreSCP_Service.Network;
+using Plexus_MWL_Service.logs;
 using Serilog;
 using System;
 using System.Collections.Generic;
@@ -38,13 +39,8 @@ namespace Plexus_StoreSCP_Service
         private Serilog.ILogger GetFileLogger()
         {
             //WriteToLog(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location),true);
-            string logFilePath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "logs/StoreSCP.txt");
-            return new LoggerConfiguration().
-                WriteTo.File(logFilePath,
-                shared: true,
-                restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information,
-                rollOnFileSizeLimit: false,
-                fileSizeLimitBytes: 10240000)
+            return new LoggerConfiguration()
+                .WriteTo.Sink(new DailyFolderSink("StoreSCP.txt"), Serilog.Events.LogEventLevel.Information)
                 .CreateLogger();
         }
 

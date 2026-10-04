@@ -324,7 +324,7 @@ jobs:
           Start-Sleep -Seconds 2  # Wait for logs to flush
 
           # Check for CARE API errors in logs
-          $logPath = "bin\Release\logs\WorklistItems*.txt"
+          $logPath = "bin\Release\logs\*\ModalitySCP*.txt"
           $hasError = $false
           $errorMsg = ""
           $accessionNumber = ""
@@ -674,8 +674,8 @@ jobs:
             ScanCompleted = $false
           }
 
-          # Check WorklistItems log
-          $wlLogPath = "bin\Release\logs\WorklistItems*.txt"
+          # Check ModalitySCP log for the worklist fetch
+          $wlLogPath = "bin\Release\logs\*\ModalitySCP*.txt"
           if (Test-Path $wlLogPath) {
             $wlLogs = Get-ChildItem -Path $wlLogPath | Sort-Object LastWriteTime -Descending | Select-Object -First 1
             $wlContent = Get-Content $wlLogs.FullName -Raw
@@ -687,7 +687,7 @@ jobs:
           }
 
           # Check ModalitySCP log for MPPS webhooks
-          $mppsLogPath = "bin\Release\logs\ModalitySCP*.txt"
+          $mppsLogPath = "bin\Release\logs\*\ModalitySCP*.txt"
           if (Test-Path $mppsLogPath) {
             $mppsLogs = Get-ChildItem -Path $mppsLogPath | Sort-Object LastWriteTime -Descending | Select-Object -First 1
             $mppsContent = Get-Content $mppsLogs.FullName -Raw
@@ -716,7 +716,7 @@ jobs:
           }
 
           # Check StoreSCP log for DICOM upload
-          $scpLogPath = "bin\Release\logs\StoreSCP*.txt"
+          $scpLogPath = "bin\Release\logs\*\StoreSCP*.txt"
           if (Test-Path $scpLogPath) {
             $scpLogs = Get-ChildItem -Path $scpLogPath | Sort-Object LastWriteTime -Descending | Select-Object -First 1
             $scpContent = Get-Content $scpLogs.FullName -Raw
@@ -794,9 +794,9 @@ jobs:
           Write-Output "  - From Date: $fromDate"
           Write-Output ""
 
-          # Serilog writes to logs/*.txt next to each service EXE
+          # Serilog writes to logs/yyyy-MM-dd/*.txt next to each service EXE
           if (Test-Path "bin\Release\logs") {
-            Get-ChildItem -Path "bin\Release\logs" -Filter "*.txt" -ErrorAction SilentlyContinue |
+            Get-ChildItem -Path "bin\Release\logs" -Filter "*.txt" -Recurse -ErrorAction SilentlyContinue |
               ForEach-Object {
                 Write-Output "=== $($_.FullName) (last 100 lines) ==="
                 Get-Content $_.FullName -Tail 100 -ErrorAction SilentlyContinue
@@ -806,7 +806,7 @@ jobs:
           Write-Output ""
           Write-Output "=== Key Log Entries ==="
           if (Test-Path "bin\Release\logs") {
-            Get-ChildItem -Path "bin\Release\logs" -Filter "*.txt" -ErrorAction SilentlyContinue |
+            Get-ChildItem -Path "bin\Release\logs" -Filter "*.txt" -Recurse -ErrorAction SilentlyContinue |
               ForEach-Object {
                 Write-Output "--- $($_.Name) ---"
                 Get-Content $_.FullName -ErrorAction SilentlyContinue |
@@ -821,6 +821,6 @@ jobs:
         with:
           name: staging-test-results-${{ github.run_number }}-${{ github.sha }}
           path: |
-            bin/Release/logs/*.txt
+            bin/Release/logs/**/*.txt
             bin/Release/SCP/**/*.dcm
           if-no-files-found: ignore

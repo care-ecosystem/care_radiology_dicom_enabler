@@ -442,9 +442,9 @@ jobs:
           Write-Output "=== Mock backend stderr ==="
           if (Test-Path "$env:TEMP\mock_err.log") { Get-Content "$env:TEMP\mock_err.log" }
 
-          # Serilog writes to logs/*.txt next to each service EXE
+          # Serilog writes to logs/yyyy-MM-dd/*.txt next to each service EXE
           if (Test-Path "bin\Release\logs") {
-            Get-ChildItem -Path "bin\Release\logs" -Filter "*.txt" -ErrorAction SilentlyContinue |
+            Get-ChildItem -Path "bin\Release\logs" -Filter "*.txt" -Recurse -ErrorAction SilentlyContinue |
               ForEach-Object {
                 Write-Output "=== $($_.FullName) (last 100 lines) ==="
                 Get-Content $_.FullName -Tail 100 -ErrorAction SilentlyContinue
@@ -457,6 +457,6 @@ jobs:
         with:
           name: dicom-test-results-${{ github.run_number }}-${{ github.sha }}
           path: |
-            bin/Release/logs/*.txt
+            bin/Release/logs/**/*.txt
             bin/Release/SCP/**/*.dcm
           if-no-files-found: ignore
