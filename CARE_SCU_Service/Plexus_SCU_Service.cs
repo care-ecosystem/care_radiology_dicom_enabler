@@ -22,9 +22,11 @@ namespace Plexus_SCU_Service
         private static readonly HttpClient httpClient = new HttpClient();
         Timer timer = new Timer(TimeSpan.FromHours(24).TotalMilliseconds);
         public ucls_DAL objDAL = null;
-        // Used when maxUploadFailures / maxUploadRetries are missing or invalid in App.config.
+        // Used when maxUploadFailures / maxUploadRetries are missing or invalid in care_config and App.config.
         private const int DefaultMaxUploadFailures = 3;
         private const int DefaultMaxUploadRetries = 10;
+        // Used when scu_poll_interval_seconds is blank or invalid in care_config.
+        private const int DefaultPollIntervalSeconds = 5;
         // The CARE worklist is fetched at most once per upload cycle, however many files in the
         // cycle have an accession number that is not in care_worklist.
         private bool worklistRefreshedThisCycle = false;
@@ -50,7 +52,9 @@ namespace Plexus_SCU_Service
                 }
                 WriteToLog("Store SCU Service Started Successfully !!!", true);
                 timer.Elapsed += new ElapsedEventHandler(OnElapsedTime);
-                timer.Interval = 5000;
+                int pollIntervalSeconds = GetIntSetting("scu_poll_interval_seconds", null, DefaultPollIntervalSeconds);
+                WriteToLog($"Scanning the SCP folder every {pollIntervalSeconds}s", true);
+                timer.Interval = pollIntervalSeconds * 1000;
                 timer.Enabled = true;
             }
             catch (Exception ex)
@@ -65,13 +69,13 @@ namespace Plexus_SCU_Service
             {
                 timer.Enabled = false;
 
-                string careBackendURL = ConfigurationManager.AppSettings["careBackendURL"]?.TrimEnd('/') ?? string.Empty;
+                string careBackendURL = GetConfigSetting("care_base_url", "careBackendURL").TrimEnd('/');
                 string uploadPath = ConfigurationManager.AppSettings["uploadURL"] ?? string.Empty;
                 string staticAPIKey = ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty;
 
                 if (string.IsNullOrWhiteSpace(careBackendURL))
                 {
-                    WriteToLog("careBackendURL is not configured in App.config", false);
+                    WriteToLog("care_base_url is not set in the Configuration tab and careBackendURL is not configured in App.config", false);
                     return;
                 }
                 if (string.IsNullOrWhiteSpace(staticAPIKey))
@@ -80,7 +84,7 @@ namespace Plexus_SCU_Service
                     return;
                 }
 
-                string dcmPushPath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "SCP");
+                string dcmPushPath = GetFolderSetting("scp_folder", "SCP");
                 if (!Directory.Exists(dcmPushPath))
                 {
                     WriteToLog($"SCP folder not found: {dcmPushPath}", false);
@@ -209,8 +213,8 @@ namespace Plexus_SCU_Service
         // reaches maxUploadFailures counted failures or maxUploadRetries retries of any kind.
         private void RecordUploadFailure(string dcmfile, string studyInstanceId, string accessionNumber, string failureLog, bool countAsFailure)
         {
-            int maxFailures = GetIntSetting("maxUploadFailures", DefaultMaxUploadFailures);
-            int maxRetries = GetIntSetting("maxUploadRetries", DefaultMaxUploadRetries);
+            int maxFailures = GetIntSetting("max_upload_failures", "maxUploadFailures", DefaultMaxUploadFailures);
+            int maxRetries = GetIntSetting("max_upload_retries", "maxUploadRetries", DefaultMaxUploadRetries);
 
             SaveStudyUploadDB(studyInstanceId, accessionNumber, dcmfile, "FAILED", failureLog, countAsFailure, out int failureCount, out int retryCount);
 
@@ -220,14 +224,35 @@ namespace Plexus_SCU_Service
                 MoveToFailedSCP(dcmfile, "MaxRetries", studyInstanceId, accessionNumber, failureCount, retryCount, failureLog);
         }
 
-        private int GetIntSetting(string key, int defaultValue)
+        private int GetIntSetting(string configKey, string appSettingKey, int defaultValue)
         {
-            string value = ConfigurationManager.AppSettings[key];
+            string value = GetConfigSetting(configKey, appSettingKey);
             if (int.TryParse(value, out int parsed) && parsed > 0)
                 return parsed;
             if (!string.IsNullOrWhiteSpace(value))
-                WriteToLog($"{key}='{value}' in App.config is not a positive number — using {defaultValue}", false);
+                WriteToLog($"{configKey}='{value}' is not a positive number — using {defaultValue}", false);
             return defaultValue;
+        }
+
+        // Reads a setting from care_config (Configuration tab). When it is blank there, or care_config
+        // cannot be read, the appSettingKey value from App.config is used (empty when appSettingKey is null).
+        private string GetConfigSetting(string configKey, string appSettingKey)
+        {
+            string fallback = appSettingKey == null ? string.Empty : ConfigurationManager.AppSettings[appSettingKey] ?? string.Empty;
+            string errorString = string.Empty;
+            string value = objDAL.GetConfigValue(configKey, fallback, ref errorString);
+            if (!string.IsNullOrEmpty(errorString))
+                WriteToLog($"{errorString} — using {(appSettingKey == null ? "the default" : "App.config " + appSettingKey)}", false);
+            return value;
+        }
+
+        // A folder from care_config, or defaultFolderName under the install folder when it is blank.
+        private string GetFolderSetting(string configKey, string defaultFolderName)
+        {
+            string folder = GetConfigSetting(configKey, null);
+            return string.IsNullOrWhiteSpace(folder)
+                ? Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), defaultFolderName)
+                : folder;
         }
 
         // True when the exception (or one it wraps) comes from reaching the CARE server: connection
@@ -273,7 +298,7 @@ namespace Plexus_SCU_Service
         {
             try
             {
-                string failedRoot = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "FailedSCP");
+                string failedRoot = GetFolderSetting("failed_scp_folder", "FailedSCP");
                 if (reason == "MaxRetries")
                     failedRoot = Path.Combine(failedRoot, "OtherFailure");
                 string failedFolder = Path.Combine(failedRoot, DateTime.Now.ToString("dd-MM-yyyy"));
@@ -319,7 +344,7 @@ namespace Plexus_SCU_Service
         {
             try
             {
-                string careBackendURL = ConfigurationManager.AppSettings["careBackendURL"]?.TrimEnd('/') ?? string.Empty;
+                string careBackendURL = GetConfigSetting("care_base_url", "careBackendURL").TrimEnd('/');
                 string webhookPath = ConfigurationManager.AppSettings["webhookURL"] ?? string.Empty;
                 string staticApiKey = ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty;
 
@@ -395,9 +420,10 @@ namespace Plexus_SCU_Service
             }
         }
 
-        // Fetches the worklist for the Facility ID in the Server List and saves it to care_worklist,
-        // the same way the MWL service's periodic refresh does. careModality and careFromDate must match
-        // CARE_MWL_Service App.config: the sync marks scheduled rows missing from the response COMPLETED.
+        // Fetches the worklist for the Facility ID in the Configuration tab and saves it to care_worklist,
+        // the same way the MWL service's periodic refresh does. The modality and from date must match the
+        // MWL service's (set them in care_config so both read the same values): the sync marks scheduled
+        // rows missing from the response COMPLETED.
         private void RefreshCareWorklist()
         {
             string errorString = string.Empty;
@@ -418,10 +444,10 @@ namespace Plexus_SCU_Service
 
                 ucls_CareWorklist.RefreshCareWorklist(
                     objDAL,
-                    ConfigurationManager.AppSettings["careBackendURL"]?.TrimEnd('/') ?? string.Empty,
+                    GetConfigSetting("care_base_url", "careBackendURL").TrimEnd('/'),
                     ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty,
-                    ConfigurationManager.AppSettings["careModality"] ?? string.Empty,
-                    ConfigurationManager.AppSettings["careFromDate"] ?? string.Empty,
+                    GetConfigSetting("care_modality", "careModality"),
+                    GetConfigSetting("care_from_date", "careFromDate"),
                     facilityId,
                     WriteToLog);
             }

@@ -105,8 +105,16 @@ namespace Worklist_SCP
                     fileLogger.Information($" Successfully fetched {dbWorklistItems?.Count ?? 0} worklist items from Plexus Database");
                     break;
                 case 2:
-                    fileLogger.Information($"Fetching Records from CARE Server API");
                     string facilityId = getFacilityId(Association.CallingAE);
+                    if (string.IsNullOrWhiteSpace(facilityId))
+                    {
+                        // Facility ID is mandatory: do not call the CARE worklist API without it.
+                        // getFacilityId has already logged why it is missing.
+                        fileLogger.Warning($"Skipping CARE worklist fetch for AE {Association.CallingAE} - no Facility ID set in the Configuration tab; returning no worklist items");
+                        WorklistServer.CurrentWorklistItems = new List<WorklistItem>();
+                        break;
+                    }
+                    fileLogger.Information($"Fetching Records from CARE Server API for Facility ID {facilityId}");
                     //var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromPellucidAsync();
                     var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync(facilityId);
                     WorklistServer.CurrentWorklistItems = pellucidWorklistItems;
@@ -161,11 +169,10 @@ namespace Worklist_SCP
         }
 
         /// <summary>
-        /// Reads the Facility ID from the Server List so the CARE worklist request can be scoped to one
-        /// facility. A row matching the calling AE title wins; failing that, the single Facility ID
-        /// configured in the Server List is used. The Facility ID is mandatory: when none can be
-        /// resolved this returns empty, and the caller then fetches nothing rather than querying every
-        /// facility. The error naming the cause is written to the log.
+        /// Reads the Facility ID from the Configuration tab so the CARE worklist request is scoped to
+        /// this enabler's facility. The Facility ID is mandatory: when none is set this returns empty,
+        /// and the caller then fetches nothing rather than querying every facility. The error naming
+        /// the cause is written to the log.
         /// </summary>
         private string getFacilityId(string aeTitle)
         {
@@ -186,7 +193,7 @@ namespace Worklist_SCP
                 }
                 if (string.IsNullOrWhiteSpace(facilityId))
                 {
-                    fileLogger?.Error($"[FACILITY] No Facility ID for AE={aeTitle} - {resolvedFrom}. The CARE worklist will not be queried; enter a Facility ID in the Server List tab.");
+                    fileLogger?.Error($"[FACILITY] No Facility ID for AE={aeTitle} - {resolvedFrom}. The CARE worklist will not be queried; enter a Facility ID in the Configuration tab.");
                     return string.Empty;
                 }
                 fileLogger?.Information($"[FACILITY] AE={aeTitle} resolved to Facility ID={facilityId} from {resolvedFrom}");
@@ -331,7 +338,7 @@ namespace Worklist_SCP
 
             try
             {
-                string storageFolder = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "SCP", studyUid);
+                string storageFolder = Path.Combine(WorklistServer.GetScpFolder(), studyUid);
                 if (!Directory.Exists(storageFolder))
                 {
                     Directory.CreateDirectory(storageFolder);

@@ -165,6 +165,9 @@ namespace Plexus_DICOM_Enabler
                         GetAndPopulateLogs();
                         //MessageBox.Show(mtc_Modules.SelectedIndex.ToString());
                         break;
+                    case 6: // Configuration Tab Clicked
+                        GetConfiguration();
+                        break;
                 }
             }
             catch(Exception ex)
@@ -409,8 +412,7 @@ namespace Plexus_DICOM_Enabler
         {
             string errorString = string.Empty;
             if ( txt_ServerName.Text == string.Empty || txt_AETitle.Text == string.Empty ||
-                txt_HostAddress.Text == string.Empty || txt_PortNo.Text == string.Empty ||
-                txt_FacilityId.Text.Trim() == string.Empty )
+                txt_HostAddress.Text == string.Empty || txt_PortNo.Text == string.Empty )
             {
                 MessageBox.Show(this, "Please fill mandatory fields. All Fields are mandatory except description",
                                      "Check Mandatory", MessageBoxButtons.OK,
@@ -421,7 +423,7 @@ namespace Plexus_DICOM_Enabler
             // Add Server to Database
             if (objDAL != null )
             {
-                if ( objDAL.insertorUpdateServer(txt_ServerName.Text, txt_AETitle.Text, txt_HostAddress.Text, txt_PortNo.Text, txt_FacilityId.Text, rtb_Description.Text, primarykey, bUpdateServer, ref errorString)) {
+                if ( objDAL.insertorUpdateServer(txt_ServerName.Text, txt_AETitle.Text, txt_HostAddress.Text, txt_PortNo.Text, rtb_Description.Text, primarykey, bUpdateServer, ref errorString)) {
                     MessageBox.Show(this, "Server details added/updated Successfully!!",
                                     "Server added Successfully", MessageBoxButtons.OK,
                                     MessageBoxIcon.Information);
@@ -451,7 +453,7 @@ namespace Plexus_DICOM_Enabler
         /// </summary>
         private void ClearTextBoxes()
         {
-            txt_ServerName.Text = txt_AETitle.Text = txt_HostAddress.Text = txt_PortNo.Text = txt_FacilityId.Text = rtb_Description.Text = string.Empty;
+            txt_ServerName.Text = txt_AETitle.Text = txt_HostAddress.Text = txt_PortNo.Text = rtb_Description.Text = string.Empty;
             primarykey = string.Empty;
         }
 
@@ -518,8 +520,6 @@ namespace Plexus_DICOM_Enabler
                         txt_HostAddress.Text = dgv_ServerList.Rows[e.RowIndex].Cells["serverHost"].Value.ToString();
                     if (dgv_ServerList.Rows[e.RowIndex].Cells["serverPort"] != null)
                         txt_PortNo.Text = dgv_ServerList.Rows[e.RowIndex].Cells["serverPort"].Value.ToString();
-                    if (dgv_ServerList.Rows[e.RowIndex].Cells["serverFacilityId"] != null)
-                        txt_FacilityId.Text = dgv_ServerList.Rows[e.RowIndex].Cells["serverFacilityId"].Value?.ToString() ?? string.Empty;
                     if (dgv_ServerList.Rows[e.RowIndex].Cells["description"] != null)
                         rtb_Description.Text = dgv_ServerList.Rows[e.RowIndex].Cells["description"].Value.ToString();
                     if (dgv_ServerList.Rows[e.RowIndex].Cells["pk"] != null)
@@ -640,6 +640,194 @@ namespace Plexus_DICOM_Enabler
         private void mbtn_PatientRefresh_Click(object sender, EventArgs e)
         {
             GetPatientDetails();
+        }
+
+        /// <summary>
+        /// Load the integration settings from care_config into the Configuration tab
+        /// </summary>
+        private void GetConfiguration()
+        {
+            try
+            {
+                this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
+                string errorString = string.Empty;
+
+                DataSet dsResult = objDAL.LoadConfig(ref errorString);
+
+                if (dsResult == null)
+                {
+                    MessageBox.Show(this, "Error loading Configuration : " + errorString,
+                                     "Error loading Configuration", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Error);
+                    return;
+                }
+
+                // Show what each service uses while a value is left blank
+                DataTable configTable = dsResult.Tables[0];
+                configTable.Columns.Add("default_value", typeof(string));
+                foreach (DataRow row in configTable.Rows)
+                    row["default_value"] = GetConfigDefault(row["config_key"].ToString());
+
+                dgv_Config.DataSource = configTable;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Error loading Configuration" + ex.Message,
+                                     "Error loading Configuration", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Error);
+            }
+            finally
+            {
+                this.Cursor = System.Windows.Forms.Cursors.Default;
+            }
+        }
+
+        private void mbtn_SaveConfig_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                dgv_Config.EndEdit();
+                var values = new System.Collections.Generic.Dictionary<string, string>();
+                foreach (DataGridViewRow row in dgv_Config.Rows)
+                {
+                    string key = row.Cells["configKey"].Value?.ToString();
+                    if (!string.IsNullOrEmpty(key))
+                        values[key] = row.Cells["configValue"].Value?.ToString() ?? string.Empty;
+                }
+
+                if (values.Count == 0)
+                {
+                    MessageBox.Show(this, "No configuration loaded to save.",
+                                     "Error Saving Configuration", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Error);
+                    return;
+                }
+
+                if (!values.TryGetValue("facility_id", out string facilityId) || string.IsNullOrWhiteSpace(facilityId))
+                {
+                    MessageBox.Show(this, "Please enter the facility_id. The CARE worklist is not fetched without it.",
+                                     "Check Mandatory", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Error);
+                    return;
+                }
+
+                string errorString = string.Empty;
+                if (objDAL.SaveConfig(values, ref errorString))
+                {
+                    MessageBox.Show(this, "Configuration saved Successfully!! Polling intervals and folder changes take effect after the services are restarted from Server Manager",
+                                     "Saving Configuration Successfull", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Information);
+                    GetConfiguration();
+                }
+                else
+                {
+                    MessageBox.Show(this, "Error Saving Configuration with error message : " + errorString,
+                                     "Error Saving Configuration", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Error Saving Configuration with expection : " + ex.Message,
+                                     "Error Saving Configuration", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Error);
+            }
+        }
+
+        private void mbtn_ReloadConfig_Click(object sender, EventArgs e)
+        {
+            GetConfiguration();
+        }
+
+        /// <summary>
+        /// The value the services use when a care_config setting is blank: their App.config value, or
+        /// the built-in default when App.config has none. Mirrors the fallbacks in the MWL, SCU and
+        /// Store SCP services.
+        /// </summary>
+        private string GetConfigDefault(string configKey)
+        {
+            switch (configKey)
+            {
+                case "facility_id":
+                    return "(required - no default)";
+                case "care_base_url":
+                    return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careBaseUrl"), ReadServiceSetting("CARE_SCU_Service", "careBackendURL"));
+                case "care_modality":
+                    return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careModality"), ReadServiceSetting("CARE_SCU_Service", "careModality"));
+                case "care_from_date":
+                    return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careFromDate"), ReadServiceSetting("CARE_SCU_Service", "careFromDate"));
+                case "worklist_refresh_start_seconds":
+                    return WholeNumberOrDefault(ReadServiceSetting("CARE_MWL_Service", "worklistRefreshStartSeconds"), 30, 0);
+                case "worklist_refresh_interval_seconds":
+                    return WholeNumberOrDefault(ReadServiceSetting("CARE_MWL_Service", "worklistRefreshIntervalSeconds"), 30, 1);
+                case "scu_poll_interval_seconds":
+                    return "5";
+                case "scp_folder":
+                    return Path.Combine(Global._applicationPath, "SCP");
+                case "failed_scp_folder":
+                    return Path.Combine(Global._applicationPath, "FailedSCP");
+                case "max_upload_failures":
+                    return WholeNumberOrDefault(ReadServiceSetting("CARE_SCU_Service", "maxUploadFailures"), 3, 1);
+                case "max_upload_retries":
+                    return WholeNumberOrDefault(ReadServiceSetting("CARE_SCU_Service", "maxUploadRetries"), 10, 1);
+                default:
+                    return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// Reads an appSettings value from a service's .exe.config installed next to this application.
+        /// Returns null when the file or the key is missing.
+        /// </summary>
+        private string ReadServiceSetting(string serviceAssembly, string key)
+        {
+            try
+            {
+                string configPath = Path.Combine(Global._applicationPath, serviceAssembly + ".exe.config");
+                if (!File.Exists(configPath))
+                    return null;
+
+                var configDoc = new System.Xml.XmlDocument();
+                configDoc.Load(configPath);
+                foreach (System.Xml.XmlNode node in configDoc.SelectNodes("/configuration/appSettings/add"))
+                {
+                    if (node.Attributes?["key"]?.Value == key)
+                        return node.Attributes["value"]?.Value ?? string.Empty;
+                }
+            }
+            catch (Exception)
+            {
+                // Unreadable config - shown as not found
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// One value when the MWL and SCU services agree, otherwise each service's value.
+        /// </summary>
+        private static string CombineServiceDefaults(string mwlValue, string scuValue)
+        {
+            if (mwlValue == scuValue)
+                return DisplayDefault(mwlValue);
+            return "MWL: " + DisplayDefault(mwlValue) + " | SCU: " + DisplayDefault(scuValue);
+        }
+
+        private static string DisplayDefault(string value)
+        {
+            if (value == null)
+                return "(not found in App.config)";
+            return value.Trim() == string.Empty ? "(blank)" : value.Trim();
+        }
+
+        /// <summary>
+        /// The App.config value when it is a whole number >= minValue, otherwise the built-in default,
+        /// as the services do.
+        /// </summary>
+        private static string WholeNumberOrDefault(string appConfigValue, int builtInDefault, int minValue)
+        {
+            if (int.TryParse(appConfigValue, out int parsed) && parsed >= minValue)
+                return parsed.ToString();
+            return builtInDefault.ToString();
         }
     }
 }

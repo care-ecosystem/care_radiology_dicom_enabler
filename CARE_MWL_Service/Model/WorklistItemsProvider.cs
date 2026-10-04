@@ -188,7 +188,7 @@ namespace Worklist_SCP.Model
 
             if (string.IsNullOrWhiteSpace(facilityId))
             {
-                objReadWriteLog.WriteToLog("Not calling the CARE worklist API: no Facility ID resolved. Enter a Facility ID against this server in the Server List tab.", false);
+                objReadWriteLog.WriteToLog("Not calling the CARE worklist API: no Facility ID resolved. Enter a Facility ID in the Configuration tab.", false);
                 return objWorkListItems;
             }
 
@@ -197,10 +197,10 @@ namespace Worklist_SCP.Model
                 string errorString = string.Empty;
 
                 CareWorklistResponse careResponse = ucls_CareWorklist.FetchWorklist(
-                    ConfigurationManager.AppSettings["careBaseUrl"].ToString(),
+                    WorklistServer.GetConfigSetting("care_base_url", "careBaseUrl"),
                     ConfigurationManager.AppSettings["careToken"].ToString(),
-                    ConfigurationManager.AppSettings["careModality"].ToString(),
-                    ConfigurationManager.AppSettings["careFromDate"].ToString(),
+                    WorklistServer.GetConfigSetting("care_modality", "careModality"),
+                    WorklistServer.GetConfigSetting("care_from_date", "careFromDate"),
                     facilityId,
                     objReadWriteLog.WriteToLog);
                 List<CareWorklistRecord> careRecords = new List<CareWorklistRecord>();

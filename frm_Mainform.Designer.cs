@@ -69,9 +69,7 @@ namespace Plexus_DICOM_Enabler
             this.label4 = new System.Windows.Forms.Label();
             this.label3 = new System.Windows.Forms.Label();
             this.label2 = new System.Windows.Forms.Label();
-            this.label7 = new System.Windows.Forms.Label();
             this.rtb_Description = new System.Windows.Forms.RichTextBox();
-            this.txt_FacilityId = new System.Windows.Forms.TextBox();
             this.txt_PortNo = new System.Windows.Forms.TextBox();
             this.txt_HostAddress = new System.Windows.Forms.TextBox();
             this.txt_AETitle = new System.Windows.Forms.TextBox();
@@ -84,7 +82,6 @@ namespace Plexus_DICOM_Enabler
             this.serverAETitle = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.serverHost = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.serverPort = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.serverFacilityId = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.description = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.delete = new System.Windows.Forms.DataGridViewImageColumn();
             this.tdp_ViewPatients = new System.Windows.Forms.TabPage();
@@ -105,6 +102,15 @@ namespace Plexus_DICOM_Enabler
             this.rtb_SCPLog = new System.Windows.Forms.RichTextBox();
             this.tp_SCULog = new System.Windows.Forms.TabPage();
             this.rtb_SCULog = new System.Windows.Forms.RichTextBox();
+            this.tbp_Configuration = new System.Windows.Forms.TabPage();
+            this.lbl_ConfigNote = new System.Windows.Forms.Label();
+            this.mbtn_ReloadConfig = new MaterialSkin.Controls.MaterialButton();
+            this.mbtn_SaveConfig = new MaterialSkin.Controls.MaterialButton();
+            this.dgv_Config = new System.Windows.Forms.DataGridView();
+            this.configKey = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.configValue = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.configDefault = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.configDescription = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.tbp_AboutUs = new System.Windows.Forms.TabPage();
             this.materialLabel10 = new MaterialSkin.Controls.MaterialLabel();
             this.materialLabel8 = new MaterialSkin.Controls.MaterialLabel();
@@ -128,6 +134,8 @@ namespace Plexus_DICOM_Enabler
             this.tp_MWLLog.SuspendLayout();
             this.tp_SCPLog.SuspendLayout();
             this.tp_SCULog.SuspendLayout();
+            this.tbp_Configuration.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.dgv_Config)).BeginInit();
             this.tbp_AboutUs.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox1)).BeginInit();
             this.SuspendLayout();
@@ -152,6 +160,7 @@ namespace Plexus_DICOM_Enabler
             this.mtc_Modules.Controls.Add(this.tbp_ServerList);
             this.mtc_Modules.Controls.Add(this.tdp_ViewPatients);
             this.mtc_Modules.Controls.Add(this.tbp_ViewLog);
+            this.mtc_Modules.Controls.Add(this.tbp_Configuration);
             this.mtc_Modules.Controls.Add(this.tbp_AboutUs);
             this.mtc_Modules.Depth = 0;
             this.mtc_Modules.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -629,9 +638,7 @@ namespace Plexus_DICOM_Enabler
             this.tbp_ServerList.Controls.Add(this.label4);
             this.tbp_ServerList.Controls.Add(this.label3);
             this.tbp_ServerList.Controls.Add(this.label2);
-            this.tbp_ServerList.Controls.Add(this.label7);
             this.tbp_ServerList.Controls.Add(this.rtb_Description);
-            this.tbp_ServerList.Controls.Add(this.txt_FacilityId);
             this.tbp_ServerList.Controls.Add(this.txt_PortNo);
             this.tbp_ServerList.Controls.Add(this.txt_HostAddress);
             this.tbp_ServerList.Controls.Add(this.txt_AETitle);
@@ -669,21 +676,11 @@ namespace Plexus_DICOM_Enabler
             // 
             this.label6.AutoSize = true;
             this.label6.Font = new System.Drawing.Font("Microsoft Sans Serif", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.label6.Location = new System.Drawing.Point(345, 118);
+            this.label6.Location = new System.Drawing.Point(129, 118);
             this.label6.Name = "label6";
             this.label6.Size = new System.Drawing.Size(98, 16);
             this.label6.TabIndex = 14;
             this.label6.Text = "Description : ";
-            //
-            // label7
-            //
-            this.label7.AutoSize = true;
-            this.label7.Font = new System.Drawing.Font("Microsoft Sans Serif", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.label7.Location = new System.Drawing.Point(129, 118);
-            this.label7.Name = "label7";
-            this.label7.Size = new System.Drawing.Size(98, 16);
-            this.label7.TabIndex = 16;
-            this.label7.Text = "Facility ID : ";
             //
             // label5
             // 
@@ -727,20 +724,12 @@ namespace Plexus_DICOM_Enabler
             // 
             // rtb_Description
             // 
-            this.rtb_Description.Location = new System.Drawing.Point(345, 140);
+            this.rtb_Description.Location = new System.Drawing.Point(129, 140);
             this.rtb_Description.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.rtb_Description.Name = "rtb_Description";
-            this.rtb_Description.Size = new System.Drawing.Size(599, 75);
-            this.rtb_Description.TabIndex = 9;
+            this.rtb_Description.Size = new System.Drawing.Size(815, 75);
+            this.rtb_Description.TabIndex = 8;
             this.rtb_Description.Text = "";
-            //
-            // txt_FacilityId
-            //
-            this.txt_FacilityId.Location = new System.Drawing.Point(129, 140);
-            this.txt_FacilityId.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.txt_FacilityId.Name = "txt_FacilityId";
-            this.txt_FacilityId.Size = new System.Drawing.Size(183, 22);
-            this.txt_FacilityId.TabIndex = 8;
             //
             // txt_PortNo
             //
@@ -814,7 +803,6 @@ namespace Plexus_DICOM_Enabler
             this.serverAETitle,
             this.serverHost,
             this.serverPort,
-            this.serverFacilityId,
             this.description,
             this.delete});
             this.dgv_ServerList.EditMode = System.Windows.Forms.DataGridViewEditMode.EditProgrammatically;
@@ -871,15 +859,6 @@ namespace Plexus_DICOM_Enabler
             this.serverPort.MinimumWidth = 6;
             this.serverPort.Name = "serverPort";
             this.serverPort.Width = 125;
-            //
-            // serverFacilityId
-            //
-            this.serverFacilityId.DataPropertyName = "facilityid";
-            this.serverFacilityId.FillWeight = 150F;
-            this.serverFacilityId.HeaderText = "Facility ID";
-            this.serverFacilityId.MinimumWidth = 6;
-            this.serverFacilityId.Name = "serverFacilityId";
-            this.serverFacilityId.Width = 125;
             //
             // description
             //
@@ -1098,7 +1077,128 @@ namespace Plexus_DICOM_Enabler
             this.rtb_SCULog.Size = new System.Drawing.Size(939, 728);
             this.rtb_SCULog.TabIndex = 0;
             this.rtb_SCULog.Text = "";
-            // 
+            //
+            // tbp_Configuration
+            //
+            this.tbp_Configuration.Controls.Add(this.lbl_ConfigNote);
+            this.tbp_Configuration.Controls.Add(this.mbtn_ReloadConfig);
+            this.tbp_Configuration.Controls.Add(this.mbtn_SaveConfig);
+            this.tbp_Configuration.Controls.Add(this.dgv_Config);
+            this.tbp_Configuration.ImageKey = "settings.png";
+            this.tbp_Configuration.Location = new System.Drawing.Point(4, 25);
+            this.tbp_Configuration.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
+            this.tbp_Configuration.Name = "tbp_Configuration";
+            this.tbp_Configuration.Size = new System.Drawing.Size(1029, 760);
+            this.tbp_Configuration.TabIndex = 7;
+            this.tbp_Configuration.Text = "Configuration";
+            this.tbp_Configuration.UseVisualStyleBackColor = true;
+            //
+            // lbl_ConfigNote
+            //
+            this.lbl_ConfigNote.Font = new System.Drawing.Font("Microsoft Sans Serif", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.lbl_ConfigNote.Location = new System.Drawing.Point(80, 14);
+            this.lbl_ConfigNote.Name = "lbl_ConfigNote";
+            this.lbl_ConfigNote.Size = new System.Drawing.Size(740, 36);
+            this.lbl_ConfigNote.TabIndex = 3;
+            this.lbl_ConfigNote.Text = "facility_id is required. Leave any other value blank to use the Default shown (the service\'s App.config value or built-in default). Restart the services after changing polling intervals or folders.";
+            //
+            // mbtn_ReloadConfig
+            //
+            this.mbtn_ReloadConfig.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.mbtn_ReloadConfig.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this.mbtn_ReloadConfig.Depth = 0;
+            this.mbtn_ReloadConfig.HighEmphasis = true;
+            this.mbtn_ReloadConfig.Icon = null;
+            this.mbtn_ReloadConfig.Location = new System.Drawing.Point(843, 14);
+            this.mbtn_ReloadConfig.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
+            this.mbtn_ReloadConfig.MouseState = MaterialSkin.MouseState.HOVER;
+            this.mbtn_ReloadConfig.Name = "mbtn_ReloadConfig";
+            this.mbtn_ReloadConfig.NoAccentTextColor = System.Drawing.Color.Empty;
+            this.mbtn_ReloadConfig.Size = new System.Drawing.Size(84, 36);
+            this.mbtn_ReloadConfig.TabIndex = 2;
+            this.mbtn_ReloadConfig.Text = "Reload";
+            this.mbtn_ReloadConfig.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Outlined;
+            this.mbtn_ReloadConfig.UseAccentColor = false;
+            this.mbtn_ReloadConfig.UseVisualStyleBackColor = true;
+            this.mbtn_ReloadConfig.Click += new System.EventHandler(this.mbtn_ReloadConfig_Click);
+            //
+            // mbtn_SaveConfig
+            //
+            this.mbtn_SaveConfig.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.mbtn_SaveConfig.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this.mbtn_SaveConfig.Depth = 0;
+            this.mbtn_SaveConfig.HighEmphasis = true;
+            this.mbtn_SaveConfig.Icon = null;
+            this.mbtn_SaveConfig.Location = new System.Drawing.Point(943, 14);
+            this.mbtn_SaveConfig.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
+            this.mbtn_SaveConfig.MouseState = MaterialSkin.MouseState.HOVER;
+            this.mbtn_SaveConfig.Name = "mbtn_SaveConfig";
+            this.mbtn_SaveConfig.NoAccentTextColor = System.Drawing.Color.Empty;
+            this.mbtn_SaveConfig.Size = new System.Drawing.Size(64, 36);
+            this.mbtn_SaveConfig.TabIndex = 1;
+            this.mbtn_SaveConfig.Text = "Save";
+            this.mbtn_SaveConfig.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
+            this.mbtn_SaveConfig.UseAccentColor = false;
+            this.mbtn_SaveConfig.UseVisualStyleBackColor = true;
+            this.mbtn_SaveConfig.Click += new System.EventHandler(this.mbtn_SaveConfig_Click);
+            //
+            // dgv_Config
+            //
+            this.dgv_Config.AllowUserToAddRows = false;
+            this.dgv_Config.AllowUserToDeleteRows = false;
+            this.dgv_Config.AutoGenerateColumns = false;
+            this.dgv_Config.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.dgv_Config.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
+            this.configKey,
+            this.configValue,
+            this.configDefault,
+            this.configDescription});
+            this.dgv_Config.Location = new System.Drawing.Point(80, 59);
+            this.dgv_Config.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
+            this.dgv_Config.Name = "dgv_Config";
+            this.dgv_Config.RowHeadersWidth = 51;
+            this.dgv_Config.RowTemplate.Height = 24;
+            this.dgv_Config.Size = new System.Drawing.Size(947, 697);
+            this.dgv_Config.TabIndex = 0;
+            //
+            // configKey
+            //
+            this.configKey.DataPropertyName = "config_key";
+            this.configKey.HeaderText = "Setting";
+            this.configKey.MinimumWidth = 6;
+            this.configKey.Name = "configKey";
+            this.configKey.ReadOnly = true;
+            this.configKey.Width = 200;
+            //
+            // configValue
+            //
+            this.configValue.DataPropertyName = "config_value";
+            this.configValue.HeaderText = "Value";
+            this.configValue.MinimumWidth = 6;
+            this.configValue.Name = "configValue";
+            this.configValue.Width = 230;
+            //
+            // configDefault
+            //
+            this.configDefault.DataPropertyName = "default_value";
+            this.configDefault.DefaultCellStyle.ForeColor = System.Drawing.Color.Gray;
+            this.configDefault.DefaultCellStyle.WrapMode = System.Windows.Forms.DataGridViewTriState.True;
+            this.configDefault.HeaderText = "Default (used when Value is blank)";
+            this.configDefault.MinimumWidth = 6;
+            this.configDefault.Name = "configDefault";
+            this.configDefault.ReadOnly = true;
+            this.configDefault.Width = 230;
+            //
+            // configDescription
+            //
+            this.configDescription.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.Fill;
+            this.configDescription.DataPropertyName = "description";
+            this.configDescription.DefaultCellStyle.WrapMode = System.Windows.Forms.DataGridViewTriState.True;
+            this.configDescription.HeaderText = "Description";
+            this.configDescription.MinimumWidth = 6;
+            this.configDescription.Name = "configDescription";
+            this.configDescription.ReadOnly = true;
+            //
             // tbp_AboutUs
             // 
             this.tbp_AboutUs.Controls.Add(this.materialLabel10);
@@ -1234,6 +1334,9 @@ namespace Plexus_DICOM_Enabler
             this.tp_MWLLog.ResumeLayout(false);
             this.tp_SCPLog.ResumeLayout(false);
             this.tp_SCULog.ResumeLayout(false);
+            this.tbp_Configuration.ResumeLayout(false);
+            this.tbp_Configuration.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.dgv_Config)).EndInit();
             this.tbp_AboutUs.ResumeLayout(false);
             this.tbp_AboutUs.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox1)).EndInit();
@@ -1277,7 +1380,6 @@ namespace Plexus_DICOM_Enabler
         private MaterialSkin.Controls.MaterialButton mtbtn_AddUpdateServer;
         private MaterialSkin.Controls.MaterialLabel materialLabel12;
         private System.Windows.Forms.TextBox txt_PortNo;
-        private System.Windows.Forms.TextBox txt_FacilityId;
         private System.Windows.Forms.TextBox txt_HostAddress;
         private System.Windows.Forms.TextBox txt_AETitle;
         private System.Windows.Forms.TextBox txt_ServerName;
@@ -1287,7 +1389,6 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.Label label4;
         private System.Windows.Forms.Label label5;
         private System.Windows.Forms.Label label6;
-        private System.Windows.Forms.Label label7;
         private System.Windows.Forms.TabControl tbc_Logs;
         private System.Windows.Forms.TabPage tp_MWLLog;
         private System.Windows.Forms.RichTextBox rtb_MWLLog;
@@ -1301,7 +1402,6 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.DataGridViewTextBoxColumn serverAETitle;
         private System.Windows.Forms.DataGridViewTextBoxColumn serverHost;
         private System.Windows.Forms.DataGridViewTextBoxColumn serverPort;
-        private System.Windows.Forms.DataGridViewTextBoxColumn serverFacilityId;
         private System.Windows.Forms.DataGridViewTextBoxColumn description;
         private System.Windows.Forms.DataGridViewImageColumn delete;
         private System.Windows.Forms.TabPage tbp_SCUSettings;
@@ -1323,6 +1423,15 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.DataGridViewTextBoxColumn noofseries;
         private System.Windows.Forms.DataGridViewTextBoxColumn noofimages;
         private MaterialSkin.Controls.MaterialButton mbtn_PatientRefresh;
+        private System.Windows.Forms.TabPage tbp_Configuration;
+        private System.Windows.Forms.Label lbl_ConfigNote;
+        private MaterialSkin.Controls.MaterialButton mbtn_ReloadConfig;
+        private MaterialSkin.Controls.MaterialButton mbtn_SaveConfig;
+        private System.Windows.Forms.DataGridView dgv_Config;
+        private System.Windows.Forms.DataGridViewTextBoxColumn configKey;
+        private System.Windows.Forms.DataGridViewTextBoxColumn configValue;
+        private System.Windows.Forms.DataGridViewTextBoxColumn configDefault;
+        private System.Windows.Forms.DataGridViewTextBoxColumn configDescription;
     }
 }
 

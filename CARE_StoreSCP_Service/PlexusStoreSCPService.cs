@@ -2,6 +2,7 @@
 using FellowOakDicom.Log;
 using FellowOakDicom.Network;
 using Plexus.Common.config;
+using Plexus.Common.Database;
 using Plexus_StoreSCP_Service.Network;
 using Serilog;
 using System;
@@ -52,7 +53,7 @@ namespace Plexus_StoreSCP_Service
             try
             {
                 string applicationpath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
-                Global._storagePath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "SCP"); ;
+                Global._storagePath = GetScpFolder(applicationpath);
                 Global._aeTitle = cls_PlexusConfig.ReadDetailsFromXML(applicationpath,@"/configurations/sscpaetitle");
                 int port = Convert.ToInt32(cls_PlexusConfig.ReadDetailsFromXML(applicationpath, @"/configurations/sscpport"));
 
@@ -69,6 +70,35 @@ namespace Plexus_StoreSCP_Service
             catch (Exception ex)
             {
                 WriteToLog("Error Starting Store SCP Service with exception : " + ex.Message,false);
+            }
+        }
+
+        /// <summary>
+        /// Folder received images are saved to for the SCU service to upload: scp_folder in
+        /// care_config (Configuration tab), or SCP under the install folder when it is blank.
+        /// </summary>
+        private string GetScpFolder(string applicationpath)
+        {
+            string defaultFolder = Path.Combine(applicationpath, "SCP");
+            ucls_DAL objDAL = null;
+            try
+            {
+                string errorString = string.Empty;
+                objDAL = new ucls_DAL(applicationpath);
+                string folder = objDAL.GetConfigValue("scp_folder", defaultFolder, ref errorString);
+                if (!string.IsNullOrEmpty(errorString))
+                    WriteToLog($"{errorString} - saving images to {defaultFolder}", false);
+                WriteToLog($"Saving received images to {folder}", true);
+                return folder;
+            }
+            catch (Exception ex)
+            {
+                WriteToLog($"Reading scp_folder from care_config failed with exception {ex.Message} - saving images to {defaultFolder}", false);
+                return defaultFolder;
+            }
+            finally
+            {
+                objDAL?.Dispose();
             }
         }
 

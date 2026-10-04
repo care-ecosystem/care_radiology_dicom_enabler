@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS `care_worklist` (
 -- increments retry_count (0 on the first attempt). failure_count does not count HTTP 429 (rate
 -- limiting), HTTP 401, 403, any 5xx or network errors. After maxUploadFailures counted failures the
 -- file is moved to FailedSCP\<dd-MM-yyyy>; after maxUploadRetries retries of any kind it is moved to
--- FailedSCP\OtherFailure\<dd-MM-yyyy> (both limits are set in CARE_SCU_Service App.config).
+-- FailedSCP\OtherFailure\<dd-MM-yyyy> (both limits are set in care_config or CARE_SCU_Service App.config).
 -- worklist_pk links the file to the care_worklist row with its accession number; it stays NULL
 -- when the file has no accession number or it is not in care_worklist.
 CREATE TABLE IF NOT EXISTS `care_study_upload` (
@@ -88,3 +88,29 @@ CREATE TABLE IF NOT EXISTS `care_study_upload` (
   KEY `idx_care_study_upload_worklist_pk` (`worklist_pk`),
   CONSTRAINT `fk_care_study_upload_worklist` FOREIGN KEY (`worklist_pk`) REFERENCES `care_worklist` (`pk`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Integration settings for this enabler's facility, one row per setting, edited in the
+-- Configuration tab. facility_id is required. For every other key a blank value means the
+-- service uses its App.config value (or built-in default), so existing installs keep working
+-- until a value is entered here. API keys and tokens stay in App.config.
+CREATE TABLE IF NOT EXISTS `care_config` (
+  `config_key` varchar(100) NOT NULL,
+  `config_value` varchar(1000) DEFAULT NULL,
+  `description` varchar(500) DEFAULT NULL,
+  `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`config_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- INSERT IGNORE adds keys missing from older installs without overwriting values already set.
+INSERT IGNORE INTO `care_config` (`config_key`, `config_value`, `description`) VALUES
+  ('facility_id', NULL, 'CARE Facility ID used to fetch the worklist and in MPPS updates. Required.'),
+  ('care_base_url', NULL, 'CARE server base URL, e.g. https://care.example.org. Blank = App.config careBaseUrl / careBackendURL.'),
+  ('care_modality', NULL, 'Modality filter for the CARE worklist. Blank = App.config careModality.'),
+  ('care_from_date', NULL, 'Earliest worklist date fetched from CARE (yyyy-MM-dd HH:mm:ss). Blank = App.config careFromDate.'),
+  ('worklist_refresh_start_seconds', NULL, 'Seconds after the MWL service starts before the first worklist refresh. Blank = App.config. Restart the MWL service to apply.'),
+  ('worklist_refresh_interval_seconds', NULL, 'Seconds between worklist refreshes. Blank = App.config. Restart the MWL service to apply.'),
+  ('scu_poll_interval_seconds', NULL, 'Seconds between scans of the SCP folder for files to upload. Blank = 5. Restart the SCU service to apply.'),
+  ('scp_folder', NULL, 'Folder where received DICOM files are saved and picked up for upload. Blank = SCP under the install folder. Restart the services to apply.'),
+  ('failed_scp_folder', NULL, 'Folder files are moved to after the upload limits are hit. Blank = FailedSCP under the install folder.'),
+  ('max_upload_failures', NULL, 'Failed uploads before a file is moved to the failed folder. Blank = App.config maxUploadFailures.'),
+  ('max_upload_retries', NULL, 'Upload retries of any kind before a file is moved to the failed folder. Blank = App.config maxUploadRetries.');
