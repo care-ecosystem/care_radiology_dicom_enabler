@@ -104,9 +104,6 @@ namespace Plexus_DICOM_Enabler
             this.rtb_SCULog = new System.Windows.Forms.RichTextBox();
             this.tbp_Configuration = new System.Windows.Forms.TabPage();
             this.mbtn_SaveConfig = new MaterialSkin.Controls.MaterialButton();
-            this.mbtn_PickFromDate = new MaterialSkin.Controls.MaterialButton();
-            this.mbtn_BrowseScpFolder = new MaterialSkin.Controls.MaterialButton();
-            this.mbtn_BrowseFailedScpFolder = new MaterialSkin.Controls.MaterialButton();
             this.grpb_CareSettings = new System.Windows.Forms.GroupBox();
             this.grpb_UploadSettings = new System.Windows.Forms.GroupBox();
             this.lbl_FacilityId = new MaterialSkin.Controls.MaterialLabel();
@@ -1139,7 +1136,6 @@ namespace Plexus_DICOM_Enabler
             this.grpb_CareSettings.Controls.Add(this.mtxtb_CareModality);
             this.grpb_CareSettings.Controls.Add(this.lbl_CareFromDate);
             this.grpb_CareSettings.Controls.Add(this.mtxtb_CareFromDate);
-            this.grpb_CareSettings.Controls.Add(this.mbtn_PickFromDate);
             this.grpb_CareSettings.Font = new System.Drawing.Font("Microsoft Tai Le", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.grpb_CareSettings.Location = new System.Drawing.Point(80, 14);
             this.grpb_CareSettings.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
@@ -1232,10 +1228,11 @@ namespace Plexus_DICOM_Enabler
             this.mtxtb_CareFromDate.MouseState = MaterialSkin.MouseState.OUT;
             this.mtxtb_CareFromDate.Multiline = false;
             this.mtxtb_CareFromDate.Name = "mtxtb_CareFromDate";
-            this.mtxtb_CareFromDate.Size = new System.Drawing.Size(200, 50);
+            this.mtxtb_CareFromDate.Size = new System.Drawing.Size(250, 50);
             this.mtxtb_CareFromDate.TabIndex = 5;
             this.mtxtb_CareFromDate.Text = "";
             this.mtxtb_CareFromDate.TrailingIcon = null;
+            this.mtxtb_CareFromDate.TrailingIconClick += new System.EventHandler(this.mtxtb_CareFromDate_TrailingIconClick);
             //
             // lbl_WorklistRefreshStart
             //
@@ -1311,8 +1308,6 @@ namespace Plexus_DICOM_Enabler
             this.grpb_UploadSettings.Controls.Add(this.mtxtb_ScpFolder);
             this.grpb_UploadSettings.Controls.Add(this.lbl_FailedScpFolder);
             this.grpb_UploadSettings.Controls.Add(this.mtxtb_FailedScpFolder);
-            this.grpb_UploadSettings.Controls.Add(this.mbtn_BrowseScpFolder);
-            this.grpb_UploadSettings.Controls.Add(this.mbtn_BrowseFailedScpFolder);
             this.grpb_UploadSettings.Font = new System.Drawing.Font("Microsoft Tai Le", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.grpb_UploadSettings.Location = new System.Drawing.Point(80, 226);
             this.grpb_UploadSettings.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
@@ -1407,10 +1402,11 @@ namespace Plexus_DICOM_Enabler
             this.mtxtb_ScpFolder.MouseState = MaterialSkin.MouseState.OUT;
             this.mtxtb_ScpFolder.Multiline = false;
             this.mtxtb_ScpFolder.Name = "mtxtb_ScpFolder";
-            this.mtxtb_ScpFolder.Size = new System.Drawing.Size(520, 50);
+            this.mtxtb_ScpFolder.Size = new System.Drawing.Size(630, 50);
             this.mtxtb_ScpFolder.TabIndex = 9;
             this.mtxtb_ScpFolder.Text = "";
             this.mtxtb_ScpFolder.TrailingIcon = null;
+            this.mtxtb_ScpFolder.TrailingIconClick += new System.EventHandler(this.mtxtb_ScpFolder_TrailingIconClick);
             //
             // lbl_FailedScpFolder
             //
@@ -1436,70 +1432,11 @@ namespace Plexus_DICOM_Enabler
             this.mtxtb_FailedScpFolder.MouseState = MaterialSkin.MouseState.OUT;
             this.mtxtb_FailedScpFolder.Multiline = false;
             this.mtxtb_FailedScpFolder.Name = "mtxtb_FailedScpFolder";
-            this.mtxtb_FailedScpFolder.Size = new System.Drawing.Size(520, 50);
+            this.mtxtb_FailedScpFolder.Size = new System.Drawing.Size(630, 50);
             this.mtxtb_FailedScpFolder.TabIndex = 11;
             this.mtxtb_FailedScpFolder.Text = "";
             this.mtxtb_FailedScpFolder.TrailingIcon = null;
-            //
-            // mbtn_PickFromDate
-            //
-            this.mbtn_PickFromDate.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-            this.mbtn_PickFromDate.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
-            this.mbtn_PickFromDate.Depth = 0;
-            this.mbtn_PickFromDate.HighEmphasis = true;
-            this.mbtn_PickFromDate.Icon = null;
-            this.mbtn_PickFromDate.Location = new System.Drawing.Point(440, 123);
-            this.mbtn_PickFromDate.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
-            this.mbtn_PickFromDate.MouseState = MaterialSkin.MouseState.HOVER;
-            this.mbtn_PickFromDate.Name = "mbtn_PickFromDate";
-            this.mbtn_PickFromDate.NoAccentTextColor = System.Drawing.Color.Empty;
-            this.mbtn_PickFromDate.Size = new System.Drawing.Size(95, 36);
-            this.mbtn_PickFromDate.TabIndex = 6;
-            this.mbtn_PickFromDate.Text = "Calendar";
-            this.mbtn_PickFromDate.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Outlined;
-            this.mbtn_PickFromDate.UseAccentColor = false;
-            this.mbtn_PickFromDate.UseVisualStyleBackColor = true;
-            this.mbtn_PickFromDate.Click += new System.EventHandler(this.mbtn_PickFromDate_Click);
-            //
-            // mbtn_BrowseScpFolder
-            //
-            this.mbtn_BrowseScpFolder.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-            this.mbtn_BrowseScpFolder.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
-            this.mbtn_BrowseScpFolder.Depth = 0;
-            this.mbtn_BrowseScpFolder.HighEmphasis = true;
-            this.mbtn_BrowseScpFolder.Icon = null;
-            this.mbtn_BrowseScpFolder.Location = new System.Drawing.Point(762, 203);
-            this.mbtn_BrowseScpFolder.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
-            this.mbtn_BrowseScpFolder.MouseState = MaterialSkin.MouseState.HOVER;
-            this.mbtn_BrowseScpFolder.Name = "mbtn_BrowseScpFolder";
-            this.mbtn_BrowseScpFolder.NoAccentTextColor = System.Drawing.Color.Empty;
-            this.mbtn_BrowseScpFolder.Size = new System.Drawing.Size(80, 36);
-            this.mbtn_BrowseScpFolder.TabIndex = 12;
-            this.mbtn_BrowseScpFolder.Text = "Browse";
-            this.mbtn_BrowseScpFolder.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Outlined;
-            this.mbtn_BrowseScpFolder.UseAccentColor = false;
-            this.mbtn_BrowseScpFolder.UseVisualStyleBackColor = true;
-            this.mbtn_BrowseScpFolder.Click += new System.EventHandler(this.mbtn_BrowseScpFolder_Click);
-            //
-            // mbtn_BrowseFailedScpFolder
-            //
-            this.mbtn_BrowseFailedScpFolder.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-            this.mbtn_BrowseFailedScpFolder.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
-            this.mbtn_BrowseFailedScpFolder.Depth = 0;
-            this.mbtn_BrowseFailedScpFolder.HighEmphasis = true;
-            this.mbtn_BrowseFailedScpFolder.Icon = null;
-            this.mbtn_BrowseFailedScpFolder.Location = new System.Drawing.Point(762, 283);
-            this.mbtn_BrowseFailedScpFolder.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
-            this.mbtn_BrowseFailedScpFolder.MouseState = MaterialSkin.MouseState.HOVER;
-            this.mbtn_BrowseFailedScpFolder.Name = "mbtn_BrowseFailedScpFolder";
-            this.mbtn_BrowseFailedScpFolder.NoAccentTextColor = System.Drawing.Color.Empty;
-            this.mbtn_BrowseFailedScpFolder.Size = new System.Drawing.Size(80, 36);
-            this.mbtn_BrowseFailedScpFolder.TabIndex = 13;
-            this.mbtn_BrowseFailedScpFolder.Text = "Browse";
-            this.mbtn_BrowseFailedScpFolder.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Outlined;
-            this.mbtn_BrowseFailedScpFolder.UseAccentColor = false;
-            this.mbtn_BrowseFailedScpFolder.UseVisualStyleBackColor = true;
-            this.mbtn_BrowseFailedScpFolder.Click += new System.EventHandler(this.mbtn_BrowseFailedScpFolder_Click);
+            this.mtxtb_FailedScpFolder.TrailingIconClick += new System.EventHandler(this.mtxtb_FailedScpFolder_TrailingIconClick);
             //
             // tbp_AboutUs
             // 
@@ -1730,9 +1667,6 @@ namespace Plexus_DICOM_Enabler
         private MaterialSkin.Controls.MaterialButton mbtn_PatientRefresh;
         private System.Windows.Forms.TabPage tbp_Configuration;
         private MaterialSkin.Controls.MaterialButton mbtn_SaveConfig;
-        private MaterialSkin.Controls.MaterialButton mbtn_PickFromDate;
-        private MaterialSkin.Controls.MaterialButton mbtn_BrowseScpFolder;
-        private MaterialSkin.Controls.MaterialButton mbtn_BrowseFailedScpFolder;
         private System.Windows.Forms.GroupBox grpb_CareSettings;
         private System.Windows.Forms.GroupBox grpb_UploadSettings;
         private MaterialSkin.Controls.MaterialLabel lbl_FacilityId;

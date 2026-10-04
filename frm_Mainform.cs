@@ -32,6 +32,11 @@ namespace Plexus_DICOM_Enabler
             InitializeComponent();
             logRefreshTimer.Tick += logRefreshTimer_Tick;
 
+            // Clicking the icon at the end of the box opens the calendar or folder browser
+            mtxtb_CareFromDate.TrailingIcon = CreateCalendarIcon();
+            mtxtb_ScpFolder.TrailingIcon = CreateFolderIcon();
+            mtxtb_FailedScpFolder.TrailingIcon = CreateFolderIcon();
+
             var materialSkinManager = MaterialSkinManager.Instance;
             materialSkinManager.AddFormToManage(this);
             materialSkinManager.Theme = MaterialSkinManager.Themes.LIGHT;
@@ -921,7 +926,7 @@ namespace Plexus_DICOM_Enabler
         /// <summary>
         /// Opens a calendar with a time picker and puts the selected date and time into From Date
         /// </summary>
-        private void mbtn_PickFromDate_Click(object sender, EventArgs e)
+        private void mtxtb_CareFromDate_TrailingIconClick(object sender, EventArgs e)
         {
             // Start from the entered value, else the default, else today
             DateTime initial = DateTime.Today;
@@ -990,12 +995,12 @@ namespace Plexus_DICOM_Enabler
             }
         }
 
-        private void mbtn_BrowseScpFolder_Click(object sender, EventArgs e)
+        private void mtxtb_ScpFolder_TrailingIconClick(object sender, EventArgs e)
         {
             BrowseForFolder(mtxtb_ScpFolder, "scp_folder", "Select the folder where received DICOM files are saved and picked up for upload");
         }
 
-        private void mbtn_BrowseFailedScpFolder_Click(object sender, EventArgs e)
+        private void mtxtb_FailedScpFolder_TrailingIconClick(object sender, EventArgs e)
         {
             BrowseForFolder(mtxtb_FailedScpFolder, "failed_scp_folder", "Select the folder files are moved to after the upload retry limit is hit");
         }
@@ -1019,6 +1024,42 @@ namespace Plexus_DICOM_Enabler
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                     textBox.Text = dialog.SelectedPath;
             }
+        }
+
+        // The text box recolours its icons to the theme, so only the shape drawn here matters
+        private const int IconSize = 24;
+
+        private static Bitmap CreateCalendarIcon()
+        {
+            Bitmap icon = new Bitmap(IconSize, IconSize);
+            using (Graphics g = Graphics.FromImage(icon))
+            using (Pen pen = new Pen(Color.Black, 2))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.DrawRectangle(pen, 3, 5, 18, 16);     // page
+                g.DrawLine(pen, 3, 10, 21, 10);         // header bar
+                g.DrawLine(pen, 8, 2, 8, 7);            // binder rings
+                g.DrawLine(pen, 16, 2, 16, 7);
+                g.FillRectangle(Brushes.Black, 7, 13, 3, 3);    // a marked day
+            }
+            return icon;
+        }
+
+        private static Bitmap CreateFolderIcon()
+        {
+            Bitmap icon = new Bitmap(IconSize, IconSize);
+            using (Graphics g = Graphics.FromImage(icon))
+            using (Pen pen = new Pen(Color.Black, 2) { LineJoin = System.Drawing.Drawing2D.LineJoin.Round })
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.DrawPolygon(pen, new[]
+                {
+                    new Point(2, 5), new Point(9, 5), new Point(11, 8), new Point(22, 8),
+                    new Point(22, 20), new Point(2, 20)
+                });
+                g.DrawLine(pen, 2, 11, 22, 11);         // flap
+            }
+            return icon;
         }
 
         /// <summary>
