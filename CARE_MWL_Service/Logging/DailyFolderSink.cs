@@ -33,6 +33,17 @@ namespace Plexus_MWL_Service.logs
         public DailyFolderSink(string fileName)
         {
             _fileName = fileName;
+
+            // Services build their logger at startup, so the logs folder exists before anything is written
+            try
+            {
+                Directory.CreateDirectory(LogsDirectory);
+            }
+            catch (Exception ex)
+            {
+                // The file sink retries creating it on the first write
+                SelfLog.WriteLine("Creating the logs folder {0} failed: {1}", LogsDirectory, ex);
+            }
         }
 
         public void Emit(LogEvent logEvent)

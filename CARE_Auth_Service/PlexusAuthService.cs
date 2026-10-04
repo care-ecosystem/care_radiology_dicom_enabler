@@ -61,6 +61,18 @@ namespace Plexus_Auth_Service
         {
             //WriteToLog(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location),true);
             string logFilePath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "logs/authLogs.txt");
+
+            // The logger is built at startup, so the logs folder exists before anything is written
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(logFilePath));
+            }
+            catch (Exception ex)
+            {
+                // The file sink retries creating it on the first write
+                Serilog.Debugging.SelfLog.WriteLine("Creating the logs folder for {0} failed: {1}", logFilePath, ex);
+            }
+
             return new LoggerConfiguration().
                 WriteTo.File(logFilePath,
                 shared: true,
