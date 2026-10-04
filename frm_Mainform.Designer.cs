@@ -1015,6 +1015,7 @@ namespace Plexus_DICOM_Enabler
             this.tbp_ViewLog.Location = new System.Drawing.Point(4, 25);
             this.tbp_ViewLog.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.tbp_ViewLog.Name = "tbp_ViewLog";
+            this.tbp_ViewLog.Padding = new System.Windows.Forms.Padding(80, 2, 2, 12);
             this.tbp_ViewLog.Size = new System.Drawing.Size(1029, 760);
             this.tbp_ViewLog.TabIndex = 3;
             this.tbp_ViewLog.Text = "View Logs";
@@ -1025,11 +1026,12 @@ namespace Plexus_DICOM_Enabler
             this.tbc_Logs.Controls.Add(this.tp_MWLLog);
             this.tbc_Logs.Controls.Add(this.tp_SCPLog);
             this.tbc_Logs.Controls.Add(this.tp_SCULog);
+            this.tbc_Logs.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tbc_Logs.Location = new System.Drawing.Point(80, 2);
             this.tbc_Logs.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.tbc_Logs.Name = "tbc_Logs";
             this.tbc_Logs.SelectedIndex = 0;
-            this.tbc_Logs.Size = new System.Drawing.Size(947, 757);
+            this.tbc_Logs.Size = new System.Drawing.Size(947, 746);
             this.tbc_Logs.TabIndex = 0;
             // 
             // tp_MWLLog

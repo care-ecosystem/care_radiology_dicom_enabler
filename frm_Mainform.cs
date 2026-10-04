@@ -18,9 +18,17 @@ namespace Plexus_DICOM_Enabler
         bool bUpdateServer = false;
         string primarykey = string.Empty;
         ucls_DAL objDAL = null;
+        readonly Timer logRefreshTimer = new Timer { Interval = 1000 };
+        readonly System.Collections.Generic.Dictionary<string, LogTail> logTails = new System.Collections.Generic.Dictionary<string, LogTail>
+        {
+            { "ModalitySCP", new LogTail() },
+            { "StoreSCP", new LogTail() },
+            { "StoreSCU", new LogTail() }
+        };
         public frm_Mainform()
         {
             InitializeComponent();
+            logRefreshTimer.Tick += logRefreshTimer_Tick;
 
             var materialSkinManager = MaterialSkinManager.Instance;
             materialSkinManager.AddFormToManage(this);
@@ -208,16 +216,12 @@ namespace Plexus_DICOM_Enabler
         {
             try
             {
-                
-                // Read and Populate ModalitySCP Logs
-                rtb_MWLLog.Text = ReadLogContent("ModalitySCP");
+                // Full reload whenever the View Logs tab is opened, then tail every second
+                foreach (var tail in logTails.Values)
+                    tail.Reset();
 
-
-                // Read and Populate StoreSCP Logs
-                rtb_SCPLog.Text = ReadLogContent("StoreSCP");
-
-                // Read and Populate StoreSCU Logs
-                rtb_SCULog.Text = ReadLogContent("StoreSCU");
+                RefreshLogs();
+                logRefreshTimer.Start();
             }
             catch(Exception ex)
             {
@@ -227,29 +231,124 @@ namespace Plexus_DICOM_Enabler
             }
         }
 
-        private string ReadLogContent(string searchPattern)
+        private void logRefreshTimer_Tick(object sender, EventArgs e)
         {
-            string logDirectory = Path.Combine(Application.StartupPath, "logs");
-            if (!Directory.Exists(logDirectory))
-                return "No logs found. Services may not have started yet.";
-            var directory = new DirectoryInfo(logDirectory);
-            FileInfo[] files = directory.GetFiles(searchPattern + "*.txt");
-            if (files.Length > 0 ) {
-                var logFile = files.OrderByDescending(f => f.LastWriteTime).First();
-                return ReadAllText(Path.Combine(logDirectory, logFile.FullName));
-            }
-            else
+            if (mtc_Modules.SelectedIndex != 5)
             {
-                return "No log file found for " + searchPattern + ".";
+                logRefreshTimer.Stop();
+                return;
+            }
+
+            try
+            {
+                RefreshLogs();
+            }
+            catch (IOException)
+            {
+                // Log file is being rolled or written; pick up the changes on the next tick
             }
         }
 
-
-        private string ReadAllText(string file)
+        private void RefreshLogs()
         {
-            using (var fileStream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            using (var textReader = new StreamReader(fileStream))
-                return textReader.ReadToEnd();
+            // Read and Populate ModalitySCP Logs
+            RefreshLog(rtb_MWLLog, "ModalitySCP");
+
+            // Read and Populate StoreSCP Logs
+            RefreshLog(rtb_SCPLog, "StoreSCP");
+
+            // Read and Populate StoreSCU Logs
+            RefreshLog(rtb_SCULog, "StoreSCU");
+        }
+
+        /// <summary>
+        /// Appends only the text written to the latest log file since the last read.
+        /// Reloads the whole file when the service rolls over to a new file.
+        /// </summary>
+        private void RefreshLog(RichTextBox logBox, string searchPattern)
+        {
+            LogTail tail = logTails[searchPattern];
+            string logFile = GetLatestLogFile(searchPattern, out string message);
+
+            if (logFile == null)
+            {
+                if (tail.Message != message)
+                {
+                    tail.Reset();
+                    tail.Message = message;
+                    logBox.Text = message;
+                }
+                return;
+            }
+
+            using (var fileStream = new FileStream(logFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                bool reload = tail.FilePath != logFile || fileStream.Length < tail.Position;
+                if (!reload && fileStream.Length == tail.Position)
+                    return;
+
+                if (reload)
+                    tail.Position = 0;
+
+                fileStream.Seek(tail.Position, SeekOrigin.Begin);
+                string newText;
+                using (var textReader = new StreamReader(fileStream))
+                {
+                    newText = textReader.ReadToEnd();
+                    tail.Position = fileStream.Position;
+                }
+
+                tail.FilePath = logFile;
+                tail.Message = null;
+
+                // Follow new lines only if the caret is already at the end, so scrolling back to read is not interrupted
+                bool followTail = reload || logBox.SelectionStart >= logBox.TextLength;
+                if (reload)
+                    logBox.Text = newText;
+                else
+                    logBox.AppendText(newText);
+
+                if (followTail)
+                {
+                    logBox.SelectionStart = logBox.TextLength;
+                    logBox.ScrollToCaret();
+                }
+            }
+        }
+
+        private string GetLatestLogFile(string searchPattern, out string message)
+        {
+            message = null;
+            string logDirectory = Path.Combine(Application.StartupPath, "logs");
+            if (!Directory.Exists(logDirectory))
+            {
+                message = "No logs found. Services may not have started yet.";
+                return null;
+            }
+            var directory = new DirectoryInfo(logDirectory);
+            FileInfo[] files = directory.GetFiles(searchPattern + "*.txt");
+            if (files.Length > 0 ) {
+                return files.OrderByDescending(f => f.LastWriteTime).First().FullName;
+            }
+            else
+            {
+                message = "No log file found for " + searchPattern + ".";
+                return null;
+            }
+        }
+
+        private class LogTail
+        {
+            public string FilePath;
+            public long Position;
+            public string Message;
+
+            public void Reset()
+            {
+                FilePath = null;
+                Position = 0;
+                Message = null;
+            }
         }
 
         /// <summary>
@@ -358,6 +457,7 @@ namespace Plexus_DICOM_Enabler
 
         private void frm_Mainform_FormClosed(object sender, FormClosedEventArgs e)
         {
+            logRefreshTimer.Dispose();
             objDAL.Dispose();
             this.Dispose();
             Application.Exit();
