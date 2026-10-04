@@ -185,7 +185,7 @@ namespace Worklist_SCP
                 if (_refreshLogger == null)
                 {
                     _refreshLogger = new LoggerConfiguration()
-                        .WriteTo.Sink(new DailyFolderSink("ModalitySCP.txt"), Serilog.Events.LogEventLevel.Information)
+                        .WriteTo.Sink(DailyFolderSink.For("ModalitySCP.txt"), Serilog.Events.LogEventLevel.Information)
                         .CreateLogger();
                 }
                 return _refreshLogger;

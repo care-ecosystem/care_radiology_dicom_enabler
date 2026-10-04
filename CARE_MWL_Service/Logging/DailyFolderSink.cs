@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
@@ -16,7 +17,8 @@ namespace Plexus_MWL_Service.logs
     /// Writes to logs/yyyy-MM-dd/fileName next to the service EXE, moving to a new date folder with the
     /// first event of each day. Within a day the file rolls at 5 KB; the newest 3 files stay as .txt and
     /// older ones are zipped into that day's archive folder by ZipOnDeleteHooks. Earlier days' folders
-    /// are zipped to logs/yyyy-MM-dd.zip and deleted.
+    /// are zipped to logs/yyyy-MM-dd.zip and deleted. Get one with For, which hands every logger in the
+    /// process the same sink for a file name, so the file is opened only once.
     /// </summary>
     public class DailyFolderSink : ILogEventSink, IDisposable
     {
@@ -24,13 +26,23 @@ namespace Plexus_MWL_Service.logs
         // The MWL, StoreSCP and StoreSCU services share the logs folder, so only one of them archives at a time
         private const string ArchiveMutexName = @"Global\CARE_DICOM_Enabler_LogArchive";
         private static readonly string LogsDirectory = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "logs");
+        private static readonly ConcurrentDictionary<string, DailyFolderSink> Sinks = new ConcurrentDictionary<string, DailyFolderSink>(StringComparer.OrdinalIgnoreCase);
 
         private readonly string _fileName;
         private readonly object _lock = new object();
         private DateTime _currentDate;
         private Logger _fileLogger;
 
-        public DailyFolderSink(string fileName)
+        /// <summary>
+        /// The sink for fileName. Serilog does not allow lifecycle hooks on a shared file, so loggers that
+        /// write to the same file must share one sink instead of each opening the file.
+        /// </summary>
+        public static DailyFolderSink For(string fileName)
+        {
+            return Sinks.GetOrAdd(fileName, name => new DailyFolderSink(name));
+        }
+
+        private DailyFolderSink(string fileName)
         {
             _fileName = fileName;
 
@@ -60,7 +72,6 @@ namespace Plexus_MWL_Service.logs
                     _fileLogger = new LoggerConfiguration()
                         .MinimumLevel.Verbose()
                         .WriteTo.File(logPath,
-                            shared: true,
                             retainedFileCountLimit: 3,
                             rollOnFileSizeLimit: true,
                             fileSizeLimitBytes: 5120,

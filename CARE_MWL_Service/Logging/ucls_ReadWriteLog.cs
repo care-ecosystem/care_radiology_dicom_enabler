@@ -11,7 +11,7 @@ namespace Plexus_MWL_Service.logs
         public ucls_ReadWriteLog()
         {
             _logger = new LoggerConfiguration()
-                .WriteTo.Sink(new DailyFolderSink("ModalitySCP.txt"), Serilog.Events.LogEventLevel.Information)
+                .WriteTo.Sink(DailyFolderSink.For("ModalitySCP.txt"), Serilog.Events.LogEventLevel.Information)
                 .CreateLogger();
         }
 

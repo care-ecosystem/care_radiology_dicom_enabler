@@ -20,7 +20,7 @@ namespace Plexus_MWL_Service
         {
             InitializeComponent();
             _fileLogger = new LoggerConfiguration()
-                .WriteTo.Sink(new DailyFolderSink("ModalitySCP.txt"), Serilog.Events.LogEventLevel.Information)
+                .WriteTo.Sink(DailyFolderSink.For("ModalitySCP.txt"), Serilog.Events.LogEventLevel.Information)
                 .CreateLogger();
         }
 

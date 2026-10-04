@@ -40,7 +40,7 @@ namespace Plexus_StoreSCP_Service
         {
             //WriteToLog(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location),true);
             return new LoggerConfiguration()
-                .WriteTo.Sink(new DailyFolderSink("StoreSCP.txt"), Serilog.Events.LogEventLevel.Information)
+                .WriteTo.Sink(DailyFolderSink.For("StoreSCP.txt"), Serilog.Events.LogEventLevel.Information)
                 .CreateLogger();
         }
 

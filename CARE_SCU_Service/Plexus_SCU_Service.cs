@@ -446,7 +446,7 @@ namespace Plexus_SCU_Service
         private Serilog.ILogger GetFileLogger()
         {
             return new LoggerConfiguration()
-                .WriteTo.Sink(new DailyFolderSink("StoreSCU.txt"), Serilog.Events.LogEventLevel.Information)
+                .WriteTo.Sink(DailyFolderSink.For("StoreSCU.txt"), Serilog.Events.LogEventLevel.Information)
                 .CreateLogger();
         }
 
