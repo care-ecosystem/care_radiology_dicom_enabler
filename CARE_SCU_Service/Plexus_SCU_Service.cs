@@ -110,6 +110,17 @@ namespace Plexus_SCU_Service
                 foreach (string dcmfile in dcmfiles)
                 {
                     if (string.IsNullOrWhiteSpace(dcmfile)) continue;
+
+                    // Only .dcm / .dicom files are uploaded; any other file is moved straight to the failed folder
+                    string extension = Path.GetExtension(dcmfile);
+                    if (!extension.Equals(".dcm", StringComparison.OrdinalIgnoreCase) &&
+                        !extension.Equals(".dicom", StringComparison.OrdinalIgnoreCase))
+                    {
+                        WriteToLog($"Not a .dcm or .dicom file - not uploaded: {dcmfile}", false);
+                        MoveToFailedSCP(dcmfile, string.Empty, string.Empty, 0, "Not a .dcm or .dicom file");
+                        continue;
+                    }
+
                     UploadDicomFileViaHttp(dcmfile, uploadURL, staticAPIKey);
                 }
             }
@@ -264,8 +275,8 @@ namespace Plexus_SCU_Service
             }
         }
 
-        // Moves a file that hit the upload retry limit out of SCP to FailedSCP\<dd-MM-yyyy>\ so it is no
-        // longer picked up, and appends the details to error.log in that folder.
+        // Moves a file that hit the upload retry limit, or is not a .dcm / .dicom file, out of SCP to
+        // FailedSCP\<dd-MM-yyyy>\ so it is no longer picked up, and appends the details to error.log in that folder.
         private void MoveToFailedSCP(string dcmfile, string studyInstanceId, string accessionNumber, int retryCount, string failureLog)
         {
             try

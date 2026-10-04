@@ -671,7 +671,9 @@ namespace Plexus.Common.Database
 
         /// <summary>
         /// Returns the CARE patient ID (UUID) from care_patient for the care_worklist row with an
-        /// accession number, or empty when the accession number is not in care_worklist.
+        /// accession number, or empty when the accession number is not in care_worklist. A row that
+        /// is found has fetched_at set to now on its first read and last_fetched_at set to now on
+        /// every read.
         /// </summary>
         public string GetCarePatientIdByAccessionNo(string accessionNo, ref string errorString)
         {
@@ -688,6 +690,17 @@ namespace Plexus.Common.Database
                         var result = cmd.ExecuteScalar();
                         if (result != null && result != DBNull.Value)
                             patientId = result.ToString();
+                    }
+
+                    if (!string.IsNullOrEmpty(patientId))
+                    {
+                        using (MySqlCommand cmd = new MySqlCommand(
+                            "UPDATE care_worklist SET fetched_at = COALESCE(fetched_at, NOW()), last_fetched_at = NOW(), updated_time = updated_time WHERE accession_number = @accession_number",
+                            conConnection))
+                        {
+                            cmd.Parameters.AddWithValue("@accession_number", accessionNo);
+                            cmd.ExecuteNonQuery();
+                        }
                     }
                 }
                 closeDBConnection(ref errorString);

@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS `care_patient` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Local copy of the CARE worklist, one row per accession number, linked to its service request
--- and patient.
+-- and patient. fetched_at is when the enabler first read the row (e.g. to look up the patient for
+-- an upload) and last_fetched_at is when it last read it; both stay NULL until the row is read.
 CREATE TABLE IF NOT EXISTS `care_worklist` (
   `pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `accession_number` varchar(64) NOT NULL,
@@ -50,6 +51,8 @@ CREATE TABLE IF NOT EXISTS `care_worklist` (
   `patient_pk` bigint(20) DEFAULT NULL,
   `facility_id` varchar(64) DEFAULT NULL,
   `facility_name` varchar(255) DEFAULT NULL,
+  `fetched_at` datetime DEFAULT NULL,
+  `last_fetched_at` datetime DEFAULT NULL,
   `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`pk`),
