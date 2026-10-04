@@ -704,24 +704,22 @@ namespace Plexus.Common.Database
         /// <summary>
         /// Records the outcome of uploading one DICOM file to CARE in care_study_upload. A retry of
         /// the same file updates its existing row with the latest status and log and increments
-        /// retry_count. When countAsFailure is true failure_count is incremented as well, and
-        /// failureCount and retryCount return the row's failure_count and retry_count after the save.
+        /// retry_count, and retryCount returns the row's retry_count after the save.
         /// worklist_pk is set from the care_worklist row with the accession number, when there is one.
         /// </summary>
-        public bool SaveStudyUpload(string studyUid, string accessionNumber, string fileName, string status, string log, bool countAsFailure, ref int failureCount, ref int retryCount, ref string errorString)
+        public bool SaveStudyUpload(string studyUid, string accessionNumber, string fileName, string status, string log, ref int retryCount, ref string errorString)
         {
             bool saved = false;
-            failureCount = 0;
             retryCount = 0;
             try
             {
                 if (openDBConnection(ref errorString))
                 {
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "INSERT INTO care_study_upload (worklist_pk, study_uid, accession_number, file_name, status, log, failure_count) VALUES " +
-                        "((SELECT pk FROM care_worklist WHERE accession_number = @accession_number LIMIT 1), @study_uid, @accession_number, @file_name, @status, @log, @failure_increment) " +
+                        "INSERT INTO care_study_upload (worklist_pk, study_uid, accession_number, file_name, status, log) VALUES " +
+                        "((SELECT pk FROM care_worklist WHERE accession_number = @accession_number LIMIT 1), @study_uid, @accession_number, @file_name, @status, @log) " +
                         "ON DUPLICATE KEY UPDATE worklist_pk = COALESCE(VALUES(worklist_pk), worklist_pk), status = VALUES(status), log = VALUES(log), " +
-                        "retry_count = retry_count + 1, failure_count = failure_count + VALUES(failure_count)",
+                        "retry_count = retry_count + 1",
                         conConnection))
                     {
                         cmd.Parameters.AddWithValue("@study_uid", studyUid ?? string.Empty);
@@ -729,13 +727,12 @@ namespace Plexus.Common.Database
                         cmd.Parameters.AddWithValue("@file_name", fileName ?? string.Empty);
                         cmd.Parameters.AddWithValue("@status", status);
                         cmd.Parameters.AddWithValue("@log", DbValue(log));
-                        cmd.Parameters.AddWithValue("@failure_increment", countAsFailure ? 1 : 0);
                         cmd.ExecuteNonQuery();
                         saved = true;
                     }
 
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "SELECT failure_count, retry_count FROM care_study_upload WHERE study_uid = @study_uid AND file_name = @file_name",
+                        "SELECT retry_count FROM care_study_upload WHERE study_uid = @study_uid AND file_name = @file_name",
                         conConnection))
                     {
                         cmd.Parameters.AddWithValue("@study_uid", studyUid ?? string.Empty);
@@ -743,10 +740,7 @@ namespace Plexus.Common.Database
                         using (MySqlDataReader reader = cmd.ExecuteReader())
                         {
                             if (reader.Read())
-                            {
-                                failureCount = Convert.ToInt32(reader["failure_count"]);
                                 retryCount = Convert.ToInt32(reader["retry_count"]);
-                            }
                         }
                     }
                 }

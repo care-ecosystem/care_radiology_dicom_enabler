@@ -45,7 +45,7 @@ namespace Worklist_SCP.Model
                     return;
                 }
 
-                string baseUrl = WorklistServer.GetConfigSetting("care_base_url", "careBaseUrl");
+                string baseUrl = ConfigurationManager.AppSettings["careBaseUrl"];
                 string token = ConfigurationManager.AppSettings["careToken"]?.ToString();
 
                 if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token))

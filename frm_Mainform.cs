@@ -158,15 +158,15 @@ namespace Plexus_DICOM_Enabler
                     case 3:
                         GetServeListing();
                         break;
-                    case 4:
+                    case 4: // Configuration Tab Clicked
+                        GetConfiguration();
+                        break;
+                    case 5:
                         GetPatientDetails();
                         break;
-                    case 5: // View Logs Clicked
+                    case 6: // View Logs Clicked
                         GetAndPopulateLogs();
                         //MessageBox.Show(mtc_Modules.SelectedIndex.ToString());
-                        break;
-                    case 6: // Configuration Tab Clicked
-                        GetConfiguration();
                         break;
                 }
             }
@@ -236,7 +236,7 @@ namespace Plexus_DICOM_Enabler
 
         private void logRefreshTimer_Tick(object sender, EventArgs e)
         {
-            if (mtc_Modules.SelectedIndex != 5)
+            if (mtc_Modules.SelectedIndex != 6)
             {
                 logRefreshTimer.Stop();
                 return;
@@ -379,8 +379,8 @@ namespace Plexus_DICOM_Enabler
                 }
                 else
                 {
-                    if (dsResult.Tables[0].Rows.Count > 0 )
-                        dgv_ServerList.DataSource = dsResult.Tables[0];
+                    // Bind even when empty, so deleting the last server clears it from the grid
+                    dgv_ServerList.DataSource = dsResult.Tables[0];
                 }
             }
             catch (Exception ex)
@@ -544,6 +544,15 @@ namespace Plexus_DICOM_Enabler
                 HideControlsForServer(Global.deployType);
             }
             uctrl_ServerManager1.EnableDisableButtons();
+
+            // On small or scaled screens the window can be taller than the screen, which hides the
+            // bottom of every tab. Fit it to the screen so tabs that scroll show their scroll bar.
+            Rectangle workArea = Screen.FromControl(this).WorkingArea;
+            if (Width > workArea.Width || Height > workArea.Height)
+            {
+                Size = new Size(Math.Min(Width, workArea.Width), Math.Min(Height, workArea.Height));
+                Location = new Point(workArea.Left + (workArea.Width - Width) / 2, workArea.Top + (workArea.Height - Height) / 2);
+            }
         }
 
 
@@ -662,13 +671,19 @@ namespace Plexus_DICOM_Enabler
                     return;
                 }
 
-                // Show what each service uses while a value is left blank
-                DataTable configTable = dsResult.Tables[0];
-                configTable.Columns.Add("default_value", typeof(string));
-                foreach (DataRow row in configTable.Rows)
-                    row["default_value"] = GetConfigDefault(row["config_key"].ToString());
+                // The hint shows what each service uses while a value is left blank
+                var fields = GetConfigFields();
+                foreach (var field in fields)
+                {
+                    field.Value.Text = string.Empty;
+                    field.Value.Hint = field.Key == "facility_id" ? "Required" : "Default: " + GetConfigDefault(field.Key);
+                }
 
-                dgv_Config.DataSource = configTable;
+                foreach (DataRow row in dsResult.Tables[0].Rows)
+                {
+                    if (fields.TryGetValue(row["config_key"].ToString(), out MaterialTextBox textBox))
+                        textBox.Text = row["config_value"].ToString();
+                }
             }
             catch (Exception ex)
             {
@@ -686,30 +701,15 @@ namespace Plexus_DICOM_Enabler
         {
             try
             {
-                dgv_Config.EndEdit();
-                var values = new System.Collections.Generic.Dictionary<string, string>();
-                foreach (DataGridViewRow row in dgv_Config.Rows)
+                if (string.IsNullOrWhiteSpace(mtxtb_FacilityId.Text))
                 {
-                    string key = row.Cells["configKey"].Value?.ToString();
-                    if (!string.IsNullOrEmpty(key))
-                        values[key] = row.Cells["configValue"].Value?.ToString() ?? string.Empty;
-                }
-
-                if (values.Count == 0)
-                {
-                    MessageBox.Show(this, "No configuration loaded to save.",
-                                     "Error Saving Configuration", MessageBoxButtons.OK,
-                                     MessageBoxIcon.Error);
-                    return;
-                }
-
-                if (!values.TryGetValue("facility_id", out string facilityId) || string.IsNullOrWhiteSpace(facilityId))
-                {
-                    MessageBox.Show(this, "Please enter the facility_id. The CARE worklist is not fetched without it.",
+                    MessageBox.Show(this, "Please enter the Facility Id. The CARE worklist is not fetched without it.",
                                      "Check Mandatory", MessageBoxButtons.OK,
                                      MessageBoxIcon.Error);
                     return;
                 }
+
+                var values = GetConfigFields().ToDictionary(field => field.Key, field => field.Value.Text);
 
                 string errorString = string.Empty;
                 if (objDAL.SaveConfig(values, ref errorString))
@@ -734,9 +734,23 @@ namespace Plexus_DICOM_Enabler
             }
         }
 
-        private void mbtn_ReloadConfig_Click(object sender, EventArgs e)
+        /// <summary>
+        /// The Configuration tab text box for each care_config key
+        /// </summary>
+        private System.Collections.Generic.Dictionary<string, MaterialTextBox> GetConfigFields()
         {
-            GetConfiguration();
+            return new System.Collections.Generic.Dictionary<string, MaterialTextBox>
+            {
+                { "facility_id", mtxtb_FacilityId },
+                { "care_modality", mtxtb_CareModality },
+                { "care_from_date", mtxtb_CareFromDate },
+                { "scu_poll_interval_seconds", mtxtb_ScuPollInterval },
+                { "worklist_refresh_start_seconds", mtxtb_WorklistRefreshStart },
+                { "worklist_refresh_interval_seconds", mtxtb_WorklistRefreshInterval },
+                { "max_upload_retries", mtxtb_MaxUploadRetries },
+                { "scp_folder", mtxtb_ScpFolder },
+                { "failed_scp_folder", mtxtb_FailedScpFolder },
+            };
         }
 
         /// <summary>
@@ -748,10 +762,6 @@ namespace Plexus_DICOM_Enabler
         {
             switch (configKey)
             {
-                case "facility_id":
-                    return "(required - no default)";
-                case "care_base_url":
-                    return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careBaseUrl"), ReadServiceSetting("CARE_SCU_Service", "careBackendURL"));
                 case "care_modality":
                     return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careModality"), ReadServiceSetting("CARE_SCU_Service", "careModality"));
                 case "care_from_date":
@@ -766,8 +776,6 @@ namespace Plexus_DICOM_Enabler
                     return Path.Combine(Global._applicationPath, "SCP");
                 case "failed_scp_folder":
                     return Path.Combine(Global._applicationPath, "FailedSCP");
-                case "max_upload_failures":
-                    return WholeNumberOrDefault(ReadServiceSetting("CARE_SCU_Service", "maxUploadFailures"), 3, 1);
                 case "max_upload_retries":
                     return WholeNumberOrDefault(ReadServiceSetting("CARE_SCU_Service", "maxUploadRetries"), 10, 1);
                 default:

@@ -63,10 +63,8 @@ CREATE TABLE IF NOT EXISTS `care_worklist` (
 
 -- Outcome of each DICOM file upload to CARE, one row per file. A failed file stays in the SCP
 -- folder and is retried, so a retry updates the same row with the latest status and log and
--- increments retry_count (0 on the first attempt). failure_count does not count HTTP 429 (rate
--- limiting), HTTP 401, 403, any 5xx or network errors. After maxUploadFailures counted failures the
--- file is moved to FailedSCP\<dd-MM-yyyy>; after maxUploadRetries retries of any kind it is moved to
--- FailedSCP\OtherFailure\<dd-MM-yyyy> (both limits are set in care_config or CARE_SCU_Service App.config).
+-- increments retry_count (0 on the first attempt). After maxUploadRetries retries the file is moved
+-- to FailedSCP\<dd-MM-yyyy> (the limit is set in care_config or CARE_SCU_Service App.config).
 -- worklist_pk links the file to the care_worklist row with its accession number; it stays NULL
 -- when the file has no accession number or it is not in care_worklist.
 CREATE TABLE IF NOT EXISTS `care_study_upload` (
@@ -78,7 +76,6 @@ CREATE TABLE IF NOT EXISTS `care_study_upload` (
   `status` varchar(20) NOT NULL,
   `log` text DEFAULT NULL,
   `retry_count` int(11) NOT NULL DEFAULT 0,
-  `failure_count` int(11) NOT NULL DEFAULT 0,
   `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`pk`),
@@ -104,13 +101,11 @@ CREATE TABLE IF NOT EXISTS `care_config` (
 -- INSERT IGNORE adds keys missing from older installs without overwriting values already set.
 INSERT IGNORE INTO `care_config` (`config_key`, `config_value`, `description`) VALUES
   ('facility_id', NULL, 'CARE Facility ID used to fetch the worklist and in MPPS updates. Required.'),
-  ('care_base_url', NULL, 'CARE server base URL, e.g. https://care.example.org. Blank = App.config careBaseUrl / careBackendURL.'),
   ('care_modality', NULL, 'Modality filter for the CARE worklist. Blank = App.config careModality.'),
   ('care_from_date', NULL, 'Earliest worklist date fetched from CARE (yyyy-MM-dd HH:mm:ss). Blank = App.config careFromDate.'),
+  ('scu_poll_interval_seconds', NULL, 'Seconds between scans of the SCP folder for files to upload. Blank = 5. Restart the SCU service to apply.'),
   ('worklist_refresh_start_seconds', NULL, 'Seconds after the MWL service starts before the first worklist refresh. Blank = App.config. Restart the MWL service to apply.'),
   ('worklist_refresh_interval_seconds', NULL, 'Seconds between worklist refreshes. Blank = App.config. Restart the MWL service to apply.'),
-  ('scu_poll_interval_seconds', NULL, 'Seconds between scans of the SCP folder for files to upload. Blank = 5. Restart the SCU service to apply.'),
+  ('max_upload_retries', NULL, 'Upload retries before a file is moved to the failed folder. Blank = App.config maxUploadRetries.'),
   ('scp_folder', NULL, 'Folder where received DICOM files are saved and picked up for upload. Blank = SCP under the install folder. Restart the services to apply.'),
-  ('failed_scp_folder', NULL, 'Folder files are moved to after the upload limits are hit. Blank = FailedSCP under the install folder.'),
-  ('max_upload_failures', NULL, 'Failed uploads before a file is moved to the failed folder. Blank = App.config maxUploadFailures.'),
-  ('max_upload_retries', NULL, 'Upload retries of any kind before a file is moved to the failed folder. Blank = App.config maxUploadRetries.');
+  ('failed_scp_folder', NULL, 'Folder files are moved to after the upload retry limit is hit. Blank = FailedSCP under the install folder.');

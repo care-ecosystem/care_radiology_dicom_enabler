@@ -197,7 +197,7 @@ namespace Worklist_SCP.Model
                 string errorString = string.Empty;
 
                 CareWorklistResponse careResponse = ucls_CareWorklist.FetchWorklist(
-                    WorklistServer.GetConfigSetting("care_base_url", "careBaseUrl"),
+                    ConfigurationManager.AppSettings["careBaseUrl"] ?? string.Empty,
                     ConfigurationManager.AppSettings["careToken"].ToString(),
                     WorklistServer.GetConfigSetting("care_modality", "careModality"),
                     WorklistServer.GetConfigSetting("care_from_date", "careFromDate"),
