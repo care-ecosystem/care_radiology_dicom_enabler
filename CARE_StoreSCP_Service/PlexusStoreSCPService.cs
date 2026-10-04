@@ -66,6 +66,9 @@ namespace Plexus_StoreSCP_Service
                 {
                     WriteToLog("Store SCP Started Successfully !!!",true);
                 }
+                // The Configuration tab restarts the service with the changed settings as start parameters
+                foreach (string change in args)
+                    WriteToLog($"Restarted after a Configuration tab change: {change}", true);
                 }
             catch (Exception ex)
             {

@@ -9,6 +9,8 @@ using System.Data;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.ServiceProcess;
+using System.Text;
 using System.Windows.Forms;
 
 namespace Plexus_DICOM_Enabler
@@ -455,6 +457,10 @@ namespace Plexus_DICOM_Enabler
         {
             txt_ServerName.Text = txt_AETitle.Text = txt_HostAddress.Text = txt_PortNo.Text = rtb_Description.Text = string.Empty;
             primarykey = string.Empty;
+
+            // Without a selected server the next save must add, not update (an update with no pk is invalid SQL)
+            bUpdateServer = false;
+            mtbtn_AddUpdateServer.Text = "Add Server";
         }
 
         private void frm_Mainform_FormClosed(object sender, FormClosedEventArgs e)
@@ -671,18 +677,23 @@ namespace Plexus_DICOM_Enabler
                     return;
                 }
 
-                // The hint shows what each service uses while a value is left blank
+                // The label under each box shows what each service uses while a value is left blank
                 var fields = GetConfigFields();
                 foreach (var field in fields)
                 {
                     field.Value.Text = string.Empty;
-                    field.Value.Hint = field.Key == "facility_id" ? "Required" : "Default: " + GetConfigDefault(field.Key);
+                    GetDefaultLabel(field.Value).Text = field.Key == "facility_id" ? "Required" : "Default: " + GetConfigDefault(field.Key);
                 }
 
+                loadedConfigValues.Clear();
                 foreach (DataRow row in dsResult.Tables[0].Rows)
                 {
-                    if (fields.TryGetValue(row["config_key"].ToString(), out MaterialTextBox textBox))
+                    string key = row["config_key"].ToString();
+                    if (fields.TryGetValue(key, out MaterialTextBox textBox))
+                    {
                         textBox.Text = row["config_value"].ToString();
+                        loadedConfigValues[key] = textBox.Text.Trim();
+                    }
                 }
             }
             catch (Exception ex)
@@ -709,12 +720,71 @@ namespace Plexus_DICOM_Enabler
                     return;
                 }
 
+                string fromDate = mtxtb_CareFromDate.Text.Trim();
+                if (fromDate != string.Empty && !DateTime.TryParseExact(fromDate, ConfigDateFormat,
+                        System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _))
+                {
+                    MessageBox.Show(this, "From Date must be in the format " + ConfigDateFormat + ", or left blank to use the default. Use the Calendar button to select it.",
+                                     "Check From Date", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Error);
+                    return;
+                }
+
+                // Blank uses the default; otherwise a whole number of at least minValue, as the services require
+                var wholeNumberFields = new[]
+                {
+                    new { TextBox = mtxtb_ScuPollInterval, Name = "Poll Interval (sec)", MinValue = 1 },
+                    new { TextBox = mtxtb_WorklistRefreshStart, Name = "Refresh Start (sec)", MinValue = 0 },
+                    new { TextBox = mtxtb_WorklistRefreshInterval, Name = "Refresh Interval (sec)", MinValue = 1 },
+                    new { TextBox = mtxtb_MaxUploadRetries, Name = "Max Upload Retries", MinValue = 1 },
+                };
+                foreach (var field in wholeNumberFields)
+                {
+                    string value = field.TextBox.Text.Trim();
+                    if (value != string.Empty && (!int.TryParse(value, out int number) || number < field.MinValue))
+                    {
+                        MessageBox.Show(this, field.Name + " must be a whole number of " + field.MinValue + " or more, or left blank to use the default.",
+                                         "Check " + field.Name, MessageBoxButtons.OK,
+                                         MessageBoxIcon.Error);
+                        return;
+                    }
+                }
+
                 var values = GetConfigFields().ToDictionary(field => field.Key, field => field.Value.Text);
+
+                // One entry per changed setting, e.g. "scu_poll_interval_seconds: 5 -> 10"
+                var changes = new System.Collections.Generic.Dictionary<string, string>();
+                foreach (var value in values)
+                {
+                    loadedConfigValues.TryGetValue(value.Key, out string oldValue);
+                    string newValue = value.Value.Trim();
+                    if ((oldValue ?? string.Empty) != newValue)
+                        changes[value.Key] = $"{value.Key}: {DisplayConfigValue(oldValue)} -> {DisplayConfigValue(newValue)}";
+                }
+
+                if (changes.Count == 0)
+                {
+                    MessageBox.Show(this, "No configuration changes to save.",
+                                     "Saving Configuration", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Information);
+                    return;
+                }
 
                 string errorString = string.Empty;
                 if (objDAL.SaveConfig(values, ref errorString))
                 {
-                    MessageBox.Show(this, "Configuration saved Successfully!! Polling intervals and folder changes take effect after the services are restarted from Server Manager",
+                    this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
+                    string restartSummary;
+                    try
+                    {
+                        restartSummary = RestartServicesForChanges(changes);
+                    }
+                    finally
+                    {
+                        this.Cursor = System.Windows.Forms.Cursors.Default;
+                    }
+
+                    MessageBox.Show(this, "Configuration saved Successfully!!" + Environment.NewLine + Environment.NewLine + restartSummary,
                                      "Saving Configuration Successfull", MessageBoxButtons.OK,
                                      MessageBoxIcon.Information);
                     GetConfiguration();
@@ -731,6 +801,231 @@ namespace Plexus_DICOM_Enabler
                 MessageBox.Show(this, "Error Saving Configuration with expection : " + ex.Message,
                                      "Error Saving Configuration", MessageBoxButtons.OK,
                                      MessageBoxIcon.Error);
+            }
+        }
+
+        // care_from_date is sent to the CARE worklist API as entered, in this format
+        private const string ConfigDateFormat = "yyyy-MM-dd HH:mm:ss";
+
+        private const string MwlServiceName = "Care MWL SCP Service";
+        private const string StoreScpServiceName = "Care Store SCP Service";
+        private const string StoreScuServiceName = "Care Store SCU Service";
+
+        // The "Default: ..." label under each Configuration text box
+        private readonly System.Collections.Generic.Dictionary<MaterialTextBox, Label> defaultLabels = new System.Collections.Generic.Dictionary<MaterialTextBox, Label>();
+
+        /// <summary>
+        /// The label under a Configuration text box that shows its default, created the first time it is needed.
+        /// A label is used instead of the text box hint, which overlaps the cursor when the box has focus.
+        /// </summary>
+        private Label GetDefaultLabel(MaterialTextBox textBox)
+        {
+            if (!defaultLabels.TryGetValue(textBox, out Label label))
+            {
+                Font labelFont = new Font("Microsoft Sans Serif", 7.8F);
+                label = new Label
+                {
+                    AutoSize = false,
+                    AutoEllipsis = true,   // long folder paths end in "..." and show in full as a tooltip
+                    ForeColor = Color.Gray,
+                    Font = labelFont,
+                    Location = new Point(textBox.Left, textBox.Bottom + 2),
+                    Size = new Size(textBox.Width, labelFont.Height + 2)
+                };
+                textBox.Parent.Controls.Add(label);
+                defaultLabels[textBox] = label;
+            }
+            return label;
+        }
+
+        // The care_config values shown when the Configuration tab was last loaded, to find what Save changes
+        private readonly System.Collections.Generic.Dictionary<string, string> loadedConfigValues = new System.Collections.Generic.Dictionary<string, string>();
+
+        /// <summary>
+        /// The services that read each care_config setting
+        /// </summary>
+        private static string[] GetServicesUsingSetting(string configKey)
+        {
+            switch (configKey)
+            {
+                case "facility_id":
+                case "care_modality":
+                case "care_from_date":
+                    return new[] { MwlServiceName, StoreScuServiceName };
+                case "worklist_refresh_start_seconds":
+                case "worklist_refresh_interval_seconds":
+                    return new[] { MwlServiceName };
+                case "scu_poll_interval_seconds":
+                case "max_upload_retries":
+                case "failed_scp_folder":
+                    return new[] { StoreScuServiceName };
+                case "scp_folder":
+                    return new[] { MwlServiceName, StoreScpServiceName, StoreScuServiceName };
+                default:
+                    return new string[0];
+            }
+        }
+
+        private static string DisplayConfigValue(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? "(blank - default)" : value.Trim();
+        }
+
+        /// <summary>
+        /// Restarts each running service that reads a changed setting so it loads the new configuration.
+        /// The changes are passed as start parameters, and the service writes them to its own log.
+        /// Returns a summary of what happened to each service.
+        /// </summary>
+        private string RestartServicesForChanges(System.Collections.Generic.Dictionary<string, string> changes)
+        {
+            var summary = new StringBuilder();
+            foreach (string serviceName in new[] { MwlServiceName, StoreScpServiceName, StoreScuServiceName })
+            {
+                string[] serviceChanges = changes.Where(change => GetServicesUsingSetting(change.Key).Contains(serviceName))
+                                                 .Select(change => change.Value).ToArray();
+                if (serviceChanges.Length == 0)
+                    continue;
+
+                try
+                {
+                    if (!ServiceController.GetServices().Any(s => s.ServiceName == serviceName))
+                    {
+                        summary.AppendLine(serviceName + ": not installed");
+                        continue;
+                    }
+
+                    using (ServiceController service = new ServiceController(serviceName))
+                    {
+                        if (service.Status != ServiceControllerStatus.Running)
+                        {
+                            summary.AppendLine(serviceName + ": not running - it will use the new configuration when started");
+                            continue;
+                        }
+
+                        service.Stop();
+                        service.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
+                        service.Start(serviceChanges);
+                        service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+                        summary.AppendLine(serviceName + ": restarted");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    summary.AppendLine(serviceName + ": restart failed (" + ex.Message + ") - restart it from Server Manager");
+                }
+            }
+            return summary.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// Lets only digits be typed into the seconds and retry count fields
+        /// </summary>
+        private void mtxtb_WholeNumber_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            if (!char.IsControl(e.KeyChar) && !char.IsDigit(e.KeyChar))
+                e.Handled = true;
+        }
+
+        /// <summary>
+        /// Opens a calendar with a time picker and puts the selected date and time into From Date
+        /// </summary>
+        private void mbtn_PickFromDate_Click(object sender, EventArgs e)
+        {
+            // Start from the entered value, else the default shown in the hint, else today
+            DateTime initial = DateTime.Today;
+            string current = mtxtb_CareFromDate.Text.Trim();
+            if (current == string.Empty)
+                current = GetConfigDefault("care_from_date");
+            if (DateTime.TryParseExact(current, new[] { ConfigDateFormat, "yyyy-MM-dd" },
+                    System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime parsed))
+                initial = parsed;
+
+            using (Form dialog = new Form())
+            {
+                dialog.Text = "Select From Date";
+                dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dialog.StartPosition = FormStartPosition.CenterParent;
+                dialog.MinimizeBox = false;
+                dialog.MaximizeBox = false;
+                dialog.ShowInTaskbar = false;
+                dialog.AutoSize = true;
+                dialog.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+                dialog.Padding = new Padding(12);
+
+                MonthCalendar calendar = new MonthCalendar
+                {
+                    Location = new Point(12, 12),
+                    MaxSelectionCount = 1,
+                    SelectionStart = initial.Date
+                };
+                Label timeLabel = new Label
+                {
+                    Text = "Time",
+                    AutoSize = true,
+                    Location = new Point(12, calendar.Bottom + 16)
+                };
+                DateTimePicker timePicker = new DateTimePicker
+                {
+                    Format = DateTimePickerFormat.Custom,
+                    CustomFormat = "HH:mm:ss",
+                    ShowUpDown = true,
+                    Value = DateTime.Today + initial.TimeOfDay,
+                    Location = new Point(70, calendar.Bottom + 12),
+                    Width = 100
+                };
+                Button okButton = new Button
+                {
+                    Text = "OK",
+                    DialogResult = DialogResult.OK,
+                    Location = new Point(12, timePicker.Bottom + 16)
+                };
+                Button cancelButton = new Button
+                {
+                    Text = "Cancel",
+                    DialogResult = DialogResult.Cancel,
+                    Location = new Point(okButton.Right + 8, timePicker.Bottom + 16)
+                };
+
+                dialog.Controls.AddRange(new Control[] { calendar, timeLabel, timePicker, okButton, cancelButton });
+                dialog.AcceptButton = okButton;
+                dialog.CancelButton = cancelButton;
+
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                {
+                    DateTime selected = calendar.SelectionStart.Date + timePicker.Value.TimeOfDay;
+                    mtxtb_CareFromDate.Text = selected.ToString(ConfigDateFormat, System.Globalization.CultureInfo.InvariantCulture);
+                }
+            }
+        }
+
+        private void mbtn_BrowseScpFolder_Click(object sender, EventArgs e)
+        {
+            BrowseForFolder(mtxtb_ScpFolder, "scp_folder", "Select the folder where received DICOM files are saved and picked up for upload");
+        }
+
+        private void mbtn_BrowseFailedScpFolder_Click(object sender, EventArgs e)
+        {
+            BrowseForFolder(mtxtb_FailedScpFolder, "failed_scp_folder", "Select the folder files are moved to after the upload retry limit is hit");
+        }
+
+        /// <summary>
+        /// Lets the user pick a folder, starting from the one entered or the default, and puts it in the text box
+        /// </summary>
+        private void BrowseForFolder(MaterialTextBox textBox, string configKey, string description)
+        {
+            using (FolderBrowserDialog dialog = new FolderBrowserDialog())
+            {
+                dialog.Description = description;
+                dialog.ShowNewFolderButton = true;
+
+                string current = textBox.Text.Trim();
+                if (current == string.Empty)
+                    current = GetConfigDefault(configKey);
+                if (Directory.Exists(current))
+                    dialog.SelectedPath = current;
+
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                    textBox.Text = dialog.SelectedPath;
             }
         }
 

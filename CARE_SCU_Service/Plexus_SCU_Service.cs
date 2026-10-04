@@ -50,6 +50,9 @@ namespace Plexus_SCU_Service
                     objDAL = new ucls_DAL(applicationPath);
                 }
                 WriteToLog("Store SCU Service Started Successfully !!!", true);
+                // The Configuration tab restarts the service with the changed settings as start parameters
+                foreach (string change in args)
+                    WriteToLog($"Restarted after a Configuration tab change: {change}", true);
                 timer.Elapsed += new ElapsedEventHandler(OnElapsedTime);
                 int pollIntervalSeconds = GetIntSetting("scu_poll_interval_seconds", null, DefaultPollIntervalSeconds);
                 WriteToLog($"Scanning the SCP folder every {pollIntervalSeconds}s", true);

@@ -31,6 +31,9 @@ namespace Plexus_MWL_Service
             {
                 string applicationPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
                 _fileLogger.Information("MWL Service OnStart. ApplicationPath: " + applicationPath);
+                // The Configuration tab restarts the service with the changed settings as start parameters
+                foreach (string change in args)
+                    _fileLogger.Information($"Restarted after a Configuration tab change: {change}");
                 int backend = Convert.ToInt32(ConfigurationManager.AppSettings["backend"].ToString());
                 string mwlPort = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/mwlport");
                 string mwlAet = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/mwlaetitle");
