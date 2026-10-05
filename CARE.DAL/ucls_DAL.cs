@@ -549,10 +549,13 @@ namespace Plexus.Common.Database
         /// with the latest values if already there. Accession numbers not yet in care_worklist are
         /// inserted, linked to that patient and service request; worklist rows already there are left
         /// untouched. Rows still SCHEDULED whose accession number is not in this response are marked
+        /// COMPLETED, but only rows for the facilityId and modality the response was fetched with
+        /// (a blank modality covers every modality), so changing either in the Configuration tab leaves
+        /// the other facility's or modality's rows as they are. With a blank facilityId no row is marked
         /// COMPLETED. Call only with a response the CARE API reported as successful - an empty list
-        /// marks every scheduled row completed.
+        /// marks every scheduled row for that facility and modality completed.
         /// </summary>
-        public bool SyncCareWorklist(List<CareWorklistRecord> records, ref int insertedCount, ref int completedCount, ref string errorString)
+        public bool SyncCareWorklist(List<CareWorklistRecord> records, string facilityId, string modality, ref int insertedCount, ref int completedCount, ref string errorString)
         {
             insertedCount = 0;
             completedCount = 0;
@@ -636,21 +639,29 @@ namespace Plexus.Common.Database
                     }
                 }
 
-                string completeQuery = "UPDATE care_worklist SET status = 'COMPLETED' WHERE status <> 'COMPLETED'";
-                using (MySqlCommand cmd = new MySqlCommand(string.Empty, conConnection, transaction))
+                if (!string.IsNullOrWhiteSpace(facilityId))
                 {
-                    if (accessionNumbers.Count > 0)
+                    string completeQuery =
+                        "UPDATE care_worklist w LEFT JOIN care_service_request sr ON sr.pk = w.service_request_pk " +
+                        "SET w.status = 'COMPLETED' WHERE w.status <> 'COMPLETED' AND w.facility_id = @facility_id " +
+                        "AND (@modality = '' OR sr.modality = @modality)";
+                    using (MySqlCommand cmd = new MySqlCommand(string.Empty, conConnection, transaction))
                     {
-                        var placeholders = new List<string>();
-                        for (int i = 0; i < accessionNumbers.Count; i++)
+                        cmd.Parameters.AddWithValue("@facility_id", facilityId.Trim());
+                        cmd.Parameters.AddWithValue("@modality", (modality ?? string.Empty).Trim());
+                        if (accessionNumbers.Count > 0)
                         {
-                            placeholders.Add("@acc" + i);
-                            cmd.Parameters.AddWithValue("@acc" + i, accessionNumbers[i]);
+                            var placeholders = new List<string>();
+                            for (int i = 0; i < accessionNumbers.Count; i++)
+                            {
+                                placeholders.Add("@acc" + i);
+                                cmd.Parameters.AddWithValue("@acc" + i, accessionNumbers[i]);
+                            }
+                            completeQuery += " AND w.accession_number NOT IN (" + string.Join(",", placeholders) + ")";
                         }
-                        completeQuery += " AND accession_number NOT IN (" + string.Join(",", placeholders) + ")";
+                        cmd.CommandText = completeQuery;
+                        completedCount = cmd.ExecuteNonQuery();
                     }
-                    cmd.CommandText = completeQuery;
-                    completedCount = cmd.ExecuteNonQuery();
                 }
 
                 transaction.Commit();
@@ -666,6 +677,79 @@ namespace Plexus.Common.Database
                 completedCount = 0;
                 return false;
             }
+        }
+
+
+        /// <summary>
+        /// Returns the SCHEDULED care_worklist rows for a facility with their care_patient and
+        /// care_service_request details, the worklist the MWL service shares with modalities. Only
+        /// rows for that facility are returned, and when modality is set, only service requests with
+        /// that modality; a blank modality returns every modality. A blank facilityId returns nothing.
+        /// </summary>
+        public List<CareWorklistRecord> GetScheduledCareWorklist(string facilityId, string modality, ref string errorString)
+        {
+            var records = new List<CareWorklistRecord>();
+            if (string.IsNullOrWhiteSpace(facilityId))
+                return records;
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "SELECT w.accession_number, w.facility_id, w.facility_name, " +
+                        "sr.service_request_id, sr.name AS sr_name, sr.date AS sr_date, sr.body_site, sr.description, sr.modality, sr.procedure_id, sr.priority, " +
+                        "sr.technician_instruction, sr.patient_instruction, sr.created_by_prefix, sr.created_by_first_name, sr.created_by_last_name, " +
+                        "p.patient_id, p.name AS patient_name, p.gender, p.age, p.patient_uhid " +
+                        "FROM care_worklist w " +
+                        "LEFT JOIN care_service_request sr ON sr.pk = w.service_request_pk " +
+                        "LEFT JOIN care_patient p ON p.pk = w.patient_pk " +
+                        "WHERE w.status = 'SCHEDULED' AND w.facility_id = @facility_id " +
+                        "AND (@modality = '' OR sr.modality = @modality) " +
+                        "ORDER BY w.pk",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@facility_id", facilityId.Trim());
+                        cmd.Parameters.AddWithValue("@modality", (modality ?? string.Empty).Trim());
+                        using (MySqlDataReader reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                records.Add(new CareWorklistRecord
+                                {
+                                    AccessionNumber = DbString(reader, "accession_number"),
+                                    FacilityId = DbString(reader, "facility_id"),
+                                    FacilityName = DbString(reader, "facility_name"),
+                                    ServiceRequestId = DbString(reader, "service_request_id"),
+                                    ServiceRequestName = DbString(reader, "sr_name"),
+                                    ServiceRequestDate = reader["sr_date"] == DBNull.Value ? (DateTime?)null : Convert.ToDateTime(reader["sr_date"]),
+                                    ServiceRequestBodySite = DbString(reader, "body_site"),
+                                    ServiceRequestDescription = DbString(reader, "description"),
+                                    ServiceRequestModality = DbString(reader, "modality"),
+                                    ServiceRequestProcedureId = DbString(reader, "procedure_id"),
+                                    ServiceRequestPriority = DbString(reader, "priority"),
+                                    ServiceRequestTechnicianInstruction = DbString(reader, "technician_instruction"),
+                                    ServiceRequestPatientInstruction = DbString(reader, "patient_instruction"),
+                                    CreatedByPrefix = DbString(reader, "created_by_prefix"),
+                                    CreatedByFirstName = DbString(reader, "created_by_first_name"),
+                                    CreatedByLastName = DbString(reader, "created_by_last_name"),
+                                    PatientId = DbString(reader, "patient_id"),
+                                    PatientName = DbString(reader, "patient_name"),
+                                    PatientGender = DbString(reader, "gender"),
+                                    PatientAge = reader["age"] == DBNull.Value ? (int?)null : Convert.ToInt32(reader["age"]),
+                                    PatientUhid = DbString(reader, "patient_uhid")
+                                });
+                            }
+                        }
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                errorString = "Reading the worklist from care_worklist failed with exception " + ex.Message;
+                records.Clear();
+            }
+            return records;
         }
 
 
@@ -715,10 +799,12 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// Records the outcome of uploading one DICOM file to CARE in care_study_upload. A retry of
+        /// Records the outcome of uploading one DICOM file to CARE in care_sync_upload. A retry of
         /// the same file updates its existing row with the latest status and log and increments
-        /// retry_count, and retryCount returns the row's retry_count after the save.
-        /// worklist_pk is set from the care_worklist row with the accession number, when there is one.
+        /// retry_count. last_retry_time is set to the attempt time on the first upload and on every
+        /// retry, and retryCount returns the row's retry_count after the save.
+        /// worklist_pk is set from the care_worklist row with the accession number, when there is one,
+        /// and studyUid is added to that row's study_uid (comma-separated) if it is not already there.
         /// </summary>
         public bool SaveStudyUpload(string studyUid, string accessionNumber, string fileName, string status, string log, ref int retryCount, ref string errorString)
         {
@@ -729,10 +815,10 @@ namespace Plexus.Common.Database
                 if (openDBConnection(ref errorString))
                 {
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "INSERT INTO care_study_upload (worklist_pk, study_uid, accession_number, file_name, status, log) VALUES " +
-                        "((SELECT pk FROM care_worklist WHERE accession_number = @accession_number LIMIT 1), @study_uid, @accession_number, @file_name, @status, @log) " +
+                        "INSERT INTO care_sync_upload (worklist_pk, study_uid, accession_number, file_name, status, log, last_retry_time) VALUES " +
+                        "((SELECT pk FROM care_worklist WHERE accession_number = @accession_number LIMIT 1), @study_uid, @accession_number, @file_name, @status, @log, NOW()) " +
                         "ON DUPLICATE KEY UPDATE worklist_pk = COALESCE(VALUES(worklist_pk), worklist_pk), status = VALUES(status), log = VALUES(log), " +
-                        "retry_count = retry_count + 1",
+                        "retry_count = retry_count + 1, last_retry_time = VALUES(last_retry_time)",
                         conConnection))
                     {
                         cmd.Parameters.AddWithValue("@study_uid", studyUid ?? string.Empty);
@@ -745,7 +831,7 @@ namespace Plexus.Common.Database
                     }
 
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "SELECT retry_count FROM care_study_upload WHERE study_uid = @study_uid AND file_name = @file_name",
+                        "SELECT retry_count FROM care_sync_upload WHERE study_uid = @study_uid AND file_name = @file_name",
                         conConnection))
                     {
                         cmd.Parameters.AddWithValue("@study_uid", studyUid ?? string.Empty);
@@ -754,6 +840,20 @@ namespace Plexus.Common.Database
                         {
                             if (reader.Read())
                                 retryCount = Convert.ToInt32(reader["retry_count"]);
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(studyUid) && !string.IsNullOrWhiteSpace(accessionNumber))
+                    {
+                        using (MySqlCommand cmd = new MySqlCommand(
+                            "UPDATE care_worklist SET study_uid = IF(study_uid IS NULL OR study_uid = '', @study_uid, CONCAT(study_uid, ',', @study_uid)), " +
+                            "updated_time = updated_time " +
+                            "WHERE accession_number = @accession_number AND (study_uid IS NULL OR FIND_IN_SET(@study_uid, study_uid) = 0)",
+                            conConnection))
+                        {
+                            cmd.Parameters.AddWithValue("@study_uid", studyUid);
+                            cmd.Parameters.AddWithValue("@accession_number", accessionNumber);
+                            cmd.ExecuteNonQuery();
                         }
                     }
                 }
@@ -770,6 +870,11 @@ namespace Plexus.Common.Database
         private static object DbValue(string value)
         {
             return string.IsNullOrEmpty(value) ? (object)DBNull.Value : value;
+        }
+
+        private static string DbString(MySqlDataReader reader, string column)
+        {
+            return reader[column] == DBNull.Value ? null : reader[column].ToString();
         }
 
 

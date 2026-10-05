@@ -216,7 +216,7 @@ namespace Plexus_SCU_Service
             }
         }
 
-        // Saves the failed attempt to care_study_upload, then moves the file out of SCP once it
+        // Saves the failed attempt to care_sync_upload, then moves the file out of SCP once it
         // reaches maxUploadRetries retries.
         private void RecordUploadFailure(string dcmfile, string studyInstanceId, string accessionNumber, string failureLog)
         {
@@ -267,11 +267,11 @@ namespace Plexus_SCU_Service
             {
                 objDAL.SaveStudyUpload(studyInstanceId, accessionNumber, Path.GetFileName(dcmfile), status, log, ref retryCount, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
-                    WriteToLog($"care_study_upload update failed for {dcmfile}: {errorString}", false);
+                    WriteToLog($"care_sync_upload update failed for {dcmfile}: {errorString}", false);
             }
             catch (Exception ex)
             {
-                WriteToLog($"care_study_upload update exception for {dcmfile}: {ex.Message}", false);
+                WriteToLog($"care_sync_upload update exception for {dcmfile}: {ex.Message}", false);
             }
         }
 

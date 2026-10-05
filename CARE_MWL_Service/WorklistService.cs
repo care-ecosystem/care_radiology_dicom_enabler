@@ -84,6 +84,7 @@ namespace Worklist_SCP
                 yield return new DicomCFindResponse(request, DicomStatus.QueryRetrieveUnableToProcess);
             }
             List<string> accessionNos = new List<string>();
+            List<DicomDataset> results = null;
 
             switch (Convert.ToInt32(ConfigurationManager.AppSettings["backend"] ?? "2"))
             {
@@ -109,17 +110,33 @@ namespace Worklist_SCP
                         WorklistServer.CurrentWorklistItems = new List<WorklistItem>();
                         break;
                     }
-                    fileLogger.Information($"Fetching Records from CARE Server API for Facility ID {facilityId}");
-                    //var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromPellucidAsync();
-                    var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync(facilityId);
-                    WorklistServer.CurrentWorklistItems = pellucidWorklistItems;
-                    fileLogger.Information($" Successfully fetched {pellucidWorklistItems?.Count ?? 0} worklist items from CARE Server");
+                    // The worklist is served from care_worklist. The CARE API is called only when no
+                    // row there matches this query, then care_worklist is read again.
+                    var itemsSource = CreateItemsSourceService;
+                    fileLogger.Information($"Fetching Records from care_worklist for Facility ID {facilityId}");
+                    var careWorklistItems = itemsSource.GetCareWorklistItemsFromDB(facilityId);
+                    results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems).ToList();
+                    if (results.Count == 0)
+                    {
+                        fileLogger.Information($"No care_worklist item matches the C-FIND from AE {Association.CallingAE} ({careWorklistItems.Count} scheduled) - refreshing care_worklist from the CARE worklist API");
+                        if (itemsSource.RefreshCareWorklistFromApi(facilityId))
+                        {
+                            careWorklistItems = itemsSource.GetCareWorklistItemsFromDB(facilityId);
+                            results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems).ToList();
+                        }
+                        else
+                        {
+                            fileLogger.Warning($"Refreshing care_worklist from the CARE worklist API failed - answering from the existing care_worklist rows");
+                        }
+                    }
+                    WorklistServer.CurrentWorklistItems = careWorklistItems;
+                    fileLogger.Information($" Successfully fetched {careWorklistItems.Count} worklist items from care_worklist, {results.Count} matching the C-FIND");
                     break;
 
             }
 
             int returnedItemsCount = 0;
-            foreach (DicomDataset result in WorklistHandler.FilterWorklistItems(request.Dataset, WorklistServer.CurrentWorklistItems))
+            foreach (DicomDataset result in results ?? WorklistHandler.FilterWorklistItems(request.Dataset, WorklistServer.CurrentWorklistItems))
             {
                 // Insert Into Database
                 if (result.GetString(DicomTag.AccessionNumber) != null)

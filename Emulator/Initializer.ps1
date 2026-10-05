@@ -194,9 +194,9 @@ if (-not $mysqlExe) {
                 } else {
                     Get-Content -Path $careTablesPath -Raw | & $mysqlExe @mysqlArgs
                     if ($LASTEXITCODE -ne 0) {
-                        Write-Fail "Failed applying care_tables.sql (care_service_request / care_patient / care_worklist / care_study_upload / care_config) to '$DbName'." "Ensure user '$MySqlUser' has CREATE and REFERENCES privileges on '$DbName', then re-run this script."
+                        Write-Fail "Failed applying care_tables.sql (care_service_request / care_patient / care_worklist / care_sync_upload / care_config) to '$DbName'." "Ensure user '$MySqlUser' has CREATE and REFERENCES privileges on '$DbName', then re-run this script."
                     } else {
-                        Write-Ok "CARE tables are ready: care_service_request, care_patient, care_worklist, care_study_upload, care_config."
+                        Write-Ok "CARE tables are ready: care_service_request, care_patient, care_worklist, care_sync_upload, care_config."
                     }
                 }
             }

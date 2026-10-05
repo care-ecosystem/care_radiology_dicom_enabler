@@ -108,7 +108,7 @@ namespace Plexus.Common.Database
                 string errorString = string.Empty;
                 int insertedCount = 0;
                 int completedCount = 0;
-                if (!objDal.SyncCareWorklist(careRecords, ref insertedCount, ref completedCount, ref errorString))
+                if (!objDal.SyncCareWorklist(careRecords, facilityId, modality, ref insertedCount, ref completedCount, ref errorString))
                 {
                     writeToLog(errorString, false);
                     return false;

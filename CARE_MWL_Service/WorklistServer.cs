@@ -98,8 +98,11 @@ namespace Worklist_SCP
                                 RefreshLogger.Warning("[REFRESH] Skipping periodic CARE worklist fetch - no Facility ID resolved");
                                 break;
                             }
-                            var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync(refreshFacilityId);
-                            WorklistServer.CurrentWorklistItems = pellucidWorklistItems;
+                            // Keeps care_worklist in line with CARE (new orders, completed ones); the
+                            // cached items are then read back from care_worklist, as C-FIND does.
+                            var itemsSource = CreateItemsSourceService;
+                            itemsSource.RefreshCareWorklistFromApi(refreshFacilityId);
+                            WorklistServer.CurrentWorklistItems = itemsSource.GetCareWorklistItemsFromDB(refreshFacilityId);
                             break;
 
                     }
