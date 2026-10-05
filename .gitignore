@@ -320,6 +320,9 @@ paket-files/
 __pycache__/
 *.pyc
 
+# Integration suite output (ci/integration)
+test-results/
+
 # Cake - Uncomment if you are using it
 # tools/**
 # !tools/packages.config

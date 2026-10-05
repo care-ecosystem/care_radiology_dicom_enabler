@@ -24,10 +24,49 @@ namespace Worklist_SCP.Model
 
         private readonly ILogger _logger;
 
+        // fo-dicom's logger only reaches the console, which a Windows service does not have, so every
+        // MPPS line is also written to logs/ModalitySCP.txt where it can be read back.
+        private readonly Serilog.ILogger _fileLogger;
 
-        public MppsHandler(ILogger logger)
+
+        public MppsHandler(ILogger logger, Serilog.ILogger fileLogger = null)
         {
             _logger = logger;
+            _fileLogger = fileLogger;
+        }
+
+
+        /// <summary>
+        /// study_status values sent to the CARE status webhook. CARE adds the facility tag config whose
+        /// display equals the value exactly, so they are configurable to match how a facility named
+        /// its tags. Defaults are the values the enabler has always sent.
+        /// </summary>
+        private static string StatusStarted => ReadStatus("mppsStatusStarted", "Scan Started");
+        private static string StatusCompleted => ReadStatus("mppsStatusCompleted", "Scan Completed");
+        private static string StatusDiscontinued => ReadStatus("mppsStatusDiscontinued", "Scan Cancelled");
+
+        private static string ReadStatus(string key, string defaultValue)
+        {
+            string value = ConfigurationManager.AppSettings[key];
+            return string.IsNullOrWhiteSpace(value) ? defaultValue : value.Trim();
+        }
+
+        private void LogInfo(string message)
+        {
+            _logger.Info(message);
+            _fileLogger?.Information(message);
+        }
+
+        private void LogWarn(string message)
+        {
+            _logger.Warn(message);
+            _fileLogger?.Warning(message);
+        }
+
+        private void LogError(string message)
+        {
+            _logger.Error(message);
+            _fileLogger?.Error(message);
         }
 
 
@@ -40,8 +79,14 @@ namespace Worklist_SCP.Model
             {
                 // Only send webhook if backend is set to CARE Server (mode 2)
                 int backend = Convert.ToInt32(ConfigurationManager.AppSettings["backend"] ?? "2");
-                if (backend != 2 || string.IsNullOrWhiteSpace(serviceRequestId))
+                if (backend != 2)
                 {
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(serviceRequestId))
+                {
+                    LogWarn($"[MPPS] MPPS webhook skipped: {studyStatus} - worklist item has no service_request id");
                     return;
                 }
 
@@ -50,13 +95,13 @@ namespace Worklist_SCP.Model
 
                 if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token))
                 {
-                    _logger.Warn("CARE server URL or token not configured, skipping webhook");
+                    LogWarn("[MPPS] MPPS webhook skipped: CARE server URL or token not configured");
                     return;
                 }
 
                 if (string.IsNullOrWhiteSpace(facilityId))
                 {
-                    _logger.Warn($"[MPPS] facility_id missing for service_request {serviceRequestId} - sending webhook without it");
+                    LogWarn($"[MPPS] facility_id missing for service_request {serviceRequestId} - sending webhook without it");
                 }
 
                 string webhookUrl = $"{baseUrl}/api/care_radiology/webhooks/status/";
@@ -80,7 +125,7 @@ namespace Worklist_SCP.Model
 
                     if (response.IsSuccessStatusCode)
                     {
-                        _logger.Info($" MPPS webhook sent to CARE: {studyStatus} for service_request {serviceRequestId} facility {facilityId}");
+                        LogInfo($"[MPPS] MPPS webhook sent to CARE: {studyStatus} for service_request {serviceRequestId} facility {facilityId}");
                     }
                     else
                     {
@@ -92,20 +137,20 @@ namespace Worklist_SCP.Model
                             errorBody = errorBody.Substring(0, 1000) + "... (truncated)";
                         }
 
-                        _logger.Warn($"MPPS webhook failed: {(int)response.StatusCode} ({response.ReasonPhrase}) for service_request {serviceRequestId} facility {facilityId}. Response body: {(string.IsNullOrWhiteSpace(errorBody) ? "(empty)" : errorBody.Trim())}");
+                        LogWarn($"[MPPS] MPPS webhook failed: {studyStatus} - {(int)response.StatusCode} ({response.ReasonPhrase}) for service_request {serviceRequestId} facility {facilityId}. Response body: {(string.IsNullOrWhiteSpace(errorBody) ? "(empty)" : errorBody.Trim())}");
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.Error($"Error sending MPPS webhook to CARE server: {ex.Message}");
+                LogError($"[MPPS] MPPS webhook failed: {studyStatus} for service_request {serviceRequestId} with exception {ex.Message}");
             }
         }
 
 
         public bool SetInProgress(string sopInstanceUID, string procedureStepId)
         {
-            _logger.Info($"[MPPS] SetInProgress: looking up ProcedureStepID={procedureStepId} among {WorklistServer.CurrentWorklistItems.Count} cached worklist items");
+            LogInfo($"[MPPS] SetInProgress: looking up ProcedureStepID={procedureStepId} among {WorklistServer.CurrentWorklistItems.Count} cached worklist items");
 
             var workItem = WorklistServer.CurrentWorklistItems
                 .FirstOrDefault(w => w.ProcedureStepID == procedureStepId);
@@ -113,20 +158,20 @@ namespace Worklist_SCP.Model
             {
                 // the procedureStepId provided cannot be found any more, so the data is invalid or the
                 // modality tries to start a procedure that has been deleted/changed on the ris side...
-                _logger.Warn($"[MPPS] SetInProgress: no worklist item matched ProcedureStepID={procedureStepId}");
+                LogWarn($"[MPPS] SetInProgress: no worklist item matched ProcedureStepID={procedureStepId}");
                 return false;
             }
 
             // now here change the sate of the procedure in the database or do similar stuff...
-            _logger.Info($"Procedure with id {workItem.ProcedureStepID} of Patient {workItem.Surname} {workItem.Forename} is started");
-            _logger.Info($"[MPPS] SetInProgress: matched ServiceRequestId={workItem.ServiceRequestId} AccessionNumber={workItem.AccessionNumber} PatientID={workItem.PatientID} for SOPInstanceUID={sopInstanceUID}");
+            LogInfo($"Procedure with id {workItem.ProcedureStepID} is started");
+            LogInfo($"[MPPS] SetInProgress: matched ServiceRequestId={workItem.ServiceRequestId} AccessionNumber={workItem.AccessionNumber} PatientID={workItem.PatientID} for SOPInstanceUID={sopInstanceUID}");
 
             // remember the sopInstanceUID and store the worklistitem to which the sopInstanceUID belongs.
             // You should do this more permanent like in database or in file
             PendingProcedures.Add(sopInstanceUID, workItem);
 
             // Send status update to CARE server
-            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, workItem.FacilityId, "Scan Started"));
+            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, workItem.FacilityId, StatusStarted));
 
             return true;
         }
@@ -137,16 +182,17 @@ namespace Worklist_SCP.Model
             if (!PendingProcedures.ContainsKey(sopInstanceUID))
             {
                 // there is no pending procedure with this sopInstanceUID!
+                LogWarn($"[MPPS] SetDiscontinued: no procedure in progress for SOPInstanceUID={sopInstanceUID}");
                 return false;
             }
             var workItem = PendingProcedures[sopInstanceUID];
 
             // now here change the sate of the procedure in the database or do similar stuff...
-            _logger.Info($"Procedure with id {workItem.ProcedureStepID} of Patient {workItem.Surname} {workItem.Forename} is discontinued for reason {reason}");
-            _logger.Info($"[MPPS] SetDiscontinued: ServiceRequestId={workItem.ServiceRequestId} AccessionNumber={workItem.AccessionNumber} for SOPInstanceUID={sopInstanceUID}");
+            LogInfo($"Procedure with id {workItem.ProcedureStepID} is discontinued for reason {reason}");
+            LogInfo($"[MPPS] SetDiscontinued: ServiceRequestId={workItem.ServiceRequestId} AccessionNumber={workItem.AccessionNumber} for SOPInstanceUID={sopInstanceUID}");
 
             // Send status update to CARE server
-            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, workItem.FacilityId, "Scan Cancelled"));
+            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, workItem.FacilityId, StatusDiscontinued));
 
             // since the procedure was stopped, we remove it from the list of pending procedures
             PendingProcedures.Remove(sopInstanceUID);
@@ -159,20 +205,21 @@ namespace Worklist_SCP.Model
             if (!PendingProcedures.ContainsKey(sopInstanceUID))
             {
                 // there is no pending procedure with this sopInstanceUID!
+                LogWarn($"[MPPS] SetCompleted: no procedure in progress for SOPInstanceUID={sopInstanceUID}");
                 return false;
             }
             var workItem = PendingProcedures[sopInstanceUID];
 
             // now here change the sate of the procedure in the database or do similar stuff...
-            _logger.Info($"Procedure with id {workItem.ProcedureStepID} of Patient {workItem.Surname} {workItem.Forename} is completed");
-            _logger.Info($"[MPPS] SetCompleted: ServiceRequestId={workItem.ServiceRequestId} AccessionNumber={workItem.AccessionNumber} for SOPInstanceUID={sopInstanceUID}");
+            LogInfo($"Procedure with id {workItem.ProcedureStepID} is completed");
+            LogInfo($"[MPPS] SetCompleted: ServiceRequestId={workItem.ServiceRequestId} AccessionNumber={workItem.AccessionNumber} for SOPInstanceUID={sopInstanceUID}");
 
             // the MPPS completed message contains some additional informations about the performed procedure.
             // this informations are very vendor depending, so read the DICOM Conformance Statement or read
             // the DICOM logfiles to see which informations the vendor sends
 
             // Send status update to CARE server
-            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, workItem.FacilityId, "Scan Completed"));
+            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, workItem.FacilityId, StatusCompleted));
 
             // since the procedure was completed, we remove it from the list of pending procedures
             PendingProcedures.Remove(sopInstanceUID);

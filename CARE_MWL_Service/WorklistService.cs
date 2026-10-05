@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2012-2022 fo-dicom contributors.
+// Copyright (c) 2012-2022 fo-dicom contributors.
 // Licensed under the Microsoft Public License (MS-PL).
 
 using System;
@@ -39,7 +39,7 @@ namespace Worklist_SCP
             {
                 if (_mppsSource == null)
                 {
-                    _mppsSource = new MppsHandler(Logger);
+                    _mppsSource = new MppsHandler(Logger, fileLogger);
                 }
 
                 return _mppsSource;
@@ -60,7 +60,7 @@ namespace Worklist_SCP
                 WriteTo.File(logFilePath,
                 restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information,
                 shared: true,
-                retainedFileCountLimit: 3,
+                retainedFileCountLimit: 5,
                 rollOnFileSizeLimit: true,
                 fileSizeLimitBytes: 5120)
                 .CreateLogger();
@@ -348,20 +348,24 @@ namespace Worklist_SCP
             //Logger.Log(LogLevel.Info, $"receiving N-Set with SOPUID {requestedSopInstanceUID}");.I
             fileLogger.Information($"receiving N-Set with SOPUID {requestedSopInstanceUID}");
 
-            var status = request.Dataset.GetSingleValue<string>(DicomTag.PerformedProcedureStepStatus);
+            var status = request.Dataset.GetSingleValueOrDefault(DicomTag.PerformedProcedureStepStatus, string.Empty);
             if (status == "COMPLETED")
             {
                 // most vendors send some informations with the mpps-completed message. 
                 // this information should be stored into the datbase
                 var doseDescription = request.Dataset.GetSingleValueOrDefault(DicomTag.CommentsOnRadiationDose, string.Empty);
                 var listOfInstanceUIDs = new List<string>();
-                foreach (var seriesDataset in request.Dataset.GetSequence(DicomTag.PerformedSeriesSequence))
+                // PerformedSeriesSequence is optional in practice - some modalities omit it - so a missing
+                // one must not throw and fail the N-SET.
+                request.Dataset.TryGetSequence(DicomTag.PerformedSeriesSequence, out var performedSeries);
+                foreach (var seriesDataset in performedSeries?.Items ?? new List<DicomDataset>())
                 {
                     // you can read here some information about the series that the modalidy created
                     //seriesDataset.Get(DicomTag.SeriesDescription, string.Empty);
                     //seriesDataset.Get(DicomTag.PerformingPhysicianName, string.Empty);
                     //seriesDataset.Get(DicomTag.ProtocolName, string.Empty);
-                    foreach (var instanceDataset in seriesDataset.GetSequence(DicomTag.ReferencedImageSequence))
+                    seriesDataset.TryGetSequence(DicomTag.ReferencedImageSequence, out var referencedImages);
+                    foreach (var instanceDataset in referencedImages?.Items ?? new List<DicomDataset>())
                     {
                         // here you can read the SOPClassUID and SOPInstanceUID
                         var instanceUID = instanceDataset.GetSingleValueOrDefault(DicomTag.ReferencedSOPInstanceUID, string.Empty);
@@ -372,6 +376,7 @@ namespace Worklist_SCP
                     }
                 }
                 var ok = MppsSource.SetCompleted(requestedSopInstanceUID, doseDescription, listOfInstanceUIDs);
+                fileLogger.Information($"[MPPS][N-SET] COMPLETED result={ok} for SOPInstanceUID={requestedSopInstanceUID} ({listOfInstanceUIDs.Count} referenced instances)");
 
                 return new DicomNSetResponse(request, ok ? DicomStatus.Success : DicomStatus.ProcessingFailure);
             }
@@ -380,11 +385,13 @@ namespace Worklist_SCP
                 // some vendors send a reason code or description with the mpps-discontinued message
                 // var reason = request.Dataset.Get(DicomTag.PerformedProcedureStepDiscontinuationReasonCodeSequence);
                 var ok = MppsSource.SetDiscontinued(requestedSopInstanceUID, string.Empty);
+                fileLogger.Information($"[MPPS][N-SET] DISCONTINUED result={ok} for SOPInstanceUID={requestedSopInstanceUID}");
 
                 return new DicomNSetResponse(request, ok ? DicomStatus.Success : DicomStatus.ProcessingFailure);
             }
             else
             {
+                fileLogger.Warning($"[MPPS][N-SET] Rejected status '{status}' for SOPInstanceUID={requestedSopInstanceUID} - only COMPLETED or DISCONTINUED are accepted");
                 return new DicomNSetResponse(request, DicomStatus.InvalidAttributeValue);
             }
         }

@@ -212,15 +212,15 @@ namespace Worklist_SCP.Model
                     {
                         WorklistItem mwlItem = new WorklistItem();
                         mwlItem.AccessionNumber = string.Empty;
-                        string acc_servicerequestid = item.service_request != null ? item.service_request.external_id ?? string.Empty : string.Empty;
+                        string serviceRequestId = item.service_request != null
+                            ? (item.service_request.id ?? string.Empty)
+                            : string.Empty;
 
-                        string[] parts = acc_servicerequestid.Split('-');
+                        string accNum = item.service_request?.meta?.accession_number ?? string.Empty;
 
-                        string result = parts[parts.Length - 2] + parts[parts.Length - 1];
-
-                        string accNum =  item.service_request.meta !=null ?item.service_request.meta.accession_number ?? string.Empty : string.Empty;
-
-                        mwlItem.AccessionNumber = string.IsNullOrWhiteSpace(accNum) ? result : accNum;// "5850ac6768c9407a95cbc7c5bb547d21"; 
+                        // Fall back to the last two UUID groups only when CARE has not yet assigned an
+                        // accession number (it is set asynchronously after the SR is created).
+                        mwlItem.AccessionNumber = string.IsNullOrWhiteSpace(accNum) ? DeriveAccessionFromServiceRequestId(serviceRequestId) : accNum;
 
                         if (item.patient != null)
                         {
@@ -261,7 +261,7 @@ namespace Worklist_SCP.Model
                         mwlItem.HospitalName = item.facility != null ? item.facility.name ?? "CARE" : "CARE";
                         mwlItem.FacilityId = item.facility != null ? item.facility.id ?? string.Empty : string.Empty;
                         mwlItem.PerformingPhysician = string.Empty;
-                        mwlItem.ServiceRequestId = item.service_request != null ? item.service_request.external_id ?? string.Empty : string.Empty;
+                        mwlItem.ServiceRequestId = serviceRequestId;
                         // Must be unique per item - MPPS N-CREATE correlation (MppsHandler.SetInProgress) matches
                         // worklist items by this value, so every item sharing "200002" caused MPPS to always
                         // resolve to the first CurrentWorklistItems entry regardless of which procedure was performed.
@@ -484,8 +484,7 @@ namespace Worklist_SCP.Model
 
 
         /// <summary>
-        /// Caps a logged response body so an HTML error page cannot flood the log file, which
-        /// rolls at 5 KB per part.
+        /// Caps a logged response body so an HTML error page cannot flood the log file.
         /// </summary>
         private static string Truncate(string value, int maxLength)
         {
@@ -555,6 +554,21 @@ namespace Worklist_SCP.Model
             string prefix = createdBy.prefix ?? string.Empty;
 
             return $"{familyName}^{givenName}^^{prefix}".TrimEnd('^');
+        }
+
+        /// <summary>
+        /// Builds a fallback accession number from the last two groups of the service request UUID.
+        /// Returns empty rather than throwing when the ID is missing or not hyphenated.
+        /// </summary>
+        private static string DeriveAccessionFromServiceRequestId(string serviceRequestId)
+        {
+            if (string.IsNullOrWhiteSpace(serviceRequestId))
+            {
+                return string.Empty;
+            }
+
+            string[] parts = serviceRequestId.Split('-');
+            return parts.Length >= 2 ? parts[parts.Length - 2] + parts[parts.Length - 1] : serviceRequestId;
         }
 
         /// <summary>
