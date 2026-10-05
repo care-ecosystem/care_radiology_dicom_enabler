@@ -4,6 +4,7 @@ name: Integration Test - CARE Server
 # server and a dedicated test facility. The suite (ci/integration) acts as the modality:
 #
 #   Environment   configured ports/AE titles honoured, C-ECHO, wrong AE / SOP class rejected,
+#                 calling AE outside the Server List rejected by MWL and Store SCP,
 #                 CARE login, facility, patient, status tags, imaging activity definitions
 #   SRs           service requests created from the facility's imaging activity definitions,
 #                 accession numbers assigned by care_radiology
@@ -265,7 +266,8 @@ jobs:
             & $env:MYSQL_EXE -u root --protocol=TCP
           if ($LASTEXITCODE -ne 0) { Write-Error "Schema creation failed"; exit 1 }
 
-          # Server List row: maps the calling AE to the facility the worklist is fetched for.
+          # Server List row: maps the calling AE to the facility the worklist is fetched for, and
+          # (checkserver=true in cfg/common.cfg) is the only AE/IP the MWL and Store SCP accept.
           $sql = "INSERT INTO plexus_mi2.dcm_servers (name, aetitle, hostaddress, portnumber, facilityid, description) " +
                  "VALUES ('CI modality', '$env:CALLING_AET', '127.0.0.1', '104', '$env:CARE_FACILITY_ID', 'GitHub Actions integration test');"
           & $env:MYSQL_EXE -u root --protocol=TCP -e $sql
@@ -291,7 +293,7 @@ jobs:
                  "<sscpaetitle>$env:STORE_AET</sscpaetitle><sscpport>$env:STORE_PORT</sscpport>" +
                  "<sscuaetitle>STORAGESCU</sscuaetitle><sscuhost>127.0.0.1</sscuhost>" +
                  "<callingaetitle>STORAGESCU</callingaetitle><sscuport>$env:STORE_PORT</sscuport>" +
-                 "<checkserver>false</checkserver></configurations>"
+                 "<checkserver>true</checkserver></configurations>"
           New-Item -ItemType Directory -Force -Path "bin\Release\cfg", "bin\Release\SCP", "bin\Release\logs" | Out-Null
           Set-Content -Path "bin\Release\cfg\common.cfg" -Value $cfg
           Write-Output "cfg/common.cfg: MWL $env:MWL_AET@$env:MWL_PORT, Store $env:STORE_AET@$env:STORE_PORT"

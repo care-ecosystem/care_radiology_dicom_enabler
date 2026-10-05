@@ -68,12 +68,8 @@ namespace Worklist_SCP
 
         public Task<DicomCEchoResponse> OnCEchoRequestAsync(DicomCEchoRequest request)
         {
+            // The calling AE was checked against the Server List when the association was accepted.
             fileLogger?.Information($"[C-ECHO] Request from AE={Association.CallingAE} IP={Association.RemoteHost}");
-            if (!validateServer(Association.CallingAE, Association.RemoteHost))
-            {
-                fileLogger?.Warning($"[C-ECHO] Rejected AE={Association.CallingAE}");
-                return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.ProcessingFailure));
-            }
             return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.Success));
         }
 
@@ -81,13 +77,8 @@ namespace Worklist_SCP
         public async IAsyncEnumerable<DicomCFindResponse> OnCFindRequestAsync(DicomCFindRequest request)
         {
 
+            // The calling AE was checked against the Server List when the association was accepted.
             fileLogger.Information($"Received C-FIND request from AE {Association.CallingAE} with IP: {Association.RemoteHost}");
-            string errorString = string.Empty;
-            fileLogger.Information($"CFIND : Validating Server with AETitle {Association.CallingAE} with IP: {Association.RemoteHost}");
-            if (!validateServer(Association.CallingAE, Association.RemoteHost))
-            {
-                yield return new DicomCFindResponse(request, DicomStatus.QueryRetrieveUnableToProcess);
-            }
             List<string> accessionNos = new List<string>();
 
             switch (Convert.ToInt32(ConfigurationManager.AppSettings["backend"] ?? "2"))
@@ -146,7 +137,7 @@ namespace Worklist_SCP
                 if (!objDal.validateAETitle(aeTitle, hostAddress, ref errorString))
                 {
                     if (errorString == string.Empty)
-                        fileLogger?.Information($"[VALIDATE] AE={aeTitle} IP={hostAddress} not in server list");
+                        fileLogger?.Warning($"[VALIDATE] AE={aeTitle} IP={hostAddress} not in server list");
                     else
                         fileLogger?.Error($"[VALIDATE] AE={aeTitle} validation failed: {errorString}");
                     return false;
@@ -270,6 +261,14 @@ namespace Worklist_SCP
             {
                 fileLogger?.Error($"[ASSOC] Rejected: called AE={association.CalledAE} unknown (expected {WorklistServer.AETitle})");
                 return SendAssociationRejectAsync(DicomRejectResult.Permanent, DicomRejectSource.ServiceUser, DicomRejectReason.CalledAENotRecognized);
+            }
+
+            // Checked once here so every service on the association - C-ECHO, C-FIND and the MPPS
+            // N-CREATE / N-SET that update CARE - is limited to modalities in the Server List.
+            if (!validateServer(association.CallingAE, association.RemoteHost))
+            {
+                fileLogger?.Error($"[ASSOC] Rejected: calling AE={association.CallingAE} IP={association.RemoteHost} is not in the Server List");
+                return SendAssociationRejectAsync(DicomRejectResult.Permanent, DicomRejectSource.ServiceUser, DicomRejectReason.CallingAENotRecognized);
             }
 
             foreach (var pc in association.PresentationContexts)

@@ -1,7 +1,7 @@
 """Environment: configured ports, AE titles and CARE preflight
 
 Proves the enabler is listening exactly where its cfg/common.cfg says, answers on its configured
-AE titles, and that the CARE instance, facility, patient, tags and imaging activity definitions
+AE titles to modalities in its Server List only, and that the CARE instance, facility, patient, tags and imaging activity definitions
 the rest of the suite relies on are reachable with the supplied credentials.
 """
 import datetime as dt
@@ -81,6 +81,31 @@ def test_mwl_rejects_wrong_called_aet(cfg, dicom, logs, record):
     record["result"] = "accepted" if established else "rejected"
     assert not established, f"MWL SCP accepted an association for called AE {wrong}"
     logs.wait_for("mwl", rf"\[ASSOC\] Rejected: called AE={wrong}", timeout=15)
+
+
+UNLISTED_AET = "NOTINSERVERLIST"
+
+
+def test_mwl_rejects_calling_aet_not_in_server_list(cfg, dicom, logs, record):
+    """MWL SCP rejects a modality whose calling AE title is not in the Server List
+    With checkserver enabled, only the AE/IP pairs in the Server List may query the worklist or
+    send MPPS updates to CARE; the check runs when the association is negotiated."""
+    assert port_open(cfg.host, cfg.mwl_port), "MWL SCP is not running - a rejection would prove nothing"
+    established, _ = dicom.echo(cfg.mwl_port, cfg.mwl_aet, calling_aet=UNLISTED_AET)
+    record["calling_aet"] = UNLISTED_AET
+    record["result"] = "accepted" if established else "rejected"
+    assert not established, f"MWL SCP accepted calling AE {UNLISTED_AET}, which is not in the Server List"
+    record["log"] = logs.wait_for("mwl", rf"\[ASSOC\] Rejected: calling AE={UNLISTED_AET} .*", timeout=15).group(0)
+
+
+def test_store_rejects_calling_aet_not_in_server_list(cfg, dicom, logs, record):
+    """Store SCP rejects a modality whose calling AE title is not in the Server List"""
+    assert port_open(cfg.host, cfg.store_port), "Store SCP is not running - a rejection would prove nothing"
+    established, _ = dicom.echo(cfg.store_port, cfg.store_aet, calling_aet=UNLISTED_AET)
+    record["calling_aet"] = UNLISTED_AET
+    record["result"] = "accepted" if established else "rejected"
+    assert not established, f"Store SCP accepted calling AE {UNLISTED_AET}, which is not in the Server List"
+    record["log"] = logs.wait_for("store", rf"Association Rejected: calling AE {UNLISTED_AET} .*", timeout=15).group(0)
 
 
 def test_store_rejects_unsupported_sop_class(cfg, dicom, record):
