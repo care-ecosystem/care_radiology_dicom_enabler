@@ -53,20 +53,20 @@ namespace Worklist_SCP.Model
 
         private void LogInfo(string message)
         {
-            _logger.Info(message);
-            _fileLogger?.Information(message);
+            _logger.Info("{message}", message);
+            _fileLogger?.Information("{Message:l}", message);
         }
 
         private void LogWarn(string message)
         {
-            _logger.Warn(message);
-            _fileLogger?.Warning(message);
+            _logger.Warn("{message}", message);
+            _fileLogger?.Warning("{Message:l}", message);
         }
 
         private void LogError(string message)
         {
-            _logger.Error(message);
-            _fileLogger?.Error(message);
+            _logger.Error("{message}", message);
+            _fileLogger?.Error("{Message:l}", message);
         }
 
 
