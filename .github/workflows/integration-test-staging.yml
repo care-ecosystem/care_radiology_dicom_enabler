@@ -167,6 +167,8 @@ jobs:
         run: |
           tzutil /s "$env:CARE_SERVER_TIMEZONE"
           if ($LASTEXITCODE -ne 0) { Write-Error "Unknown Windows time zone '$env:CARE_SERVER_TIMEZONE'"; exit 1 }
+          # .NET caches the local zone at process start; without this Get-Date still returns UTC.
+          [System.TimeZoneInfo]::ClearCachedData()
           # Only service requests created from now on belong to this run.
           $from = (Get-Date).AddMinutes(-1).ToString('yyyy-MM-dd HH:mm:ss')
           echo "CARE_FROM_DATE=$from" >> $env:GITHUB_ENV
