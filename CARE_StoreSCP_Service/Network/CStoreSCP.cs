@@ -246,7 +246,7 @@ namespace Plexus_StoreSCP_Service.Network
                 string patient_id = string.Empty, accession_no = string.Empty, studyinstanceid = string.Empty, seriesinstanceid = string.Empty,
                     seriesno = string.Empty, modality = string.Empty,
                     bodypart = string.Empty, series_desc = string.Empty, institution = string.Empty,
-                    stationname = string.Empty, department = string.Empty;
+                    stationname = string.Empty, department = string.Empty, sopclassuid = string.Empty;
 
 
                 // Read DICOM FIle
@@ -268,6 +268,7 @@ namespace Plexus_StoreSCP_Service.Network
                     institution = dicomDataSet.GetSingleValueOrDefault(DicomTag.InstitutionName, string.Empty);
                     stationname = dicomDataSet.GetSingleValueOrDefault(DicomTag.StationName, string.Empty);
                     department = dicomDataSet.GetSingleValueOrDefault(DicomTag.InstitutionalDepartmentName, string.Empty);
+                    sopclassuid = dicomDataSet.GetSingleValueOrDefault(DicomTag.SOPClassUID, string.Empty);
                 }
                 else
                 {
@@ -275,7 +276,7 @@ namespace Plexus_StoreSCP_Service.Network
                 }
 
                 objDAL.InsertOrUpdateStudyInfo(patient_id, accession_no, studyinstanceid, seriesinstanceid, seriesno, modality, bodypart, series_desc, institution,
-                    stationname, department, imageInstanceId, 2 , ref errorString);
+                    stationname, department, imageInstanceId, 2, sopclassuid, ref errorString);
 
                 if (errorString != string.Empty)
                 {

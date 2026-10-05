@@ -219,7 +219,7 @@ namespace Sample_Store_SCP.Network
                 string patient_id = string.Empty, accession_no = string.Empty, studyinstanceid = string.Empty, seriesinstanceid = string.Empty, 
                     seriesno = string.Empty, modality = string.Empty,
                     bodypart = string.Empty, series_desc = string.Empty, institution = string.Empty, 
-                    stationname = string.Empty,department = string.Empty;
+                    stationname = string.Empty,department = string.Empty, sopclassuid = string.Empty;
 
 
                 // Read DICOM FIle
@@ -238,6 +238,7 @@ namespace Sample_Store_SCP.Network
                     institution = dicomDataSet.GetString(DicomTag.InstitutionName);
                     stationname = dicomDataSet.GetString(DicomTag.StationName);
                     department = dicomDataSet.GetString(DicomTag.InstitutionalDepartmentName);
+                    sopclassuid = dicomDataSet.GetSingleValueOrDefault(DicomTag.SOPClassUID, string.Empty);
                 }
                 else
                 {
@@ -246,7 +247,7 @@ namespace Sample_Store_SCP.Network
 
 
                 objDAL.InsertOrUpdateStudyInfo(patient_id, accession_no, studyinstanceid, seriesinstanceid, seriesno, modality, bodypart, series_desc, institution,
-                    stationname, department, imageInstanceId, 2 , ref errorString);
+                    stationname, department, imageInstanceId, 2, sopclassuid, ref errorString);
 
                 if (errorString != string.Empty)
                 {
