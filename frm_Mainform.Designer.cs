@@ -120,6 +120,8 @@ namespace Plexus_DICOM_Enabler
             this.mtxtb_ScuPollInterval = new MaterialSkin.Controls.MaterialTextBox();
             this.lbl_MaxUploadRetries = new MaterialSkin.Controls.MaterialLabel();
             this.mtxtb_MaxUploadRetries = new MaterialSkin.Controls.MaterialTextBox();
+            this.lbl_UploadRetryDelay = new MaterialSkin.Controls.MaterialLabel();
+            this.mtxtb_UploadRetryDelay = new MaterialSkin.Controls.MaterialTextBox();
             this.lbl_ScpFolder = new MaterialSkin.Controls.MaterialLabel();
             this.mtxtb_ScpFolder = new MaterialSkin.Controls.MaterialTextBox();
             this.lbl_FailedScpFolder = new MaterialSkin.Controls.MaterialLabel();
@@ -1115,7 +1117,7 @@ namespace Plexus_DICOM_Enabler
             this.mbtn_SaveConfig.Depth = 0;
             this.mbtn_SaveConfig.HighEmphasis = true;
             this.mbtn_SaveConfig.Icon = null;
-            this.mbtn_SaveConfig.Location = new System.Drawing.Point(912, 598);
+            this.mbtn_SaveConfig.Location = new System.Drawing.Point(912, 678);
             this.mbtn_SaveConfig.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
             this.mbtn_SaveConfig.MouseState = MaterialSkin.MouseState.HOVER;
             this.mbtn_SaveConfig.Name = "mbtn_SaveConfig";
@@ -1304,6 +1306,8 @@ namespace Plexus_DICOM_Enabler
             this.grpb_UploadSettings.Controls.Add(this.mtxtb_WorklistRefreshInterval);
             this.grpb_UploadSettings.Controls.Add(this.lbl_MaxUploadRetries);
             this.grpb_UploadSettings.Controls.Add(this.mtxtb_MaxUploadRetries);
+            this.grpb_UploadSettings.Controls.Add(this.lbl_UploadRetryDelay);
+            this.grpb_UploadSettings.Controls.Add(this.mtxtb_UploadRetryDelay);
             this.grpb_UploadSettings.Controls.Add(this.lbl_ScpFolder);
             this.grpb_UploadSettings.Controls.Add(this.mtxtb_ScpFolder);
             this.grpb_UploadSettings.Controls.Add(this.lbl_FailedScpFolder);
@@ -1313,7 +1317,7 @@ namespace Plexus_DICOM_Enabler
             this.grpb_UploadSettings.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.grpb_UploadSettings.Name = "grpb_UploadSettings";
             this.grpb_UploadSettings.Padding = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.grpb_UploadSettings.Size = new System.Drawing.Size(896, 360);
+            this.grpb_UploadSettings.Size = new System.Drawing.Size(896, 440);
             this.grpb_UploadSettings.TabIndex = 1;
             this.grpb_UploadSettings.TabStop = false;
             this.grpb_UploadSettings.Text = "Service Settings";
@@ -1378,15 +1382,45 @@ namespace Plexus_DICOM_Enabler
             this.mtxtb_MaxUploadRetries.TrailingIcon = null;
             this.mtxtb_MaxUploadRetries.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.mtxtb_WholeNumber_KeyPress);
             //
+            // lbl_UploadRetryDelay
+            //
+            this.lbl_UploadRetryDelay.AutoSize = true;
+            this.lbl_UploadRetryDelay.Depth = 0;
+            this.lbl_UploadRetryDelay.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
+            this.lbl_UploadRetryDelay.Location = new System.Drawing.Point(20, 210);
+            this.lbl_UploadRetryDelay.MouseState = MaterialSkin.MouseState.HOVER;
+            this.lbl_UploadRetryDelay.Name = "lbl_UploadRetryDelay";
+            this.lbl_UploadRetryDelay.TabIndex = 8;
+            this.lbl_UploadRetryDelay.Text = "Retry Delay (min)";
+            //
+            // mtxtb_UploadRetryDelay
+            //
+            this.mtxtb_UploadRetryDelay.AnimateReadOnly = false;
+            this.mtxtb_UploadRetryDelay.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.mtxtb_UploadRetryDelay.Depth = 0;
+            this.mtxtb_UploadRetryDelay.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
+            this.mtxtb_UploadRetryDelay.LeadingIcon = null;
+            this.mtxtb_UploadRetryDelay.Location = new System.Drawing.Point(230, 196);
+            this.mtxtb_UploadRetryDelay.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
+            this.mtxtb_UploadRetryDelay.MaxLength = 10;
+            this.mtxtb_UploadRetryDelay.MouseState = MaterialSkin.MouseState.OUT;
+            this.mtxtb_UploadRetryDelay.Multiline = false;
+            this.mtxtb_UploadRetryDelay.Name = "mtxtb_UploadRetryDelay";
+            this.mtxtb_UploadRetryDelay.Size = new System.Drawing.Size(200, 50);
+            this.mtxtb_UploadRetryDelay.TabIndex = 9;
+            this.mtxtb_UploadRetryDelay.Text = "";
+            this.mtxtb_UploadRetryDelay.TrailingIcon = null;
+            this.mtxtb_UploadRetryDelay.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.mtxtb_WholeNumber_KeyPress);
+            //
             // lbl_ScpFolder
             //
             this.lbl_ScpFolder.AutoSize = true;
             this.lbl_ScpFolder.Depth = 0;
             this.lbl_ScpFolder.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_ScpFolder.Location = new System.Drawing.Point(20, 210);
+            this.lbl_ScpFolder.Location = new System.Drawing.Point(20, 290);
             this.lbl_ScpFolder.MouseState = MaterialSkin.MouseState.HOVER;
             this.lbl_ScpFolder.Name = "lbl_ScpFolder";
-            this.lbl_ScpFolder.TabIndex = 8;
+            this.lbl_ScpFolder.TabIndex = 10;
             this.lbl_ScpFolder.Text = "SCP Folder";
             //
             // mtxtb_ScpFolder
@@ -1396,14 +1430,14 @@ namespace Plexus_DICOM_Enabler
             this.mtxtb_ScpFolder.Depth = 0;
             this.mtxtb_ScpFolder.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
             this.mtxtb_ScpFolder.LeadingIcon = null;
-            this.mtxtb_ScpFolder.Location = new System.Drawing.Point(230, 196);
+            this.mtxtb_ScpFolder.Location = new System.Drawing.Point(230, 276);
             this.mtxtb_ScpFolder.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.mtxtb_ScpFolder.MaxLength = 255;
             this.mtxtb_ScpFolder.MouseState = MaterialSkin.MouseState.OUT;
             this.mtxtb_ScpFolder.Multiline = false;
             this.mtxtb_ScpFolder.Name = "mtxtb_ScpFolder";
             this.mtxtb_ScpFolder.Size = new System.Drawing.Size(630, 50);
-            this.mtxtb_ScpFolder.TabIndex = 9;
+            this.mtxtb_ScpFolder.TabIndex = 11;
             this.mtxtb_ScpFolder.Text = "";
             this.mtxtb_ScpFolder.TrailingIcon = null;
             this.mtxtb_ScpFolder.TrailingIconClick += new System.EventHandler(this.mtxtb_ScpFolder_TrailingIconClick);
@@ -1413,10 +1447,10 @@ namespace Plexus_DICOM_Enabler
             this.lbl_FailedScpFolder.AutoSize = true;
             this.lbl_FailedScpFolder.Depth = 0;
             this.lbl_FailedScpFolder.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_FailedScpFolder.Location = new System.Drawing.Point(20, 290);
+            this.lbl_FailedScpFolder.Location = new System.Drawing.Point(20, 370);
             this.lbl_FailedScpFolder.MouseState = MaterialSkin.MouseState.HOVER;
             this.lbl_FailedScpFolder.Name = "lbl_FailedScpFolder";
-            this.lbl_FailedScpFolder.TabIndex = 10;
+            this.lbl_FailedScpFolder.TabIndex = 12;
             this.lbl_FailedScpFolder.Text = "Failed SCP Folder";
             //
             // mtxtb_FailedScpFolder
@@ -1426,14 +1460,14 @@ namespace Plexus_DICOM_Enabler
             this.mtxtb_FailedScpFolder.Depth = 0;
             this.mtxtb_FailedScpFolder.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
             this.mtxtb_FailedScpFolder.LeadingIcon = null;
-            this.mtxtb_FailedScpFolder.Location = new System.Drawing.Point(230, 276);
+            this.mtxtb_FailedScpFolder.Location = new System.Drawing.Point(230, 356);
             this.mtxtb_FailedScpFolder.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.mtxtb_FailedScpFolder.MaxLength = 255;
             this.mtxtb_FailedScpFolder.MouseState = MaterialSkin.MouseState.OUT;
             this.mtxtb_FailedScpFolder.Multiline = false;
             this.mtxtb_FailedScpFolder.Name = "mtxtb_FailedScpFolder";
             this.mtxtb_FailedScpFolder.Size = new System.Drawing.Size(630, 50);
-            this.mtxtb_FailedScpFolder.TabIndex = 11;
+            this.mtxtb_FailedScpFolder.TabIndex = 13;
             this.mtxtb_FailedScpFolder.Text = "";
             this.mtxtb_FailedScpFolder.TrailingIcon = null;
             this.mtxtb_FailedScpFolder.TrailingIconClick += new System.EventHandler(this.mtxtb_FailedScpFolder_TrailingIconClick);
@@ -1683,6 +1717,8 @@ namespace Plexus_DICOM_Enabler
         private MaterialSkin.Controls.MaterialTextBox mtxtb_ScuPollInterval;
         private MaterialSkin.Controls.MaterialLabel lbl_MaxUploadRetries;
         private MaterialSkin.Controls.MaterialTextBox mtxtb_MaxUploadRetries;
+        private MaterialSkin.Controls.MaterialLabel lbl_UploadRetryDelay;
+        private MaterialSkin.Controls.MaterialTextBox mtxtb_UploadRetryDelay;
         private MaterialSkin.Controls.MaterialLabel lbl_ScpFolder;
         private MaterialSkin.Controls.MaterialTextBox mtxtb_ScpFolder;
         private MaterialSkin.Controls.MaterialLabel lbl_FailedScpFolder;

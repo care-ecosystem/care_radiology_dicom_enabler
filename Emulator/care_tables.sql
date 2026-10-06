@@ -68,12 +68,14 @@ CREATE TABLE IF NOT EXISTS `care_worklist` (
   CONSTRAINT `fk_care_worklist_patient` FOREIGN KEY (`patient_pk`) REFERENCES `care_patient` (`pk`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Outcome of each DICOM file upload to CARE, one row per file. A failed file stays in the SCP
--- folder and is retried, so a retry updates the same row with the latest status and log and
--- increments retry_count (0 on the first attempt). last_retry_time is when the file was last sent
--- to CARE: set on the first upload attempt and refreshed on every retry. After maxUploadRetries
--- retries the file is moved to FailedSCP\<dd-MM-yyyy> (the limit is set in care_config or
--- CARE_SCU_Service App.config).
+-- Outcome of each DICOM file upload to CARE, one row per file. A file that failed with a
+-- retryable error stays in the SCP folder and is retried, so a retry updates the same row with
+-- the latest status and log and increments retry_count (0 on the first attempt). last_retry_time
+-- is when the file was last sent to CARE: set on the first upload attempt and refreshed on every
+-- retry. The next retry waits upload_retry_delay_minutes * 2^retry_count after last_retry_time.
+-- After maxUploadRetries retries the file is moved to FailedSCP\<dd-MM-yyyy> (the limit is set
+-- in care_config or CARE_SCU_Service App.config). Errors that cannot succeed on a retry (HTTP
+-- 400/409, no AccessionNumber, accession number not in the CARE worklist) move it right away.
 -- worklist_pk links the file to the care_worklist row with its accession number; it stays NULL
 -- when the file has no accession number or it is not in care_worklist.
 CREATE TABLE IF NOT EXISTS `care_sync_upload` (
@@ -117,5 +119,6 @@ INSERT IGNORE INTO `care_config` (`config_key`, `config_value`, `description`) V
   ('worklist_refresh_start_seconds', NULL, 'Seconds after the MWL service starts before the first worklist refresh. Blank = App.config. Restart the MWL service to apply.'),
   ('worklist_refresh_interval_seconds', NULL, 'Seconds between worklist refreshes. Blank = App.config. Restart the MWL service to apply.'),
   ('max_upload_retries', NULL, 'Upload retries before a file is moved to the failed folder. Blank = App.config maxUploadRetries.'),
+  ('upload_retry_delay_minutes', NULL, 'Minutes after a failed upload before the first retry; the wait doubles after each retry (2, 4, 8...). Blank = 2.'),
   ('scp_folder', NULL, 'Folder where received DICOM files are saved and picked up for upload. Blank = SCP under the install folder. Restart the services to apply.'),
   ('failed_scp_folder', NULL, 'Folder files are moved to after the upload retry limit is hit. Blank = FailedSCP under the install folder.');

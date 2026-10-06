@@ -94,6 +94,7 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="ucls_CareWorklist.cs" />
     <Compile Include="ucls_DAL.cs" />
+    <Compile Include="ucls_NetworkCheck.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />

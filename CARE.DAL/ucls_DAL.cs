@@ -799,6 +799,78 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
+        /// True when care_worklist has a row with the accession number, whether or not it is linked
+        /// to a care_patient row.
+        /// </summary>
+        public bool IsAccessionNoInCareWorklist(string accessionNo, ref string errorString)
+        {
+            bool found = false;
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "SELECT COUNT(*) FROM care_worklist WHERE accession_number = @accession_number",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@accession_number", accessionNo ?? string.Empty);
+                        found = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                errorString = $"Checking care_worklist for Accession No {accessionNo} failed with exception " + ex.Message;
+                found = false;
+            }
+            return found;
+        }
+
+
+        /// <summary>
+        /// The retry_count and last_retry_time of the latest FAILED care_sync_upload row for a file
+        /// name. Returns false when the file has no FAILED row (it has not failed yet).
+        /// </summary>
+        public bool GetUploadRetryState(string fileName, ref int retryCount, ref DateTime? lastRetryTime, ref string errorString)
+        {
+            bool found = false;
+            retryCount = 0;
+            lastRetryTime = null;
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "SELECT retry_count, last_retry_time FROM care_sync_upload WHERE file_name = @file_name AND status = 'FAILED' " +
+                        "ORDER BY last_retry_time DESC LIMIT 1",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@file_name", fileName ?? string.Empty);
+                        using (MySqlDataReader reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                found = true;
+                                retryCount = Convert.ToInt32(reader["retry_count"]);
+                                if (reader["last_retry_time"] != DBNull.Value)
+                                    lastRetryTime = Convert.ToDateTime(reader["last_retry_time"]);
+                            }
+                        }
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                errorString = $"Reading the upload retry state for file {fileName} failed with exception " + ex.Message;
+                found = false;
+            }
+            return found;
+        }
+
+
+        /// <summary>
         /// Records the outcome of uploading one DICOM file to CARE in care_sync_upload. A retry of
         /// the same file updates its existing row with the latest status and log and increments
         /// retry_count. last_retry_time is set to the attempt time on the first upload and on every

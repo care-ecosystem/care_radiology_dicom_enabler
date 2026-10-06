@@ -2,6 +2,7 @@ using System;
 using System.Configuration;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
@@ -27,9 +28,17 @@ namespace Plexus_SCU_Service
         private const int DefaultMaxUploadRetries = 10;
         // Used when scu_poll_interval_seconds is blank or invalid in care_config.
         private const int DefaultPollIntervalSeconds = 5;
+        // Used when upload_retry_delay_minutes is blank or invalid in care_config. A failed file is
+        // retried this many minutes after its last attempt, then twice as long after each retry.
+        private const int DefaultUploadRetryDelayMinutes = 2;
         // The CARE worklist is fetched at most once per upload cycle, however many files in the
-        // cycle have an accession number that is not in care_worklist.
+        // cycle have an accession number or CARE patient id that is not in care_worklist.
         private bool worklistRefreshedThisCycle = false;
+        private bool worklistRefreshSucceeded = false;
+        // Set when an upload could not reach CARE because of a local network or internet issue. While
+        // set, files that failed before are not retried and the network is checked on every poll; new
+        // files are still tried once so they get a last_retry_time.
+        private bool networkDown = false;
 
         public Plexus_SCU_Service()
         {
@@ -72,6 +81,9 @@ namespace Plexus_SCU_Service
             {
                 timer.Enabled = false;
 
+                if (networkDown)
+                    CheckNetworkRestored();
+
                 string careBackendURL = (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).TrimEnd('/');
                 string uploadPath = ConfigurationManager.AppSettings["uploadURL"] ?? string.Empty;
                 string staticAPIKey = ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty;
@@ -106,6 +118,9 @@ namespace Plexus_SCU_Service
 
                 string uploadURL = careBackendURL + uploadPath;
                 worklistRefreshedThisCycle = false;
+                worklistRefreshSucceeded = false;
+                int retryDelayMinutes = GetIntSetting("upload_retry_delay_minutes", null, DefaultUploadRetryDelayMinutes);
+                int waitingCount = 0;
 
                 foreach (string dcmfile in dcmfiles)
                 {
@@ -121,8 +136,20 @@ namespace Plexus_SCU_Service
                         continue;
                     }
 
-                    UploadDicomFileViaHttp(dcmfile, uploadURL, staticAPIKey);
+                    // A file that failed before waits for its next retry time
+                    if (!IsDueForUpload(dcmfile, retryDelayMinutes))
+                    {
+                        waitingCount++;
+                        continue;
+                    }
+
+                    UploadDicomFileViaHttp(dcmfile, uploadURL, staticAPIKey, retryDelayMinutes);
                 }
+
+                if (waitingCount > 0)
+                    WriteToLog(networkDown
+                        ? $"{waitingCount} failed file(s) waiting for the network issue to be solved"
+                        : $"{waitingCount} file(s) waiting for their next retry time", true);
             }
             catch (Exception ex)
             {
@@ -134,7 +161,7 @@ namespace Plexus_SCU_Service
             }
         }
 
-        private void UploadDicomFileViaHttp(string dcmfile, string uploadURL, string staticApiKey)
+        private void UploadDicomFileViaHttp(string dcmfile, string uploadURL, string staticApiKey, int retryDelayMinutes)
         {
             string studyInstanceId = string.Empty;
             string accessionNumber = string.Empty;
@@ -144,30 +171,65 @@ namespace Plexus_SCU_Service
 
                 DicomDataset dataset = DicomFile.Open(dcmfile).Dataset;
                 studyInstanceId = dataset.GetString(DicomTag.StudyInstanceUID);
-                string patientId = dataset.GetString(DicomTag.PatientID);
+                string patientId = dataset.GetSingleValueOrDefault(DicomTag.PatientID, string.Empty);
                 accessionNumber = dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
 
-                // patient_id is only ever the CARE patient id saved in care_patient, found through the
-                // care_worklist row with the file's accession number. The DICOM PatientID is never sent.
-                // Without a patient_id the file is not uploaded: it stays in SCP and is retried, and
-                // after maxUploadRetries it moves to FailedSCP.
-                string carePatientId = GetCarePatientId(accessionNumber);
+                if (string.IsNullOrWhiteSpace(accessionNumber))
+                {
+                    FailWithoutRetry(dcmfile, studyInstanceId, accessionNumber, "No AccessionNumber in the DICOM file - not uploaded");
+                    return;
+                }
+
+                // patient_id is the CARE patient id saved in care_patient, found through the care_worklist
+                // row with the file's accession number. When the accession number or its patient is not in
+                // care_worklist, care_worklist is refreshed from the CARE worklist API and looked up again.
+                string carePatientId = LookupCarePatientId(accessionNumber);
+                bool inWorklist = !string.IsNullOrWhiteSpace(carePatientId) || IsAccessionNoInCareWorklist(accessionNumber);
                 if (string.IsNullOrWhiteSpace(carePatientId))
                 {
-                    string notFoundLog = string.IsNullOrWhiteSpace(accessionNumber)
-                        ? "No AccessionNumber in the DICOM file - not uploaded"
-                        : $"AccessionNumber={accessionNumber} not found in care_worklist after refreshing it from the CARE worklist API - not uploaded";
-                    WriteToLog($"{notFoundLog}: {dcmfile}", false);
-                    UpdateStudyStatusDB(-10, studyInstanceId, dcmfile);
-                    RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, notFoundLog);
+                    WriteToLog(inWorklist
+                        ? $"AccessionNumber={accessionNumber} has no CARE patient id in care_worklist - refreshing it from the CARE worklist API"
+                        : $"AccessionNumber={accessionNumber} not found in care_worklist - refreshing it from the CARE worklist API", true);
+                    if (!RefreshCareWorklistOncePerCycle())
+                    {
+                        // The worklist could not be fetched, so it is not known whether the accession number is in it
+                        RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber,
+                            $"AccessionNumber={accessionNumber} or its CARE patient id is not in care_worklist and the CARE worklist API could not be reached to refresh it - not uploaded",
+                            retryDelayMinutes);
+                        return;
+                    }
+                    carePatientId = LookupCarePatientId(accessionNumber);
+                    inWorklist = !string.IsNullOrWhiteSpace(carePatientId) || IsAccessionNoInCareWorklist(accessionNumber);
+                }
+
+                if (!inWorklist)
+                {
+                    FailWithoutRetry(dcmfile, studyInstanceId, accessionNumber,
+                        $"AccessionNumber={accessionNumber} not found in care_worklist after refreshing it from the CARE worklist API - not uploaded");
                     return;
+                }
+
+                // The accession number is in care_worklist but its CARE patient id is still missing: the
+                // DICOM PatientID is sent instead, for this upload only (care_worklist and care_patient are not changed)
+                string patientIdNote = string.Empty;
+                if (string.IsNullOrWhiteSpace(carePatientId))
+                {
+                    if (string.IsNullOrWhiteSpace(patientId))
+                    {
+                        FailWithoutRetry(dcmfile, studyInstanceId, accessionNumber,
+                            $"CARE patient id missing for AccessionNumber={accessionNumber} after refreshing care_worklist and no PatientID in the DICOM file - not uploaded");
+                        return;
+                    }
+                    carePatientId = patientId;
+                    patientIdNote = $" (CARE patient id missing for AccessionNumber={accessionNumber} after refreshing care_worklist - sent the DICOM PatientID={patientId})";
+                    WriteToLog($"CARE patient id missing for AccessionNumber={accessionNumber} after refreshing care_worklist - uploading with the DICOM PatientID={patientId}", false);
                 }
 
                 string fileName = Path.GetFileName(dcmfile);
                 using (var content = new MultipartFormDataContent())
                 {
                     content.Add(new StringContent(carePatientId), "patient_id");
-                    WriteToLog($"Sending patient_id={carePatientId} from care_worklist for AccessionNumber={accessionNumber}", true);
+                    WriteToLog($"Sending patient_id={carePatientId} for AccessionNumber={accessionNumber}", true);
 
                     content.Add(new StringContent(fileName), "filename");
 
@@ -182,7 +244,24 @@ namespace Plexus_SCU_Service
 
                     WriteToLog($"Uploading to {uploadURL} (patient_id={carePatientId}, DICOM PatientID={patientId}, StudyUID={studyInstanceId}, AccessionNumber={accessionNumber})", true);
 
-                    var response = httpClient.SendAsync(request).GetAwaiter().GetResult();
+                    HttpResponseMessage response;
+                    try
+                    {
+                        response = httpClient.SendAsync(request).GetAwaiter().GetResult();
+                    }
+                    catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
+                    {
+                        // CARE could not be reached: find out whether the local network or the internet is down
+                        bool networkIssue = ucls_NetworkCheck.HasNetworkIssue(out string networkCheck);
+                        WriteToLog($"Could not connect to CARE - upload of {dcmfile} failed: {ex.Message}. {networkCheck}", false);
+                        if (networkIssue && !networkDown)
+                        {
+                            networkDown = true;
+                            WriteToLog($"Network issue detected - failed uploads will not be retried until it is solved: {networkCheck}", false);
+                        }
+                        RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, $"Could not connect to CARE: {ex.Message}. {networkCheck}{patientIdNote}", retryDelayMinutes);
+                        return;
+                    }
                     string responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
 
                     if (response.IsSuccessStatusCode)
@@ -200,32 +279,90 @@ namespace Plexus_SCU_Service
                     }
                     else
                     {
-                        WriteToLog($"Upload failed ({(int)response.StatusCode}) for {dcmfile}: {responseBody}", false);
-                        UpdateStudyStatusDB(-10, studyInstanceId, dcmfile);
+                        WriteToLog($"Upload failed ({(int)response.StatusCode}) for {dcmfile}: {responseBody}{patientIdNote}", false);
 
-                        string failureLog = $"HTTP {(int)response.StatusCode} ({response.ReasonPhrase}): {responseBody}";
-                        RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, failureLog);
+                        string failureLog = $"HTTP {(int)response.StatusCode} ({response.ReasonPhrase}): {responseBody}{patientIdNote}";
+                        // 400 and 409 fail the same way on every retry; 401, 403, 429, 5xx and any other status are retried
+                        if (response.StatusCode == HttpStatusCode.BadRequest || response.StatusCode == HttpStatusCode.Conflict)
+                            FailWithoutRetry(dcmfile, studyInstanceId, accessionNumber, failureLog);
+                        else
+                            RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, failureLog, retryDelayMinutes);
                     }
                 }
             }
             catch (Exception ex)
             {
                 WriteToLog($"Upload exception for {dcmfile}: {ex.Message}", false);
-                UpdateStudyStatusDB(-10, studyInstanceId, dcmfile);
-                RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, "Exception: " + ex.Message);
+                RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, "Exception: " + ex.Message, retryDelayMinutes);
             }
         }
 
         // Saves the failed attempt to care_sync_upload, then moves the file out of SCP once it
-        // reaches maxUploadRetries retries.
-        private void RecordUploadFailure(string dcmfile, string studyInstanceId, string accessionNumber, string failureLog)
+        // reaches maxUploadRetries retries. Until then it stays in SCP and is retried at its next retry time.
+        private void RecordUploadFailure(string dcmfile, string studyInstanceId, string accessionNumber, string failureLog, int retryDelayMinutes)
         {
             int maxRetries = GetIntSetting("max_upload_retries", "maxUploadRetries", DefaultMaxUploadRetries);
 
+            UpdateStudyStatusDB(-10, studyInstanceId, dcmfile);
             SaveStudyUploadDB(studyInstanceId, accessionNumber, dcmfile, "FAILED", failureLog, out int retryCount);
 
             if (retryCount >= maxRetries)
                 MoveToFailedSCP(dcmfile, studyInstanceId, accessionNumber, retryCount, failureLog);
+            else
+                WriteToLog($"Keeping {dcmfile} for retry {retryCount + 1} of {maxRetries} after {DateTime.Now.Add(GetRetryDelay(retryDelayMinutes, retryCount)):dd-MM-yyyy HH:mm:ss}", true);
+        }
+
+        // Saves the failed attempt to care_sync_upload and moves the file straight to FailedSCP, for
+        // failures that a retry cannot fix.
+        private void FailWithoutRetry(string dcmfile, string studyInstanceId, string accessionNumber, string failureLog)
+        {
+            WriteToLog($"{failureLog} - moving {dcmfile} to FailedSCP without retrying", false);
+            UpdateStudyStatusDB(-10, studyInstanceId, dcmfile);
+            SaveStudyUploadDB(studyInstanceId, accessionNumber, dcmfile, "FAILED", failureLog, out int retryCount);
+            MoveToFailedSCP(dcmfile, studyInstanceId, accessionNumber, retryCount, failureLog);
+        }
+
+        // A file that has not failed yet is uploaded straight away. A failed one is retried
+        // retryDelayMinutes * 2^retry_count after its last attempt (2, 4, 8... minutes by default),
+        // so files that failed together are not all retried at the same time.
+        private bool IsDueForUpload(string dcmfile, int retryDelayMinutes)
+        {
+            string errorString = string.Empty;
+            int retryCount = 0;
+            DateTime? lastRetryTime = null;
+            bool hasFailed = objDAL.GetUploadRetryState(Path.GetFileName(dcmfile), ref retryCount, ref lastRetryTime, ref errorString);
+            if (!string.IsNullOrEmpty(errorString))
+            {
+                WriteToLog($"{errorString} - uploading {dcmfile} now", false);
+                return true;
+            }
+            if (!hasFailed)
+                return true;
+            // While there is a network issue only new files are tried
+            if (networkDown)
+                return false;
+            if (lastRetryTime == null)
+                return true;
+            return DateTime.Now >= lastRetryTime.Value.Add(GetRetryDelay(retryDelayMinutes, retryCount));
+        }
+
+        // Checks on every poll whether the local network or internet issue that stopped uploads is
+        // solved, and logs the result. Once it is, failed files are retried at their next retry time.
+        private void CheckNetworkRestored()
+        {
+            if (ucls_NetworkCheck.HasNetworkIssue(out string networkCheck))
+            {
+                WriteToLog($"Network issue not solved yet - failed uploads are not retried: {networkCheck}", false);
+                return;
+            }
+            networkDown = false;
+            WriteToLog("Network issue solved (local network and internet are up) - retrying failed uploads at their next retry time", true);
+        }
+
+        private static TimeSpan GetRetryDelay(int retryDelayMinutes, int retryCount)
+        {
+            // Capped so a large retry_count cannot overflow the delay
+            return TimeSpan.FromMinutes(retryDelayMinutes * Math.Pow(2, Math.Min(Math.Max(retryCount, 0), 20)));
         }
 
         private int GetIntSetting(string configKey, string appSettingKey, int defaultValue)
@@ -287,11 +424,19 @@ namespace Plexus_SCU_Service
 
                 string fileName = Path.GetFileName(dcmfile);
                 string destination = Path.Combine(failedFolder, fileName);
-                if (File.Exists(destination))
-                    File.Delete(destination);
+
+                // A file with the same name already moved there today is kept: this one is saved as name_1, name_2...
+                string renamedNote = string.Empty;
+                for (int suffix = 1; File.Exists(destination); suffix++)
+                    destination = Path.Combine(failedFolder, $"{Path.GetFileNameWithoutExtension(fileName)}_{suffix}{Path.GetExtension(fileName)}");
+                if (Path.GetFileName(destination) != fileName)
+                {
+                    renamedNote = $" | Renamed to: {Path.GetFileName(destination)} (a file named {fileName} is already in {failedFolder})";
+                    WriteToLog($"{fileName} is already in {failedFolder} - saving {dcmfile} as {Path.GetFileName(destination)}", false);
+                }
                 File.Move(dcmfile, destination);
 
-                string entry = $"{DateTime.Now:dd-MM-yyyy HH:mm:ss} | File: {fileName} | AccessionNumber: {accessionNumber} | StudyUID: {studyInstanceId} | " +
+                string entry = $"{DateTime.Now:dd-MM-yyyy HH:mm:ss} | File: {fileName}{renamedNote} | AccessionNumber: {accessionNumber} | StudyUID: {studyInstanceId} | " +
                                $"Retries: {retryCount} | Response: {failureLog}{Environment.NewLine}";
                 File.AppendAllText(Path.Combine(failedFolder, "error.log"), entry);
 
@@ -356,31 +501,35 @@ namespace Plexus_SCU_Service
                 else
                     WriteToLog($"Webhook failed ({(int)response.StatusCode}): {responseBody}", false);
             }
+            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
+            {
+                WriteToLog($"Webhook call could not connect to CARE: {ex.Message}. {ucls_NetworkCheck.Describe()}", false);
+            }
             catch (Exception ex)
             {
                 WriteToLog($"Webhook call exception: {ex.Message}", false);
             }
         }
 
-        // Looks the accession number up in care_worklist. When it is not there, refreshes care_worklist
-        // from the CARE worklist API (once per upload cycle) and looks it up again. Returns empty when
-        // the file has no accession number or it is still not found.
-        private string GetCarePatientId(string accessionNumber)
+        // Refreshes care_worklist from the CARE worklist API at most once per upload cycle. Returns
+        // whether that refresh succeeded; later calls in the same cycle reuse its result.
+        private bool RefreshCareWorklistOncePerCycle()
         {
-            if (string.IsNullOrWhiteSpace(accessionNumber))
-                return string.Empty;
+            if (!worklistRefreshedThisCycle)
+            {
+                worklistRefreshedThisCycle = true;
+                worklistRefreshSucceeded = RefreshCareWorklist();
+            }
+            return worklistRefreshSucceeded;
+        }
 
-            string carePatientId = LookupCarePatientId(accessionNumber);
-            if (!string.IsNullOrWhiteSpace(carePatientId))
-                return carePatientId;
-
-            if (worklistRefreshedThisCycle)
-                return string.Empty;
-
-            WriteToLog($"AccessionNumber={accessionNumber} not found in care_worklist — refreshing it from the CARE worklist API", true);
-            worklistRefreshedThisCycle = true;
-            RefreshCareWorklist();
-            return LookupCarePatientId(accessionNumber);
+        private bool IsAccessionNoInCareWorklist(string accessionNumber)
+        {
+            string errorString = string.Empty;
+            bool found = objDAL.IsAccessionNoInCareWorklist(accessionNumber, ref errorString);
+            if (!string.IsNullOrEmpty(errorString))
+                WriteToLog($"care_worklist lookup failed for AccessionNumber={accessionNumber}: {errorString}", false);
+            return found;
         }
 
         private string LookupCarePatientId(string accessionNumber)
@@ -403,8 +552,8 @@ namespace Plexus_SCU_Service
         // Fetches the worklist for the Facility ID in the Configuration tab and saves it to care_worklist,
         // the same way the MWL service's periodic refresh does. The modality and from date must match the
         // MWL service's (set them in care_config so both read the same values): the sync marks scheduled
-        // rows missing from the response COMPLETED.
-        private void RefreshCareWorklist()
+        // rows missing from the response COMPLETED. Returns false when care_worklist was not refreshed.
+        private bool RefreshCareWorklist()
         {
             string errorString = string.Empty;
             string resolvedFrom = string.Empty;
@@ -414,15 +563,15 @@ namespace Plexus_SCU_Service
                 if (!string.IsNullOrEmpty(errorString))
                 {
                     WriteToLog($"Not refreshing care_worklist: Facility ID lookup failed: {errorString}", false);
-                    return;
+                    return false;
                 }
                 if (string.IsNullOrWhiteSpace(facilityId))
                 {
                     WriteToLog($"Not refreshing care_worklist: no Facility ID - {resolvedFrom}", false);
-                    return;
+                    return false;
                 }
 
-                ucls_CareWorklist.RefreshCareWorklist(
+                return ucls_CareWorklist.RefreshCareWorklist(
                     objDAL,
                     (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).TrimEnd('/'),
                     ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty,
@@ -434,6 +583,7 @@ namespace Plexus_SCU_Service
             catch (Exception ex)
             {
                 WriteToLog($"Refreshing care_worklist failed with exception {ex.Message}", false);
+                return false;
             }
         }
 

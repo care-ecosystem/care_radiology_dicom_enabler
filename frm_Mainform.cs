@@ -748,6 +748,7 @@ namespace Plexus_DICOM_Enabler
                     new { Key = "worklist_refresh_start_seconds", Name = "Refresh Start (sec)", MinValue = 0 },
                     new { Key = "worklist_refresh_interval_seconds", Name = "Refresh Interval (sec)", MinValue = 1 },
                     new { Key = "max_upload_retries", Name = "Max Upload Retries", MinValue = 1 },
+                    new { Key = "upload_retry_delay_minutes", Name = "Retry Delay (min)", MinValue = 1 },
                 };
                 foreach (var field in wholeNumberFields)
                 {
@@ -854,6 +855,7 @@ namespace Plexus_DICOM_Enabler
                     return new[] { MwlServiceName };
                 case "scu_poll_interval_seconds":
                 case "max_upload_retries":
+                case "upload_retry_delay_minutes":
                 case "failed_scp_folder":
                     return new[] { StoreScuServiceName };
                 case "scp_folder":
@@ -1076,6 +1078,7 @@ namespace Plexus_DICOM_Enabler
                 { "worklist_refresh_start_seconds", mtxtb_WorklistRefreshStart },
                 { "worklist_refresh_interval_seconds", mtxtb_WorklistRefreshInterval },
                 { "max_upload_retries", mtxtb_MaxUploadRetries },
+                { "upload_retry_delay_minutes", mtxtb_UploadRetryDelay },
                 { "scp_folder", mtxtb_ScpFolder },
                 { "failed_scp_folder", mtxtb_FailedScpFolder },
             };
@@ -1106,6 +1109,8 @@ namespace Plexus_DICOM_Enabler
                     return Path.Combine(Global._applicationPath, "FailedSCP");
                 case "max_upload_retries":
                     return WholeNumberOrDefault(ReadServiceSetting("CARE_SCU_Service", "maxUploadRetries"), 10, 1);
+                case "upload_retry_delay_minutes":
+                    return "2";
                 default:
                     return string.Empty;
             }

@@ -127,6 +127,7 @@ namespace Plexus.Common.Database
         private static async Task<string> GetCareWorklistDetailsAsync(string baseUrl, string token, string modality, string fromDate, string facilityId, Action<string, bool> writeToLog)
         {
             string responseBody = string.Empty;
+            bool responseReceived = false;
 
             try
             {
@@ -147,6 +148,7 @@ namespace Plexus.Common.Database
                     client.DefaultRequestHeaders.Add("Authorization", token);
 
                     HttpResponseMessage response = await client.GetAsync(requestUrl).ConfigureAwait(false);
+                    responseReceived = true;
 
                     // Read the body BEFORE throwing. EnsureSuccessStatusCode discards it, which
                     // made a rejected token, a moved route and a permissions failure all surface
@@ -178,6 +180,9 @@ namespace Plexus.Common.Database
             catch (Exception ex)
             {
                 writeToLog("Error calling CARE Worklist API with exception " + ex.Message, false);
+                // No response at all: CARE could not be reached
+                if (!responseReceived && (ex is HttpRequestException || ex is TaskCanceledException))
+                    writeToLog("Could not connect to the CARE Worklist API. " + ucls_NetworkCheck.Describe(), false);
                 throw;
             }
 
