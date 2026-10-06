@@ -3,11 +3,19 @@
 Queries the worklist the way a modality does - DICOM C-FIND to the enabler's MWL SCP - and checks
 the enabler fetched it from CARE scoped to the facility and device, then returned exactly the
 service requests that target the configured device.
+
+The MWL SCP answers C-FIND from care_worklist, which it refreshes from the CARE worklist API every
+worklist_refresh_interval_seconds (30 by default) and when no row matches a C-FIND.
 """
 import datetime as dt
+import time
 
 from conftest import TARGETED_ROLES, need, sr
 from dicom_client import SUCCESS, status_name
+
+# A periodic refresh that ran while the SRs were being created leaves only some of them in
+# care_worklist; C-FIND then answers from those rows until the next refresh. Allow two intervals.
+WORKLIST_REFRESH_WAIT_S = 75
 
 
 def _targeted(ctx):
@@ -38,9 +46,17 @@ def test_device_worklist_returns_only_relevant_service_requests(cfg, dicom, ctx,
     """C-FIND to the MWL SCP returns exactly the configured device's service requests"""
     need(ctx, "service_requests_created")
     targeted = _targeted(ctx)
-    status, items = dicom.find_worklist(modality=cfg.modality, scheduled_aet=cfg.calling_aet)
-    returned = {item["accession_number"]: item for item in items}
+    deadline = time.monotonic() + WORKLIST_REFRESH_WAIT_S
+    attempts = 0
+    while True:
+        attempts += 1
+        status, items = dicom.find_worklist(modality=cfg.modality, scheduled_aet=cfg.calling_aet)
+        returned = {item["accession_number"]: item for item in items}
+        if status != SUCCESS or set(targeted) <= set(returned) or time.monotonic() >= deadline:
+            break
+        time.sleep(5)
 
+    record["c_find_attempts"] = attempts
     record["c_find_status"] = status_name(status)
     record["returned"] = sorted(returned)
     record["expected"] = sorted(targeted)
@@ -77,10 +93,15 @@ def test_device_worklist_returns_only_relevant_service_requests(cfg, dicom, ctx,
     ctx["worklist_ok"] = True
 
     logs.wait_for("mwl", rf"\[FACILITY\] AE={cfg.calling_aet} resolved to Facility ID={cfg.facility_id}", timeout=15)
-    logs.wait_for("worklist", rf"CARE Worklist URL: .*modality={cfg.modality}.*&facility={cfg.facility_id}", timeout=15)
-    logs.wait_for("worklist", r"Successfully fetched and populated \d+ worklist items", timeout=15)
+    logs.wait_for("mwl", rf"Fetching Records from care_worklist for Facility ID {cfg.facility_id}", timeout=15)
+    logs.wait_for("mwl", rf"Successfully fetched \d+ worklist items from care_worklist, {len(returned)} matching the C-FIND", timeout=15)
     logs.wait_for("mwl", rf"C-FIND completed successfully: returned {len(returned)} worklist items", timeout=15)
-    logs.assert_absent("worklist", r"Error (calling|Getting)")
+    # The CARE call comes from this C-FIND when care_worklist had no match, otherwise from the
+    # periodic refresh, so allow one refresh interval for it.
+    logs.wait_for("mwl", rf"CARE Worklist URL: .*modality={cfg.modality}&.*&facility={cfg.facility_id}", timeout=45)
+    logs.wait_for("mwl", r"care_worklist synced: \d+ new row\(s\) inserted", timeout=45)
+    logs.assert_absent("mwl", r"Error calling CARE Worklist API|CARE worklist API did not report success|"
+                              r"Refreshing care_worklist from the CARE worklist API failed")
 
 
 def test_worklist_filters_other_modality(cfg, dicom, ctx, record):

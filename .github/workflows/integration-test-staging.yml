@@ -91,6 +91,7 @@ on:
       - 'CARE*/**'
       - 'ci/integration/**'
       - 'Emulator/schema.sql'
+      - 'Emulator/care_tables.sql'
       - '.github/workflows/integration-test-staging.yml'
   pull_request:
     branches: [main]
@@ -98,6 +99,7 @@ on:
       - 'CARE*/**'
       - 'ci/integration/**'
       - 'Emulator/schema.sql'
+      - 'Emulator/care_tables.sql'
       - '.github/workflows/integration-test-staging.yml'
 
 # Runs share the test facility, and the worklist test expects only its own service requests, so
@@ -258,7 +260,8 @@ jobs:
           }
           Write-Error "MySQL did not become ready"; exit 1
 
-      # The full enabler schema (tables + stored procedures the services call). Its ALTER USER
+      # The full enabler schema (tables + stored procedures the services call), then the CARE
+      # tables (care_config etc.), in the same order as Initializer.ps1. schema.sql's ALTER USER
       # line sets a root password for desktop installs; the CI root keeps an empty one.
       - name: Create database and register the calling modality
         shell: pwsh
@@ -268,13 +271,31 @@ jobs:
             & $env:MYSQL_EXE -u root --protocol=TCP
           if ($LASTEXITCODE -ne 0) { Write-Error "Schema creation failed"; exit 1 }
 
-          # Server List row: maps the calling AE to the facility the worklist is fetched for, and
-          # (checkserver=true in cfg/common.cfg) is the only AE/IP the MWL and Store SCP accept.
-          $sql = "INSERT INTO plexus_mi2.dcm_servers (name, aetitle, hostaddress, portnumber, facilityid, description) " +
-                 "VALUES ('CI modality', '$env:CALLING_AET', '127.0.0.1', '104', '$env:CARE_FACILITY_ID', 'GitHub Actions integration test');"
+          Get-Content "Emulator\care_tables.sql" | & $env:MYSQL_EXE -u root --protocol=TCP
+          if ($LASTEXITCODE -ne 0) { Write-Error "CARE tables creation failed"; exit 1 }
+
+          # Server List row: with checkserver=true in cfg/common.cfg, the only AE/IP the MWL and
+          # Store SCP accept.
+          $sql = "INSERT INTO plexus_mi2.dcm_servers (name, aetitle, hostaddress, portnumber, description) " +
+                 "VALUES ('CI modality', '$env:CALLING_AET', '127.0.0.1', '104', 'GitHub Actions integration test');"
           & $env:MYSQL_EXE -u root --protocol=TCP -e $sql
           if ($LASTEXITCODE -ne 0) { Write-Error "Server List insert failed"; exit 1 }
-          Write-Output "Registered $env:CALLING_AET for facility $env:CARE_FACILITY_ID"
+          Write-Output "Registered $env:CALLING_AET"
+
+          # Configuration tab settings. The MWL service and the SCU service (which refreshes the
+          # worklist when an upload's accession number is unknown) both read these, falling back to
+          # their own App.config when blank, so set them here once for both.
+          $settings = [ordered]@{
+            facility_id    = $env:CARE_FACILITY_ID
+            care_modality  = $env:CARE_MODALITY
+            care_from_date = $env:CARE_FROM_DATE
+          }
+          foreach ($key in $settings.Keys) {
+            $sql = "UPDATE plexus_mi2.care_config SET config_value = '$($settings[$key])' WHERE config_key = '$key';"
+            & $env:MYSQL_EXE -u root --protocol=TCP -e $sql
+            if ($LASTEXITCODE -ne 0) { Write-Error "care_config $key update failed"; exit 1 }
+            Write-Output "care_config $key = $($settings[$key])"
+          }
 
       # Replicates CARE.DAL/EnDcryption.cs: AES-256-CBC, key = EncKey.encdeKey, zero IV, PKCS7.
       - name: Write cfg/common.cfg
@@ -316,7 +337,7 @@ jobs:
               $up = (Test-NetConnection 127.0.0.1 -Port $port -WarningAction SilentlyContinue).TcpTestSucceeded
               if (-not $up) { Start-Sleep -Seconds 2 }
             }
-            if (-not $up) { Write-Error "Nothing listening on port $port after 60s"; Get-ChildItem bin\Release\logs | ForEach-Object { Get-Content $_.FullName -Tail 30 }; exit 1 }
+            if (-not $up) { Write-Error "Nothing listening on port $port after 60s"; Get-ChildItem bin\Release\logs -Recurse -File -Filter *.txt | ForEach-Object { Get-Content $_.FullName -Tail 30 }; exit 1 }
             Write-Output "Port $port listening"
           }
 
@@ -353,7 +374,8 @@ jobs:
             Remove-Service $svc -ErrorAction SilentlyContinue
           }
           New-Item -ItemType Directory -Force -Path "$env:REPORT_DIR\service-logs" | Out-Null
-          Copy-Item "bin\Release\logs\*" "$env:REPORT_DIR\service-logs" -ErrorAction SilentlyContinue
+          # Services log to logs\yyyy-MM-dd\ (rolled files zipped under its archive\)
+          Copy-Item "bin\Release\logs\*" "$env:REPORT_DIR\service-logs" -Recurse -ErrorAction SilentlyContinue
           # Defence in depth: the suite already redacts results.json; scrub the copied logs too.
           foreach ($file in Get-ChildItem "$env:REPORT_DIR" -Recurse -File -Include *.txt, *.html, *.md, *.xml) {
             $text = Get-Content $file.FullName -Raw

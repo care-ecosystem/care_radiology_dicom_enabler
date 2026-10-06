@@ -33,9 +33,7 @@ def test_services_listen_on_configured_ports(cfg, record):
 
 def test_service_startup_logged_with_configuration(cfg, record):
     """Each service logged a clean start with the configured port and AE title"""
-    full = LogWatch(cfg.log_dir)
-    full.offsets = {}  # read the whole files, not just this test's slice
-    logs = full.slice()
+    logs = LogWatch(cfg.log_dir, from_start=True).slice()  # the whole logs, not just this test's slice
 
     mwl = re.search(r"Starting MWL DICOM server on port (\d+), AET=(\S+), backend=(\d+)", logs.get("mwl", ""))
     assert mwl, "MWL service did not log its start-up line"
