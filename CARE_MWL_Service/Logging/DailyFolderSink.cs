@@ -74,7 +74,7 @@ namespace Plexus_MWL_Service.logs
                         .WriteTo.File(logPath,
                             retainedFileCountLimit: 3,
                             rollOnFileSizeLimit: true,
-                            fileSizeLimitBytes: 5120,
+                            fileSizeLimitBytes: 10240,
                             hooks: new ZipOnDeleteHooks())
                         .CreateLogger();
 
