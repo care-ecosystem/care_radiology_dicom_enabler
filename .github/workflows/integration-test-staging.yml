@@ -91,6 +91,7 @@ on:
       - 'CARE*/**'
       - 'ci/integration/**'
       - 'Emulator/schema.sql'
+      - 'Emulator/care_tables.sql'
       - '.github/workflows/integration-test-staging.yml'
   pull_request:
     branches: [main]
@@ -98,6 +99,7 @@ on:
       - 'CARE*/**'
       - 'ci/integration/**'
       - 'Emulator/schema.sql'
+      - 'Emulator/care_tables.sql'
       - '.github/workflows/integration-test-staging.yml'
 
 # Runs share the test facility, and the worklist test expects only its own service requests, so
@@ -280,11 +282,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "Server List insert failed"; exit 1 }
           Write-Output "Registered $env:CALLING_AET"
 
-          # The enabler's single Facility ID (Configuration tab), used for every calling AE.
-          $sql = "UPDATE plexus_mi2.care_config SET config_value = '$env:CARE_FACILITY_ID' WHERE config_key = 'facility_id';"
-          & $env:MYSQL_EXE -u root --protocol=TCP -e $sql
-          if ($LASTEXITCODE -ne 0) { Write-Error "care_config facility_id update failed"; exit 1 }
-          Write-Output "care_config facility_id = $env:CARE_FACILITY_ID"
+          # Configuration tab settings. The MWL service and the SCU service (which refreshes the
+          # worklist when an upload's accession number is unknown) both read these, falling back to
+          # their own App.config when blank, so set them here once for both.
+          $settings = [ordered]@{
+            facility_id    = $env:CARE_FACILITY_ID
+            care_modality  = $env:CARE_MODALITY
+            care_from_date = $env:CARE_FROM_DATE
+          }
+          foreach ($key in $settings.Keys) {
+            $sql = "UPDATE plexus_mi2.care_config SET config_value = '$($settings[$key])' WHERE config_key = '$key';"
+            & $env:MYSQL_EXE -u root --protocol=TCP -e $sql
+            if ($LASTEXITCODE -ne 0) { Write-Error "care_config $key update failed"; exit 1 }
+            Write-Output "care_config $key = $($settings[$key])"
+          }
 
       # Replicates CARE.DAL/EnDcryption.cs: AES-256-CBC, key = EncKey.encdeKey, zero IV, PKCS7.
       - name: Write cfg/common.cfg
@@ -326,7 +337,7 @@ jobs:
               $up = (Test-NetConnection 127.0.0.1 -Port $port -WarningAction SilentlyContinue).TcpTestSucceeded
               if (-not $up) { Start-Sleep -Seconds 2 }
             }
-            if (-not $up) { Write-Error "Nothing listening on port $port after 60s"; Get-ChildItem bin\Release\logs | ForEach-Object { Get-Content $_.FullName -Tail 30 }; exit 1 }
+            if (-not $up) { Write-Error "Nothing listening on port $port after 60s"; Get-ChildItem bin\Release\logs -Recurse -File -Filter *.txt | ForEach-Object { Get-Content $_.FullName -Tail 30 }; exit 1 }
             Write-Output "Port $port listening"
           }
 
@@ -363,7 +374,8 @@ jobs:
             Remove-Service $svc -ErrorAction SilentlyContinue
           }
           New-Item -ItemType Directory -Force -Path "$env:REPORT_DIR\service-logs" | Out-Null
-          Copy-Item "bin\Release\logs\*" "$env:REPORT_DIR\service-logs" -ErrorAction SilentlyContinue
+          # Services log to logs\yyyy-MM-dd\ (rolled files zipped under its archive\)
+          Copy-Item "bin\Release\logs\*" "$env:REPORT_DIR\service-logs" -Recurse -ErrorAction SilentlyContinue
           # Defence in depth: the suite already redacts results.json; scrub the copied logs too.
           foreach ($file in Get-ChildItem "$env:REPORT_DIR" -Recurse -File -Include *.txt, *.html, *.md, *.xml) {
             $text = Get-Content $file.FullName -Raw

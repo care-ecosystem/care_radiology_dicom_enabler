@@ -9,8 +9,7 @@ from pathlib import Path
 
 ICON = {"passed": "✅", "failed": "❌", "skipped": "⏭️"}
 SERVICE_TITLES = {
-    "mwl": "MWL SCP (ModalitySCP)",
-    "worklist": "CARE worklist fetch (WorklistItems)",
+    "mwl": "MWL SCP and CARE worklist fetch (ModalitySCP)",
     "store": "Store SCP (StoreSCP)",
     "scu": "Store SCU / upload (StoreSCU)",
     "other": "Other",
