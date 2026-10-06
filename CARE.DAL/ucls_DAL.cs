@@ -274,10 +274,12 @@ namespace Plexus.Common.Database
         /// <param name="stationName"></param>
         /// <param name="departmentName"></param>
         /// <param name="imageInstanceId"></param>
+        /// <param name="studystatus"></param>
+        /// <param name="sopClassUid"></param>
         /// <param name="errorString"></param>
         /// <returns></returns>
         public string InsertOrUpdateStudyInfo(string patientId, string accesionNo, string studyInstanceId, string seriesInstanceId, string seriesNo, string modality,
-            string bodyPart, string seriesDesc, string instName, string stationName, string departmentName, string imageInstanceId, int studystatus , ref string errorString)
+            string bodyPart, string seriesDesc, string instName, string stationName, string departmentName, string imageInstanceId, int studystatus, string sopClassUid, ref string errorString)
         {
             string retVal = string.Empty;
             try
@@ -300,6 +302,7 @@ namespace Plexus.Common.Database
                         cmd.Parameters.AddWithValue("@department", departmentName);
                         cmd.Parameters.AddWithValue("@imageinstanceid", imageInstanceId);
                         cmd.Parameters.AddWithValue("@studystatus", studystatus);
+                        cmd.Parameters.AddWithValue("@sopclassuid", sopClassUid);
                         
                         cmd.Parameters.Add("outreturnstatus", MySqlDbType.String);
                         cmd.Parameters["outreturnstatus"].Direction = ParameterDirection.Output;

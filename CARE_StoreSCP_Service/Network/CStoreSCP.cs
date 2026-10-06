@@ -92,11 +92,11 @@ namespace Plexus_StoreSCP_Service.Network
             _fileLogger.Information($"Received Association request from AE {association.CallingAE} with IP: {association.RemoteHost}");
             if (!validateServer(association.CallingAE, association.RemoteHost))
             {
-                _fileLogger.Error($"Association Rejected as CalledAE not recognized {Global._aeTitle} with IP: {association.RemoteHost}");
+                _fileLogger.Error($"Association Rejected: calling AE {association.CallingAE} with IP: {association.RemoteHost} is not in the Server List");
                 return SendAssociationRejectAsync(
                     DicomRejectResult.Permanent,
                     DicomRejectSource.ServiceUser,
-                    DicomRejectReason.CalledAENotRecognized);
+                    DicomRejectReason.CallingAENotRecognized);
             }
 
             foreach (var pc in association.PresentationContexts)
@@ -141,22 +141,23 @@ namespace Plexus_StoreSCP_Service.Network
             string retVal = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/checkserver");
             if (retVal != string.Empty && (Convert.ToBoolean(retVal) == true))
             {
-                if (!objDAL.validateAETitle(Association.CallingAE, Association.RemoteHost, ref errorString))
+                // Uses the parameters, not Association: this also runs while the association is being negotiated.
+                if (!objDAL.validateAETitle(aeTitle, hostAddress, ref errorString))
                 {
                     if (errorString == string.Empty)
                     {
-                        _fileLogger.Error($"Unable to validate AETitle {Association.CallingAE} with IP: {Association.RemoteHost}. AETitle not configured as part of the Server List");
+                        _fileLogger.Error($"Unable to validate AETitle {aeTitle} with IP: {hostAddress}. AETitle not configured as part of the Server List");
                     }
                     else
                     {
-                        _fileLogger.Error($"validating AETitle {Association.CallingAE} with IP: {Association.RemoteHost}. failed with exception : " + errorString);
+                        _fileLogger.Error($"validating AETitle {aeTitle} with IP: {hostAddress}. failed with exception : " + errorString);
                     }
                     return false;
                 }
             }
             else
             {
-                _fileLogger.Error($"Configuraion Value to check for server in valid. Please check the Configuration from Server List Tab ");
+                _fileLogger.Information($"Server List check disabled (checkserver) - accepting AE {aeTitle} with IP: {hostAddress}");
             }
             return true;
         }
@@ -212,14 +213,17 @@ namespace Plexus_StoreSCP_Service.Network
 
             string accessionNo = "N/A";
             string patientId = "N/A";
+            bool dbUpdated = false;
             if (File.Exists(path))
             {
                 accessionNo = request.Dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, "N/A");
                 patientId = request.Dataset.GetSingleValueOrDefault(DicomTag.PatientID, "N/A");
-                ReadDICOMPushDB(path, studyUid, instUid);
+                dbUpdated = ReadDICOMPushDB(path, studyUid, instUid);
             }
 
-            _fileLogger.Information($" DICOM Upload Successful: File saved and database updated");
+            _fileLogger.Information(dbUpdated
+                ? $" DICOM Upload Successful: File saved and database updated"
+                : $" DICOM file saved, but the database was not updated - see the error above");
             _fileLogger.Information($"  - Study UID: {studyUid}");
             _fileLogger.Information($"  - Instance UID: {instUid}");
             _fileLogger.Information($"  - Accession Number: {accessionNo}");
@@ -229,7 +233,8 @@ namespace Plexus_StoreSCP_Service.Network
         }
 
 
-        private void ReadDICOMPushDB(string filePath, string studyinstanceID, string imageInstanceId)
+        /// <returns>True when the study was recorded in the database.</returns>
+        private bool ReadDICOMPushDB(string filePath, string studyinstanceID, string imageInstanceId)
         {
             try
             {
@@ -237,7 +242,7 @@ namespace Plexus_StoreSCP_Service.Network
                 string patient_id = string.Empty, accession_no = string.Empty, studyinstanceid = string.Empty, seriesinstanceid = string.Empty,
                     seriesno = string.Empty, modality = string.Empty,
                     bodypart = string.Empty, series_desc = string.Empty, institution = string.Empty,
-                    stationname = string.Empty, department = string.Empty;
+                    stationname = string.Empty, department = string.Empty, sopclassuid = string.Empty;
 
 
                 // Read DICOM FIle
@@ -245,17 +250,21 @@ namespace Plexus_StoreSCP_Service.Network
 
                 if (dicomDataSet != null)
                 {
-                    patient_id = dicomDataSet.GetString(DicomTag.PatientID);
-                    accession_no = dicomDataSet.GetString(DicomTag.AccessionNumber);
-                    studyinstanceid = dicomDataSet.GetString(DicomTag.StudyInstanceUID);
-                    seriesinstanceid = dicomDataSet.GetString(DicomTag.SeriesInstanceUID);
-                    seriesno = dicomDataSet.GetString(DicomTag.SeriesNumber);
-                    modality = dicomDataSet.GetString(DicomTag.Modality);
-                    bodypart = dicomDataSet.GetString(DicomTag.BodyPartExamined);
-                    series_desc = dicomDataSet.GetString(DicomTag.SeriesDescription);
-                    institution = dicomDataSet.GetString(DicomTag.InstitutionName);
-                    stationname = dicomDataSet.GetString(DicomTag.StationName);
-                    department = dicomDataSet.GetString(DicomTag.InstitutionalDepartmentName);
+                    // GetString throws when a tag is absent, and modalities routinely omit the optional ones
+                    // (body part, series description, institution, station, department), so read them all
+                    // with a default rather than losing the whole database record.
+                    patient_id = dicomDataSet.GetSingleValueOrDefault(DicomTag.PatientID, string.Empty);
+                    accession_no = dicomDataSet.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
+                    studyinstanceid = dicomDataSet.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, string.Empty);
+                    seriesinstanceid = dicomDataSet.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, string.Empty);
+                    seriesno = dicomDataSet.GetSingleValueOrDefault(DicomTag.SeriesNumber, string.Empty);
+                    modality = dicomDataSet.GetSingleValueOrDefault(DicomTag.Modality, string.Empty);
+                    bodypart = dicomDataSet.GetSingleValueOrDefault(DicomTag.BodyPartExamined, string.Empty);
+                    series_desc = dicomDataSet.GetSingleValueOrDefault(DicomTag.SeriesDescription, string.Empty);
+                    institution = dicomDataSet.GetSingleValueOrDefault(DicomTag.InstitutionName, string.Empty);
+                    stationname = dicomDataSet.GetSingleValueOrDefault(DicomTag.StationName, string.Empty);
+                    department = dicomDataSet.GetSingleValueOrDefault(DicomTag.InstitutionalDepartmentName, string.Empty);
+                    sopclassuid = dicomDataSet.GetSingleValueOrDefault(DicomTag.SOPClassUID, string.Empty);
                 }
                 else
                 {
@@ -263,26 +272,25 @@ namespace Plexus_StoreSCP_Service.Network
                 }
 
                 objDAL.InsertOrUpdateStudyInfo(patient_id, accession_no, studyinstanceid, seriesinstanceid, seriesno, modality, bodypart, series_desc, institution,
-                    stationname, department, imageInstanceId, 2 , ref errorString);
+                    stationname, department, imageInstanceId, 2, sopclassuid, ref errorString);
 
                 if (errorString != string.Empty)
                 {
                     _fileLogger.Error($"Populate DB Failed for StudyInstanceid {studyinstanceID} and ImageInstanceId {imageInstanceId} with exception : " + errorString);
-                }
-                else
-                {
-                    _fileLogger.Information($" Database Update Successful");
-                    _fileLogger.Information($"  - Patient ID: {patient_id}");
-                    _fileLogger.Information($"  - Accession No: {accession_no}");
-                    _fileLogger.Information($"  - Modality: {modality}");
-                    _fileLogger.Information($"  - Series: {seriesinstanceid}");
+                    return false;
                 }
 
-
+                _fileLogger.Information($" Database Update Successful");
+                _fileLogger.Information($"  - Patient ID: {patient_id}");
+                _fileLogger.Information($"  - Accession No: {accession_no}");
+                _fileLogger.Information($"  - Modality: {modality}");
+                _fileLogger.Information($"  - Series: {seriesinstanceid}");
+                return true;
             }
             catch (Exception ex)
             {
                 _fileLogger.Error($"Read/Populate DB Failed for StudyInstanceid {studyinstanceID} and ImageInstanceId {imageInstanceId} with exception : " + ex.Message);
+                return false;
             }
         }
 

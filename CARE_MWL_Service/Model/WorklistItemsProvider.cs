@@ -429,6 +429,32 @@ namespace Worklist_SCP.Model
 
 
 
+        /// <summary>
+        /// Caps a logged response body so an HTML error page cannot flood the log file.
+        /// </summary>
+        private static string Truncate(string value, int maxLength)
+        {
+            if (string.IsNullOrEmpty(value)) return "(empty)";
+            value = value.Trim();
+            return value.Length <= maxLength ? value : value.Substring(0, maxLength) + "... (truncated)";
+        }
+
+        /// <summary>
+        /// Describes the configured token without writing it to the log: its length plus a short
+        /// SHA-256 fingerprint, which is enough to compare against the server's own secret.
+        /// </summary>
+        private static string DescribeToken(string token)
+        {
+            if (string.IsNullOrEmpty(token)) return "(not configured)";
+
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(token));
+                string hex = BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
+                return $"{token.Length} chars, sha256:{hex.Substring(0, 16)}";
+            }
+        }
+
         private static string NormalizeSex(string value)
         {
             if (string.IsNullOrWhiteSpace(value)) return "O";
@@ -474,6 +500,21 @@ namespace Worklist_SCP.Model
             prefix = prefix ?? string.Empty;
 
             return $"{familyName}^{givenName}^^{prefix}".TrimEnd('^');
+        }
+
+        /// <summary>
+        /// Builds a fallback accession number from the last two groups of the service request UUID.
+        /// Returns empty rather than throwing when the ID is missing or not hyphenated.
+        /// </summary>
+        private static string DeriveAccessionFromServiceRequestId(string serviceRequestId)
+        {
+            if (string.IsNullOrWhiteSpace(serviceRequestId))
+            {
+                return string.Empty;
+            }
+
+            string[] parts = serviceRequestId.Split('-');
+            return parts.Length >= 2 ? parts[parts.Length - 2] + parts[parts.Length - 1] : serviceRequestId;
         }
 
         /// <summary>

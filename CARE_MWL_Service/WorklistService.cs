@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2012-2022 fo-dicom contributors.
+// Copyright (c) 2012-2022 fo-dicom contributors.
 // Licensed under the Microsoft Public License (MS-PL).
 
 using System;
@@ -40,7 +40,7 @@ namespace Worklist_SCP
             {
                 if (_mppsSource == null)
                 {
-                    _mppsSource = new MppsHandler(Logger);
+                    _mppsSource = new MppsHandler(Logger, fileLogger);
                 }
 
                 return _mppsSource;
@@ -63,12 +63,8 @@ namespace Worklist_SCP
 
         public Task<DicomCEchoResponse> OnCEchoRequestAsync(DicomCEchoRequest request)
         {
+            // The calling AE was checked against the Server List when the association was accepted.
             fileLogger?.Information($"[C-ECHO] Request from AE={Association.CallingAE} IP={Association.RemoteHost}");
-            if (!validateServer(Association.CallingAE, Association.RemoteHost))
-            {
-                fileLogger?.Warning($"[C-ECHO] Rejected AE={Association.CallingAE}");
-                return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.ProcessingFailure));
-            }
             return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.Success));
         }
 
@@ -76,13 +72,8 @@ namespace Worklist_SCP
         public async IAsyncEnumerable<DicomCFindResponse> OnCFindRequestAsync(DicomCFindRequest request)
         {
 
+            // The calling AE was checked against the Server List when the association was accepted.
             fileLogger.Information($"Received C-FIND request from AE {Association.CallingAE} with IP: {Association.RemoteHost}");
-            string errorString = string.Empty;
-            fileLogger.Information($"CFIND : Validating Server with AETitle {Association.CallingAE} with IP: {Association.RemoteHost}");
-            if (!validateServer(Association.CallingAE, Association.RemoteHost))
-            {
-                yield return new DicomCFindResponse(request, DicomStatus.QueryRetrieveUnableToProcess);
-            }
             List<string> accessionNos = new List<string>();
             List<DicomDataset> results = null;
 
@@ -166,7 +157,7 @@ namespace Worklist_SCP
                 if (!objDal.validateAETitle(aeTitle, hostAddress, ref errorString))
                 {
                     if (errorString == string.Empty)
-                        fileLogger?.Information($"[VALIDATE] AE={aeTitle} IP={hostAddress} not in server list");
+                        fileLogger?.Warning($"[VALIDATE] AE={aeTitle} IP={hostAddress} not in server list");
                     else
                         fileLogger?.Error($"[VALIDATE] AE={aeTitle} validation failed: {errorString}");
                     return false;
@@ -289,6 +280,14 @@ namespace Worklist_SCP
             {
                 fileLogger?.Error($"[ASSOC] Rejected: called AE={association.CalledAE} unknown (expected {WorklistServer.AETitle})");
                 return SendAssociationRejectAsync(DicomRejectResult.Permanent, DicomRejectSource.ServiceUser, DicomRejectReason.CalledAENotRecognized);
+            }
+
+            // Checked once here so every service on the association - C-ECHO, C-FIND and the MPPS
+            // N-CREATE / N-SET that update CARE - is limited to modalities in the Server List.
+            if (!validateServer(association.CallingAE, association.RemoteHost))
+            {
+                fileLogger?.Error($"[ASSOC] Rejected: calling AE={association.CallingAE} IP={association.RemoteHost} is not in the Server List");
+                return SendAssociationRejectAsync(DicomRejectResult.Permanent, DicomRejectSource.ServiceUser, DicomRejectReason.CallingAENotRecognized);
             }
 
             foreach (var pc in association.PresentationContexts)
@@ -439,20 +438,24 @@ namespace Worklist_SCP
             //Logger.Log(LogLevel.Info, $"receiving N-Set with SOPUID {requestedSopInstanceUID}");.I
             fileLogger.Information($"receiving N-Set with SOPUID {requestedSopInstanceUID}");
 
-            var status = request.Dataset.GetSingleValue<string>(DicomTag.PerformedProcedureStepStatus);
+            var status = request.Dataset.GetSingleValueOrDefault(DicomTag.PerformedProcedureStepStatus, string.Empty);
             if (status == "COMPLETED")
             {
                 // most vendors send some informations with the mpps-completed message. 
                 // this information should be stored into the datbase
                 var doseDescription = request.Dataset.GetSingleValueOrDefault(DicomTag.CommentsOnRadiationDose, string.Empty);
                 var listOfInstanceUIDs = new List<string>();
-                foreach (var seriesDataset in request.Dataset.GetSequence(DicomTag.PerformedSeriesSequence))
+                // PerformedSeriesSequence is optional in practice - some modalities omit it - so a missing
+                // one must not throw and fail the N-SET.
+                request.Dataset.TryGetSequence(DicomTag.PerformedSeriesSequence, out var performedSeries);
+                foreach (var seriesDataset in performedSeries?.Items ?? new List<DicomDataset>())
                 {
                     // you can read here some information about the series that the modalidy created
                     //seriesDataset.Get(DicomTag.SeriesDescription, string.Empty);
                     //seriesDataset.Get(DicomTag.PerformingPhysicianName, string.Empty);
                     //seriesDataset.Get(DicomTag.ProtocolName, string.Empty);
-                    foreach (var instanceDataset in seriesDataset.GetSequence(DicomTag.ReferencedImageSequence))
+                    seriesDataset.TryGetSequence(DicomTag.ReferencedImageSequence, out var referencedImages);
+                    foreach (var instanceDataset in referencedImages?.Items ?? new List<DicomDataset>())
                     {
                         // here you can read the SOPClassUID and SOPInstanceUID
                         var instanceUID = instanceDataset.GetSingleValueOrDefault(DicomTag.ReferencedSOPInstanceUID, string.Empty);
@@ -463,6 +466,7 @@ namespace Worklist_SCP
                     }
                 }
                 var ok = MppsSource.SetCompleted(requestedSopInstanceUID, doseDescription, listOfInstanceUIDs);
+                fileLogger.Information($"[MPPS][N-SET] COMPLETED result={ok} for SOPInstanceUID={requestedSopInstanceUID} ({listOfInstanceUIDs.Count} referenced instances)");
 
                 return new DicomNSetResponse(request, ok ? DicomStatus.Success : DicomStatus.ProcessingFailure);
             }
@@ -471,11 +475,13 @@ namespace Worklist_SCP
                 // some vendors send a reason code or description with the mpps-discontinued message
                 // var reason = request.Dataset.Get(DicomTag.PerformedProcedureStepDiscontinuationReasonCodeSequence);
                 var ok = MppsSource.SetDiscontinued(requestedSopInstanceUID, string.Empty);
+                fileLogger.Information($"[MPPS][N-SET] DISCONTINUED result={ok} for SOPInstanceUID={requestedSopInstanceUID}");
 
                 return new DicomNSetResponse(request, ok ? DicomStatus.Success : DicomStatus.ProcessingFailure);
             }
             else
             {
+                fileLogger.Warning($"[MPPS][N-SET] Rejected status '{status}' for SOPInstanceUID={requestedSopInstanceUID} - only COMPLETED or DISCONTINUED are accepted");
                 return new DicomNSetResponse(request, DicomStatus.InvalidAttributeValue);
             }
         }
