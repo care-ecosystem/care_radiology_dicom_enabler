@@ -83,8 +83,6 @@ on:
         required: false
         default: false
         type: boolean
-  schedule:
-    - cron: '0 2 * * *'  # daily, against the default environment
   push:
     branches: [main]
     paths:
@@ -155,6 +153,9 @@ jobs:
             Write-Error "Environment '${{ inputs.environment || 'staging' }}' is missing: $($missing -join ', '). See the header of this workflow."
             exit 1
           }
+          # The MWL service appends /api/... as is, and CARE answers //api/... with its frontend HTML.
+          $env:CARE_BASE_URL = $env:CARE_BASE_URL.Trim().TrimEnd('/')
+          echo "CARE_BASE_URL=$env:CARE_BASE_URL" >> $env:GITHUB_ENV
           Write-Output "Target       : $env:CARE_BASE_URL"
           Write-Output "Facility     : $env:CARE_FACILITY_ID"
           Write-Output "Patient      : $env:CARE_PATIENT_ID"
