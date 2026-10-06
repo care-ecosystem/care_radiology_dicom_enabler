@@ -258,7 +258,8 @@ jobs:
           }
           Write-Error "MySQL did not become ready"; exit 1
 
-      # The full enabler schema (tables + stored procedures the services call). Its ALTER USER
+      # The full enabler schema (tables + stored procedures the services call), then the CARE
+      # tables (care_config etc.), in the same order as Initializer.ps1. schema.sql's ALTER USER
       # line sets a root password for desktop installs; the CI root keeps an empty one.
       - name: Create database and register the calling modality
         shell: pwsh
@@ -268,13 +269,22 @@ jobs:
             & $env:MYSQL_EXE -u root --protocol=TCP
           if ($LASTEXITCODE -ne 0) { Write-Error "Schema creation failed"; exit 1 }
 
-          # Server List row: maps the calling AE to the facility the worklist is fetched for, and
-          # (checkserver=true in cfg/common.cfg) is the only AE/IP the MWL and Store SCP accept.
-          $sql = "INSERT INTO plexus_mi2.dcm_servers (name, aetitle, hostaddress, portnumber, facilityid, description) " +
-                 "VALUES ('CI modality', '$env:CALLING_AET', '127.0.0.1', '104', '$env:CARE_FACILITY_ID', 'GitHub Actions integration test');"
+          Get-Content "Emulator\care_tables.sql" | & $env:MYSQL_EXE -u root --protocol=TCP
+          if ($LASTEXITCODE -ne 0) { Write-Error "CARE tables creation failed"; exit 1 }
+
+          # Server List row: with checkserver=true in cfg/common.cfg, the only AE/IP the MWL and
+          # Store SCP accept.
+          $sql = "INSERT INTO plexus_mi2.dcm_servers (name, aetitle, hostaddress, portnumber, description) " +
+                 "VALUES ('CI modality', '$env:CALLING_AET', '127.0.0.1', '104', 'GitHub Actions integration test');"
           & $env:MYSQL_EXE -u root --protocol=TCP -e $sql
           if ($LASTEXITCODE -ne 0) { Write-Error "Server List insert failed"; exit 1 }
-          Write-Output "Registered $env:CALLING_AET for facility $env:CARE_FACILITY_ID"
+          Write-Output "Registered $env:CALLING_AET"
+
+          # The enabler's single Facility ID (Configuration tab), used for every calling AE.
+          $sql = "UPDATE plexus_mi2.care_config SET config_value = '$env:CARE_FACILITY_ID' WHERE config_key = 'facility_id';"
+          & $env:MYSQL_EXE -u root --protocol=TCP -e $sql
+          if ($LASTEXITCODE -ne 0) { Write-Error "care_config facility_id update failed"; exit 1 }
+          Write-Output "care_config facility_id = $env:CARE_FACILITY_ID"
 
       # Replicates CARE.DAL/EnDcryption.cs: AES-256-CBC, key = EncKey.encdeKey, zero IV, PKCS7.
       - name: Write cfg/common.cfg
