@@ -9,6 +9,8 @@ using System.Data;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.ServiceProcess;
+using System.Text;
 using System.Windows.Forms;
 
 namespace Plexus_DICOM_Enabler
@@ -18,9 +20,22 @@ namespace Plexus_DICOM_Enabler
         bool bUpdateServer = false;
         string primarykey = string.Empty;
         ucls_DAL objDAL = null;
+        readonly Timer logRefreshTimer = new Timer { Interval = 1000 };
+        readonly System.Collections.Generic.Dictionary<string, LogTail> logTails = new System.Collections.Generic.Dictionary<string, LogTail>
+        {
+            { "ModalitySCP", new LogTail() },
+            { "StoreSCP", new LogTail() },
+            { "StoreSCU", new LogTail() }
+        };
         public frm_Mainform()
         {
             InitializeComponent();
+            logRefreshTimer.Tick += logRefreshTimer_Tick;
+
+            // Clicking the icon at the end of the box opens the calendar or folder browser
+            mtxtb_CareFromDate.TrailingIcon = CreateCalendarIcon();
+            mtxtb_ScpFolder.TrailingIcon = CreateFolderIcon();
+            mtxtb_FailedScpFolder.TrailingIcon = CreateFolderIcon();
 
             var materialSkinManager = MaterialSkinManager.Instance;
             materialSkinManager.AddFormToManage(this);
@@ -150,10 +165,13 @@ namespace Plexus_DICOM_Enabler
                     case 3:
                         GetServeListing();
                         break;
-                    case 4:
+                    case 4: // Configuration Tab Clicked
+                        GetConfiguration();
+                        break;
+                    case 5:
                         GetPatientDetails();
                         break;
-                    case 5: // View Logs Clicked
+                    case 6: // View Logs Clicked
                         GetAndPopulateLogs();
                         //MessageBox.Show(mtc_Modules.SelectedIndex.ToString());
                         break;
@@ -208,16 +226,12 @@ namespace Plexus_DICOM_Enabler
         {
             try
             {
-                
-                // Read and Populate ModalitySCP Logs
-                rtb_MWLLog.Text = ReadLogContent("ModalitySCP");
+                // Full reload whenever the View Logs tab is opened, then tail every second
+                foreach (var tail in logTails.Values)
+                    tail.Reset();
 
-
-                // Read and Populate StoreSCP Logs
-                rtb_SCPLog.Text = ReadLogContent("StoreSCP");
-
-                // Read and Populate StoreSCU Logs
-                rtb_SCULog.Text = ReadLogContent("StoreSCU");
+                RefreshLogs();
+                logRefreshTimer.Start();
             }
             catch(Exception ex)
             {
@@ -227,29 +241,125 @@ namespace Plexus_DICOM_Enabler
             }
         }
 
-        private string ReadLogContent(string searchPattern)
+        private void logRefreshTimer_Tick(object sender, EventArgs e)
         {
-            string logDirectory = Path.Combine(Application.StartupPath, "logs");
-            if (!Directory.Exists(logDirectory))
-                return "No logs found. Services may not have started yet.";
-            var directory = new DirectoryInfo(logDirectory);
-            FileInfo[] files = directory.GetFiles(searchPattern + "*.txt");
-            if (files.Length > 0 ) {
-                var logFile = files.OrderByDescending(f => f.LastWriteTime).First();
-                return ReadAllText(Path.Combine(logDirectory, logFile.FullName));
-            }
-            else
+            if (mtc_Modules.SelectedIndex != 6)
             {
-                return "No log file found for " + searchPattern + ".";
+                logRefreshTimer.Stop();
+                return;
+            }
+
+            try
+            {
+                RefreshLogs();
+            }
+            catch (IOException)
+            {
+                // Log file is being rolled or written; pick up the changes on the next tick
             }
         }
 
-
-        private string ReadAllText(string file)
+        private void RefreshLogs()
         {
-            using (var fileStream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            using (var textReader = new StreamReader(fileStream))
-                return textReader.ReadToEnd();
+            // Read and Populate ModalitySCP Logs
+            RefreshLog(rtb_MWLLog, "ModalitySCP");
+
+            // Read and Populate StoreSCP Logs
+            RefreshLog(rtb_SCPLog, "StoreSCP");
+
+            // Read and Populate StoreSCU Logs
+            RefreshLog(rtb_SCULog, "StoreSCU");
+        }
+
+        /// <summary>
+        /// Appends only the text written to the latest log file since the last read.
+        /// Reloads the whole file when the service rolls over to a new file.
+        /// </summary>
+        private void RefreshLog(RichTextBox logBox, string searchPattern)
+        {
+            LogTail tail = logTails[searchPattern];
+            string logFile = GetLatestLogFile(searchPattern, out string message);
+
+            if (logFile == null)
+            {
+                if (tail.Message != message)
+                {
+                    tail.Reset();
+                    tail.Message = message;
+                    logBox.Text = message;
+                }
+                return;
+            }
+
+            using (var fileStream = new FileStream(logFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                bool reload = tail.FilePath != logFile || fileStream.Length < tail.Position;
+                if (!reload && fileStream.Length == tail.Position)
+                    return;
+
+                if (reload)
+                    tail.Position = 0;
+
+                fileStream.Seek(tail.Position, SeekOrigin.Begin);
+                string newText;
+                using (var textReader = new StreamReader(fileStream))
+                {
+                    newText = textReader.ReadToEnd();
+                    tail.Position = fileStream.Position;
+                }
+
+                tail.FilePath = logFile;
+                tail.Message = null;
+
+                // Follow new lines only if the caret is already at the end, so scrolling back to read is not interrupted
+                bool followTail = reload || logBox.SelectionStart >= logBox.TextLength;
+                if (reload)
+                    logBox.Text = newText;
+                else
+                    logBox.AppendText(newText);
+
+                if (followTail)
+                {
+                    logBox.SelectionStart = logBox.TextLength;
+                    logBox.ScrollToCaret();
+                }
+            }
+        }
+
+        private string GetLatestLogFile(string searchPattern, out string message)
+        {
+            message = null;
+            string logDirectory = Path.Combine(Application.StartupPath, "logs");
+            if (!Directory.Exists(logDirectory))
+            {
+                message = "No logs found. Services may not have started yet.";
+                return null;
+            }
+            var directory = new DirectoryInfo(logDirectory);
+            // Services write into a logs/yyyy-MM-dd folder per day
+            FileInfo[] files = directory.GetFiles(searchPattern + "*.txt", SearchOption.AllDirectories);
+            if (files.Length > 0 ) {
+                return files.OrderByDescending(f => f.LastWriteTime).First().FullName;
+            }
+            else
+            {
+                message = "No log file found for " + searchPattern + ".";
+                return null;
+            }
+        }
+
+        private class LogTail
+        {
+            public string FilePath;
+            public long Position;
+            public string Message;
+
+            public void Reset()
+            {
+                FilePath = null;
+                Position = 0;
+                Message = null;
+            }
         }
 
         /// <summary>
@@ -277,8 +387,8 @@ namespace Plexus_DICOM_Enabler
                 }
                 else
                 {
-                    if (dsResult.Tables[0].Rows.Count > 0 )
-                        dgv_ServerList.DataSource = dsResult.Tables[0];
+                    // Bind even when empty, so deleting the last server clears it from the grid
+                    dgv_ServerList.DataSource = dsResult.Tables[0];
                 }
             }
             catch (Exception ex)
@@ -310,8 +420,7 @@ namespace Plexus_DICOM_Enabler
         {
             string errorString = string.Empty;
             if ( txt_ServerName.Text == string.Empty || txt_AETitle.Text == string.Empty ||
-                txt_HostAddress.Text == string.Empty || txt_PortNo.Text == string.Empty ||
-                txt_FacilityId.Text.Trim() == string.Empty )
+                txt_HostAddress.Text == string.Empty || txt_PortNo.Text == string.Empty )
             {
                 MessageBox.Show(this, "Please fill mandatory fields. All Fields are mandatory except description",
                                      "Check Mandatory", MessageBoxButtons.OK,
@@ -322,7 +431,7 @@ namespace Plexus_DICOM_Enabler
             // Add Server to Database
             if (objDAL != null )
             {
-                if ( objDAL.insertorUpdateServer(txt_ServerName.Text, txt_AETitle.Text, txt_HostAddress.Text, txt_PortNo.Text, txt_FacilityId.Text, rtb_Description.Text, primarykey, bUpdateServer, ref errorString)) {
+                if ( objDAL.insertorUpdateServer(txt_ServerName.Text, txt_AETitle.Text, txt_HostAddress.Text, txt_PortNo.Text, rtb_Description.Text, primarykey, bUpdateServer, ref errorString)) {
                     MessageBox.Show(this, "Server details added/updated Successfully!!",
                                     "Server added Successfully", MessageBoxButtons.OK,
                                     MessageBoxIcon.Information);
@@ -352,12 +461,17 @@ namespace Plexus_DICOM_Enabler
         /// </summary>
         private void ClearTextBoxes()
         {
-            txt_ServerName.Text = txt_AETitle.Text = txt_HostAddress.Text = txt_PortNo.Text = txt_FacilityId.Text = rtb_Description.Text = string.Empty;
+            txt_ServerName.Text = txt_AETitle.Text = txt_HostAddress.Text = txt_PortNo.Text = rtb_Description.Text = string.Empty;
             primarykey = string.Empty;
+
+            // Without a selected server the next save must add, not update (an update with no pk is invalid SQL)
+            bUpdateServer = false;
+            mtbtn_AddUpdateServer.Text = "Add Server";
         }
 
         private void frm_Mainform_FormClosed(object sender, FormClosedEventArgs e)
         {
+            logRefreshTimer.Dispose();
             objDAL.Dispose();
             this.Dispose();
             Application.Exit();
@@ -418,8 +532,6 @@ namespace Plexus_DICOM_Enabler
                         txt_HostAddress.Text = dgv_ServerList.Rows[e.RowIndex].Cells["serverHost"].Value.ToString();
                     if (dgv_ServerList.Rows[e.RowIndex].Cells["serverPort"] != null)
                         txt_PortNo.Text = dgv_ServerList.Rows[e.RowIndex].Cells["serverPort"].Value.ToString();
-                    if (dgv_ServerList.Rows[e.RowIndex].Cells["serverFacilityId"] != null)
-                        txt_FacilityId.Text = dgv_ServerList.Rows[e.RowIndex].Cells["serverFacilityId"].Value?.ToString() ?? string.Empty;
                     if (dgv_ServerList.Rows[e.RowIndex].Cells["description"] != null)
                         rtb_Description.Text = dgv_ServerList.Rows[e.RowIndex].Cells["description"].Value.ToString();
                     if (dgv_ServerList.Rows[e.RowIndex].Cells["pk"] != null)
@@ -444,6 +556,15 @@ namespace Plexus_DICOM_Enabler
                 HideControlsForServer(Global.deployType);
             }
             uctrl_ServerManager1.EnableDisableButtons();
+
+            // On small or scaled screens the window can be taller than the screen, which hides the
+            // bottom of every tab. Fit it to the screen so tabs that scroll show their scroll bar.
+            Rectangle workArea = Screen.FromControl(this).WorkingArea;
+            if (Width > workArea.Width || Height > workArea.Height)
+            {
+                Size = new Size(Math.Min(Width, workArea.Width), Math.Min(Height, workArea.Height));
+                Location = new Point(workArea.Left + (workArea.Width - Width) / 2, workArea.Top + (workArea.Height - Height) / 2);
+            }
         }
 
 
@@ -540,6 +661,506 @@ namespace Plexus_DICOM_Enabler
         private void mbtn_PatientRefresh_Click(object sender, EventArgs e)
         {
             GetPatientDetails();
+        }
+
+        /// <summary>
+        /// Load the integration settings from care_config into the Configuration tab
+        /// </summary>
+        private void GetConfiguration()
+        {
+            try
+            {
+                this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
+                string errorString = string.Empty;
+
+                DataSet dsResult = objDAL.LoadConfig(ref errorString);
+
+                if (dsResult == null)
+                {
+                    MessageBox.Show(this, "Error loading Configuration : " + errorString,
+                                     "Error loading Configuration", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Error);
+                    return;
+                }
+
+                var fields = GetConfigFields();
+                loadedConfigValues.Clear();
+                foreach (DataRow row in dsResult.Tables[0].Rows)
+                {
+                    string key = row["config_key"].ToString();
+                    if (fields.ContainsKey(key))
+                        loadedConfigValues[key] = row["config_value"].ToString().Trim();
+                }
+
+                // A blank setting shows the value the services use for it instead
+                filledDefaults.Clear();
+                foreach (var field in fields)
+                {
+                    loadedConfigValues.TryGetValue(field.Key, out string value);
+                    if (string.IsNullOrEmpty(value))
+                    {
+                        value = GetConfigDefault(field.Key);
+                        filledDefaults[field.Key] = value;
+                    }
+                    field.Value.Text = value;
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Error loading Configuration" + ex.Message,
+                                     "Error loading Configuration", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Error);
+            }
+            finally
+            {
+                this.Cursor = System.Windows.Forms.Cursors.Default;
+            }
+        }
+
+        private void mbtn_SaveConfig_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(mtxtb_FacilityId.Text))
+                {
+                    MessageBox.Show(this, "Please enter the Facility Id. The CARE worklist is not fetched without it.",
+                                     "Check Mandatory", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Error);
+                    return;
+                }
+
+                var values = GetConfigFields().ToDictionary(field => field.Key, field => GetValueToSave(field.Key, field.Value));
+
+                string fromDate = values["care_from_date"];
+                if (fromDate != string.Empty && !DateTime.TryParseExact(fromDate, ConfigDateFormat,
+                        System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _))
+                {
+                    MessageBox.Show(this, "From Date must be in the format " + ConfigDateFormat + ", or left blank to use the default. Use the Calendar button to select it.",
+                                     "Check From Date", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Error);
+                    return;
+                }
+
+                // Blank uses the default; otherwise a whole number of at least minValue, as the services require
+                var wholeNumberFields = new[]
+                {
+                    new { Key = "scu_poll_interval_seconds", Name = "Poll Interval (sec)", MinValue = 1 },
+                    new { Key = "worklist_refresh_start_seconds", Name = "Refresh Start (sec)", MinValue = 0 },
+                    new { Key = "worklist_refresh_interval_seconds", Name = "Refresh Interval (sec)", MinValue = 1 },
+                    new { Key = "max_upload_retries", Name = "Max Upload Retries", MinValue = 1 },
+                    new { Key = "upload_retry_delay_minutes", Name = "Retry Delay (min)", MinValue = 1 },
+                };
+                foreach (var field in wholeNumberFields)
+                {
+                    string value = values[field.Key];
+                    if (value != string.Empty && (!int.TryParse(value, out int number) || number < field.MinValue))
+                    {
+                        MessageBox.Show(this, field.Name + " must be a whole number of " + field.MinValue + " or more, or left blank to use the default.",
+                                         "Check " + field.Name, MessageBoxButtons.OK,
+                                         MessageBoxIcon.Error);
+                        return;
+                    }
+                }
+
+                // One entry per changed setting, e.g. "scu_poll_interval_seconds: 5 -> 10"
+                var changes = new System.Collections.Generic.Dictionary<string, string>();
+                foreach (var value in values)
+                {
+                    loadedConfigValues.TryGetValue(value.Key, out string oldValue);
+                    string newValue = value.Value.Trim();
+                    if ((oldValue ?? string.Empty) != newValue)
+                        changes[value.Key] = $"{value.Key}: {DisplayConfigValue(oldValue)} -> {DisplayConfigValue(newValue)}";
+                }
+
+                if (changes.Count == 0)
+                {
+                    MessageBox.Show(this, "No configuration changes to save.",
+                                     "Saving Configuration", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Information);
+                    return;
+                }
+
+                string errorString = string.Empty;
+                if (objDAL.SaveConfig(values, ref errorString))
+                {
+                    this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
+                    string restartSummary;
+                    try
+                    {
+                        restartSummary = RestartServicesForChanges(changes);
+                    }
+                    finally
+                    {
+                        this.Cursor = System.Windows.Forms.Cursors.Default;
+                    }
+
+                    MessageBox.Show(this, "Configuration saved Successfully!!" + Environment.NewLine + Environment.NewLine + restartSummary,
+                                     "Saving Configuration Successfull", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Information);
+                    GetConfiguration();
+                }
+                else
+                {
+                    MessageBox.Show(this, "Error Saving Configuration with error message : " + errorString,
+                                     "Error Saving Configuration", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Error Saving Configuration with expection : " + ex.Message,
+                                     "Error Saving Configuration", MessageBoxButtons.OK,
+                                     MessageBoxIcon.Error);
+            }
+        }
+
+        // care_from_date is sent to the CARE worklist API as entered, in this format
+        private const string ConfigDateFormat = "yyyy-MM-dd HH:mm:ss";
+
+        private const string MwlServiceName = "Care MWL SCP Service";
+        private const string StoreScpServiceName = "Care Store SCP Service";
+        private const string StoreScuServiceName = "Care Store SCU Service";
+
+        // The default put into each box whose care_config setting was blank when the tab was loaded
+        private readonly System.Collections.Generic.Dictionary<string, string> filledDefaults = new System.Collections.Generic.Dictionary<string, string>();
+
+        /// <summary>
+        /// The value to store for a box. A default filled in for a blank setting is stored as blank again, so
+        /// saving without changing it does not pin the default in care_config or restart the services.
+        /// </summary>
+        private string GetValueToSave(string configKey, MaterialTextBox textBox)
+        {
+            string value = textBox.Text.Trim();
+            if (filledDefaults.TryGetValue(configKey, out string filledDefault) && value == filledDefault.Trim())
+                return string.Empty;
+            return value;
+        }
+
+        // The care_config values shown when the Configuration tab was last loaded, to find what Save changes
+        private readonly System.Collections.Generic.Dictionary<string, string> loadedConfigValues = new System.Collections.Generic.Dictionary<string, string>();
+
+        /// <summary>
+        /// The services that read each care_config setting
+        /// </summary>
+        private static string[] GetServicesUsingSetting(string configKey)
+        {
+            switch (configKey)
+            {
+                case "facility_id":
+                case "care_modality":
+                case "care_from_date":
+                    return new[] { MwlServiceName, StoreScuServiceName };
+                case "worklist_refresh_start_seconds":
+                case "worklist_refresh_interval_seconds":
+                    return new[] { MwlServiceName };
+                case "scu_poll_interval_seconds":
+                case "max_upload_retries":
+                case "upload_retry_delay_minutes":
+                case "failed_scp_folder":
+                    return new[] { StoreScuServiceName };
+                case "scp_folder":
+                    return new[] { MwlServiceName, StoreScpServiceName, StoreScuServiceName };
+                default:
+                    return new string[0];
+            }
+        }
+
+        private static string DisplayConfigValue(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? "(blank - default)" : value.Trim();
+        }
+
+        /// <summary>
+        /// Restarts each running service that reads a changed setting so it loads the new configuration.
+        /// The changes are passed as start parameters, and the service writes them to its own log.
+        /// Returns a summary of what happened to each service.
+        /// </summary>
+        private string RestartServicesForChanges(System.Collections.Generic.Dictionary<string, string> changes)
+        {
+            var summary = new StringBuilder();
+            foreach (string serviceName in new[] { MwlServiceName, StoreScpServiceName, StoreScuServiceName })
+            {
+                string[] serviceChanges = changes.Where(change => GetServicesUsingSetting(change.Key).Contains(serviceName))
+                                                 .Select(change => change.Value).ToArray();
+                if (serviceChanges.Length == 0)
+                    continue;
+
+                try
+                {
+                    if (!ServiceController.GetServices().Any(s => s.ServiceName == serviceName))
+                    {
+                        summary.AppendLine(serviceName + ": not installed");
+                        continue;
+                    }
+
+                    using (ServiceController service = new ServiceController(serviceName))
+                    {
+                        if (service.Status != ServiceControllerStatus.Running)
+                        {
+                            summary.AppendLine(serviceName + ": not running - it will use the new configuration when started");
+                            continue;
+                        }
+
+                        service.Stop();
+                        service.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
+                        service.Start(serviceChanges);
+                        service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+                        summary.AppendLine(serviceName + ": restarted");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    summary.AppendLine(serviceName + ": restart failed (" + ex.Message + ") - restart it from Server Manager");
+                }
+            }
+            return summary.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// Lets only digits be typed into the seconds and retry count fields
+        /// </summary>
+        private void mtxtb_WholeNumber_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            if (!char.IsControl(e.KeyChar) && !char.IsDigit(e.KeyChar))
+                e.Handled = true;
+        }
+
+        /// <summary>
+        /// Opens a calendar with a time picker and puts the selected date and time into From Date
+        /// </summary>
+        private void mtxtb_CareFromDate_TrailingIconClick(object sender, EventArgs e)
+        {
+            // Start from the entered value, else the default, else today
+            DateTime initial = DateTime.Today;
+            string current = mtxtb_CareFromDate.Text.Trim();
+            if (current == string.Empty)
+                current = GetConfigDefault("care_from_date");
+            if (DateTime.TryParseExact(current, new[] { ConfigDateFormat, "yyyy-MM-dd" },
+                    System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime parsed))
+                initial = parsed;
+
+            using (Form dialog = new Form())
+            {
+                dialog.Text = "Select From Date";
+                dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dialog.StartPosition = FormStartPosition.CenterParent;
+                dialog.MinimizeBox = false;
+                dialog.MaximizeBox = false;
+                dialog.ShowInTaskbar = false;
+                dialog.AutoSize = true;
+                dialog.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+                dialog.Padding = new Padding(12);
+
+                MonthCalendar calendar = new MonthCalendar
+                {
+                    Location = new Point(12, 12),
+                    MaxSelectionCount = 1,
+                    SelectionStart = initial.Date
+                };
+                Label timeLabel = new Label
+                {
+                    Text = "Time",
+                    AutoSize = true,
+                    Location = new Point(12, calendar.Bottom + 16)
+                };
+                DateTimePicker timePicker = new DateTimePicker
+                {
+                    Format = DateTimePickerFormat.Custom,
+                    CustomFormat = "HH:mm:ss",
+                    ShowUpDown = true,
+                    Value = DateTime.Today + initial.TimeOfDay,
+                    Location = new Point(70, calendar.Bottom + 12),
+                    Width = 100
+                };
+                Button okButton = new Button
+                {
+                    Text = "OK",
+                    DialogResult = DialogResult.OK,
+                    Location = new Point(12, timePicker.Bottom + 16)
+                };
+                Button cancelButton = new Button
+                {
+                    Text = "Cancel",
+                    DialogResult = DialogResult.Cancel,
+                    Location = new Point(okButton.Right + 8, timePicker.Bottom + 16)
+                };
+
+                dialog.Controls.AddRange(new Control[] { calendar, timeLabel, timePicker, okButton, cancelButton });
+                dialog.AcceptButton = okButton;
+                dialog.CancelButton = cancelButton;
+
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                {
+                    DateTime selected = calendar.SelectionStart.Date + timePicker.Value.TimeOfDay;
+                    mtxtb_CareFromDate.Text = selected.ToString(ConfigDateFormat, System.Globalization.CultureInfo.InvariantCulture);
+                }
+            }
+        }
+
+        private void mtxtb_ScpFolder_TrailingIconClick(object sender, EventArgs e)
+        {
+            BrowseForFolder(mtxtb_ScpFolder, "scp_folder", "Select the folder where received DICOM files are saved and picked up for upload");
+        }
+
+        private void mtxtb_FailedScpFolder_TrailingIconClick(object sender, EventArgs e)
+        {
+            BrowseForFolder(mtxtb_FailedScpFolder, "failed_scp_folder", "Select the folder files are moved to after the upload retry limit is hit");
+        }
+
+        /// <summary>
+        /// Lets the user pick a folder, starting from the one entered or the default, and puts it in the text box
+        /// </summary>
+        private void BrowseForFolder(MaterialTextBox textBox, string configKey, string description)
+        {
+            using (FolderBrowserDialog dialog = new FolderBrowserDialog())
+            {
+                dialog.Description = description;
+                dialog.ShowNewFolderButton = true;
+
+                string current = textBox.Text.Trim();
+                if (current == string.Empty)
+                    current = GetConfigDefault(configKey);
+                if (Directory.Exists(current))
+                    dialog.SelectedPath = current;
+
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                    textBox.Text = dialog.SelectedPath;
+            }
+        }
+
+        // The text box recolours its icons to the theme, so only the shape drawn here matters
+        private const int IconSize = 24;
+
+        private static Bitmap CreateCalendarIcon()
+        {
+            Bitmap icon = new Bitmap(IconSize, IconSize);
+            using (Graphics g = Graphics.FromImage(icon))
+            using (Pen pen = new Pen(Color.Black, 2))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.DrawRectangle(pen, 3, 5, 18, 16);     // page
+                g.DrawLine(pen, 3, 10, 21, 10);         // header bar
+                g.DrawLine(pen, 8, 2, 8, 7);            // binder rings
+                g.DrawLine(pen, 16, 2, 16, 7);
+                g.FillRectangle(Brushes.Black, 7, 13, 3, 3);    // a marked day
+            }
+            return icon;
+        }
+
+        private static Bitmap CreateFolderIcon()
+        {
+            Bitmap icon = new Bitmap(IconSize, IconSize);
+            using (Graphics g = Graphics.FromImage(icon))
+            using (Pen pen = new Pen(Color.Black, 2) { LineJoin = System.Drawing.Drawing2D.LineJoin.Round })
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.DrawPolygon(pen, new[]
+                {
+                    new Point(2, 5), new Point(9, 5), new Point(11, 8), new Point(22, 8),
+                    new Point(22, 20), new Point(2, 20)
+                });
+                g.DrawLine(pen, 2, 11, 22, 11);         // flap
+            }
+            return icon;
+        }
+
+        /// <summary>
+        /// The Configuration tab text box for each care_config key
+        /// </summary>
+        private System.Collections.Generic.Dictionary<string, MaterialTextBox> GetConfigFields()
+        {
+            return new System.Collections.Generic.Dictionary<string, MaterialTextBox>
+            {
+                { "facility_id", mtxtb_FacilityId },
+                { "care_modality", mtxtb_CareModality },
+                { "care_from_date", mtxtb_CareFromDate },
+                { "scu_poll_interval_seconds", mtxtb_ScuPollInterval },
+                { "worklist_refresh_start_seconds", mtxtb_WorklistRefreshStart },
+                { "worklist_refresh_interval_seconds", mtxtb_WorklistRefreshInterval },
+                { "max_upload_retries", mtxtb_MaxUploadRetries },
+                { "upload_retry_delay_minutes", mtxtb_UploadRetryDelay },
+                { "scp_folder", mtxtb_ScpFolder },
+                { "failed_scp_folder", mtxtb_FailedScpFolder },
+            };
+        }
+
+        /// <summary>
+        /// The value the services use when a care_config setting is blank: their App.config value, or
+        /// the built-in default when App.config has none. Mirrors the fallbacks in the MWL, SCU and
+        /// Store SCP services.
+        /// </summary>
+        private string GetConfigDefault(string configKey)
+        {
+            switch (configKey)
+            {
+                case "care_modality":
+                    return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careModality"), ReadServiceSetting("CARE_SCU_Service", "careModality"));
+                case "care_from_date":
+                    return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careFromDate"), ReadServiceSetting("CARE_SCU_Service", "careFromDate"));
+                case "worklist_refresh_start_seconds":
+                    return WholeNumberOrDefault(ReadServiceSetting("CARE_MWL_Service", "worklistRefreshStartSeconds"), 30, 0);
+                case "worklist_refresh_interval_seconds":
+                    return WholeNumberOrDefault(ReadServiceSetting("CARE_MWL_Service", "worklistRefreshIntervalSeconds"), 30, 1);
+                case "scu_poll_interval_seconds":
+                    return "5";
+                case "scp_folder":
+                    return Path.Combine(Global._applicationPath, "SCP");
+                case "failed_scp_folder":
+                    return Path.Combine(Global._applicationPath, "FailedSCP");
+                case "max_upload_retries":
+                    return WholeNumberOrDefault(ReadServiceSetting("CARE_SCU_Service", "maxUploadRetries"), 10, 1);
+                case "upload_retry_delay_minutes":
+                    return "2";
+                default:
+                    return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// Reads an appSettings value from a service's .exe.config installed next to this application.
+        /// Returns null when the file or the key is missing.
+        /// </summary>
+        private string ReadServiceSetting(string serviceAssembly, string key)
+        {
+            try
+            {
+                string configPath = Path.Combine(Global._applicationPath, serviceAssembly + ".exe.config");
+                if (!File.Exists(configPath))
+                    return null;
+
+                var configDoc = new System.Xml.XmlDocument();
+                configDoc.Load(configPath);
+                foreach (System.Xml.XmlNode node in configDoc.SelectNodes("/configuration/appSettings/add"))
+                {
+                    if (node.Attributes?["key"]?.Value == key)
+                        return node.Attributes["value"]?.Value ?? string.Empty;
+                }
+            }
+            catch (Exception)
+            {
+                // Unreadable config - shown as not found
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The value when the MWL and SCU services agree. Empty when they differ or App.config has none,
+        /// as no single value can be shown in the box.
+        /// </summary>
+        private static string CombineServiceDefaults(string mwlValue, string scuValue)
+        {
+            return mwlValue == scuValue ? (mwlValue ?? string.Empty).Trim() : string.Empty;
+        }
+
+        /// <summary>
+        /// The App.config value when it is a whole number >= minValue, otherwise the built-in default,
+        /// as the services do.
+        /// </summary>
+        private static string WholeNumberOrDefault(string appConfigValue, int builtInDefault, int minValue)
+        {
+            if (int.TryParse(appConfigValue, out int parsed) && parsed >= minValue)
+                return parsed.ToString();
+            return builtInDefault.ToString();
         }
     }
 }

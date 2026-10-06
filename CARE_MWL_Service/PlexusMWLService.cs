@@ -5,6 +5,7 @@ using System.Configuration;
 using System.Diagnostics;
 using System.ServiceProcess;
 using Worklist_SCP;
+using Plexus_MWL_Service.logs;
 using Plexus.Common.config;
 using System.IO;
 using System.Reflection;
@@ -18,10 +19,8 @@ namespace Plexus_MWL_Service
         public PlexusMWLService()
         {
             InitializeComponent();
-            string logPath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "logs", "ModalitySCP.txt");
-            Directory.CreateDirectory(Path.GetDirectoryName(logPath));
             _fileLogger = new LoggerConfiguration()
-                .WriteTo.File(logPath, rollingInterval: RollingInterval.Day, shared: true)
+                .WriteTo.Sink(DailyFolderSink.For("ModalitySCP.txt"), Serilog.Events.LogEventLevel.Information)
                 .CreateLogger();
         }
 
@@ -31,6 +30,9 @@ namespace Plexus_MWL_Service
             {
                 string applicationPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
                 _fileLogger.Information("MWL Service OnStart. ApplicationPath: " + applicationPath);
+                // The Configuration tab restarts the service with the changed settings as start parameters
+                foreach (string change in args)
+                    _fileLogger.Information($"Restarted after a Configuration tab change: {change}");
                 int backend = Convert.ToInt32(ConfigurationManager.AppSettings["backend"].ToString());
                 string mwlPort = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/mwlport");
                 string mwlAet = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/mwlaetitle");
