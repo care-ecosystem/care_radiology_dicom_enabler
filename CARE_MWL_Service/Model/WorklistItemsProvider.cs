@@ -181,205 +181,151 @@ namespace Worklist_SCP.Model
             return objWorkListItems;
         }
 
-        public List<WorklistItem> GetAllCurrentWorklistItemsFromCareAsync(string facilityId)
+        /// <summary>
+        /// Builds the worklist shared with modalities from the SCHEDULED care_worklist rows for a
+        /// facility, limited to the modality set in the Configuration tab (care_modality, or App.config
+        /// careModality when blank; blank in both returns every modality). Both are read on every call,
+        /// so a change in the Configuration tab applies to the next C-FIND. Reads only the local
+        /// table - the CARE API is called by RefreshCareWorklistFromApi.
+        /// </summary>
+        public List<WorklistItem> GetCareWorklistItemsFromDB(string facilityId)
         {
             List<WorklistItem> objWorkListItems = new List<WorklistItem>();
+            ucls_ReadWriteLog objReadWriteLog = new ucls_ReadWriteLog();
+            ucls_DAL objDal = null;
+            try
+            {
+                string errorString = string.Empty;
+                objDal = new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
+                string modality = WorklistServer.GetConfigSetting("care_modality", "careModality");
+                List<CareWorklistRecord> records = objDal.GetScheduledCareWorklist(facilityId, modality, ref errorString);
+                if (errorString != string.Empty)
+                {
+                    objReadWriteLog.WriteToLog(errorString, false);
+                    return objWorkListItems;
+                }
+
+                foreach (CareWorklistRecord record in records)
+                    objWorkListItems.Add(ToWorklistItem(record));
+
+                objReadWriteLog.WriteToLog($"care_worklist: {objWorkListItems.Count} scheduled item(s) for Facility ID {facilityId}, Modality {(string.IsNullOrWhiteSpace(modality) ? "(all)" : modality)}" +
+                    (objWorkListItems.Count > 0 ? $" (Accession Numbers: {string.Join(", ", objWorkListItems.Select(x => x.AccessionNumber))})" : string.Empty), true);
+            }
+            catch (Exception ex)
+            {
+                objReadWriteLog.WriteToLog("Reading the worklist from care_worklist failed with exception " + ex.Message, false);
+            }
+            finally
+            {
+                objDal?.Dispose();
+            }
+            return objWorkListItems;
+        }
+
+        /// <summary>
+        /// Calls the CARE worklist API for a facility and saves the response to care_worklist with
+        /// SyncCareWorklist. Returns false when no Facility ID is given, the call fails, CARE does not
+        /// report success, or saving fails; the reason is logged.
+        /// </summary>
+        public bool RefreshCareWorklistFromApi(string facilityId)
+        {
             ucls_ReadWriteLog objReadWriteLog = new ucls_ReadWriteLog();
 
             if (string.IsNullOrWhiteSpace(facilityId))
             {
-                objReadWriteLog.WriteToLog("Not calling the CARE worklist API: no Facility ID resolved. Enter a Facility ID against this server in the Server List tab.", false);
-                return objWorkListItems;
+                objReadWriteLog.WriteToLog("Not calling the CARE worklist API: no Facility ID resolved. Enter a Facility ID in the Configuration tab.", false);
+                return false;
             }
 
+            ucls_DAL objDal = null;
             try
             {
-                string errorString = string.Empty;
-
-                Task<string> task = GetCareWorklistDetailsAsync(facilityId);
-                string responseBody = task.Result;
-
-                CareWorklistResponse careResponse = JsonConvert.DeserializeObject<CareWorklistResponse>(responseBody);
-
-                if (careResponse != null &&
-                    careResponse.status != null &&
-                    careResponse.status.Equals("success", StringComparison.OrdinalIgnoreCase) &&
-                    careResponse.results != null &&
-                    careResponse.results.Count > 0 &&
-                    errorString == string.Empty)
-                {
-                    foreach (var item in careResponse.results)
-                    {
-                        WorklistItem mwlItem = new WorklistItem();
-                        mwlItem.AccessionNumber = string.Empty;
-                        string acc_servicerequestid = item.service_request != null ? item.service_request.external_id ?? string.Empty : string.Empty;
-
-                        string[] parts = acc_servicerequestid.Split('-');
-
-                        string result = parts[parts.Length - 2] + parts[parts.Length - 1];
-
-                        string accNum =  item.service_request.meta !=null ?item.service_request.meta.accession_number ?? string.Empty : string.Empty;
-
-                        mwlItem.AccessionNumber = string.IsNullOrWhiteSpace(accNum) ? result : accNum;// "5850ac6768c9407a95cbc7c5bb547d21"; 
-
-                        if (item.patient != null)
-                        {
-                            mwlItem.PatientUHID = item.patient.patient_uhid ?? string.Empty;
-                            mwlItem.PatientID = !string.IsNullOrWhiteSpace(item.patient.patient_uhid)
-                                ? item.patient.patient_uhid
-                                : (item.patient.id ?? item.patient.external_id ?? string.Empty);
-
-                            if (!string.IsNullOrWhiteSpace(item.patient.name))
-                            {
-                                string[] patNames = item.patient.name.Trim().Split(' ');
-
-                                if (patNames.Length > 1)
-                                {
-                                    mwlItem.Surname = patNames[0];
-                                    mwlItem.Forename = string.Join(" ", patNames.Skip(1));
-                                }
-                                else
-                                {
-                                    mwlItem.Surname = item.patient.name;
-                                    mwlItem.Forename = string.Empty;
-                                }
-                            }
-
-                            if (!string.IsNullOrWhiteSpace(item.patient.gender))
-                                mwlItem.Sex = NormalizeSex(item.patient.gender);
-
-                            if (item.patient.age.HasValue)
-                                mwlItem.DateOfBirth = DateTime.Now.AddYears(item.patient.age.Value * -1);
-                            else
-                                mwlItem.DateOfBirth = DateTime.Now;
-                        }
-                        //mwlItem.PatientID = "10101";
-                        //mwlItem.AccessionNumber = "26042022100448";
-                        //mwlItem.Sex = "F";
-                        mwlItem.Modality = item.service_request != null ? item.service_request.modality ?? "CR" : "CR";
-                        mwlItem.ExamDescription = item.service_request != null ? item.service_request.name ?? string.Empty : string.Empty;
-                        mwlItem.HospitalName = item.facility != null ? item.facility.name ?? "CARE" : "CARE";
-                        mwlItem.FacilityId = item.facility != null ? item.facility.id ?? string.Empty : string.Empty;
-                        mwlItem.PerformingPhysician = string.Empty;
-                        mwlItem.ServiceRequestId = item.service_request != null ? item.service_request.external_id ?? string.Empty : string.Empty;
-                        // Must be unique per item - MPPS N-CREATE correlation (MppsHandler.SetInProgress) matches
-                        // worklist items by this value, so every item sharing "200002" caused MPPS to always
-                        // resolve to the first CurrentWorklistItems entry regardless of which procedure was performed.
-                        mwlItem.ProcedureStepID = mwlItem.AccessionNumber;
-                        mwlItem.ProcedureID = DeriveProcedureIdFromAccessionNumber(mwlItem.AccessionNumber);
-                        mwlItem.StudyUID = "1.2.34.567890.1234567890.1";// string.Empty;
-                        mwlItem.ScheduledAET = ConfigurationManager.AppSettings["careScheduledAET"]?.ToString() ?? "OEC9800";
-                        mwlItem.ReferringPhysician = FormatReferringPhysician(item.service_request?.created_by);
-                        mwlItem.TechnicianInstruction = item.service_request?.technician_instruction ?? string.Empty;
-                        mwlItem.PatientInstruction = item.service_request?.patient_instruction ?? string.Empty;
-                        mwlItem.Priority = NormalizePriority(item.service_request?.priority);
-                        mwlItem.ProcedureCode = item.service_request?.procedure_id ?? string.Empty;
-
-                        if (item.service_request != null && item.service_request.date.HasValue)
-                            mwlItem.ExamDateAndTime = item.service_request.date.Value.ToLocalTime();
-
-                        objWorkListItems.Add(mwlItem);
-                    }
-
-                    // Log detailed success information
-                    var accessionNumbers = objWorkListItems.Select(x => x.AccessionNumber).ToList();
-                    objReadWriteLog.WriteToLog($" CARE Server: Successfully fetched and populated {objWorkListItems.Count} worklist items", true);
-                    objReadWriteLog.WriteToLog($"  - Accession Numbers: {string.Join(", ", accessionNumbers)}", true);
-                    objReadWriteLog.WriteToLog($"  - Facility: {objWorkListItems.FirstOrDefault()?.HospitalName ?? "N/A"}", true);
-                }
-                else
-                {
-                    if (errorString != string.Empty)
-                    {
-                        objReadWriteLog.WriteToLog("Error Getting CARE worklist Data with Exception : " + errorString, false);
-                    }
-                    else
-                    {
-                        objReadWriteLog.WriteToLog("No Record returned from CARE API", true);
-                    }
-                }
+                objDal = new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
+                return ucls_CareWorklist.RefreshCareWorklist(
+                    objDal,
+                    ConfigurationManager.AppSettings["careBaseUrl"] ?? string.Empty,
+                    ConfigurationManager.AppSettings["careToken"] ?? string.Empty,
+                    WorklistServer.GetConfigSetting("care_modality", "careModality"),
+                    WorklistServer.GetConfigSetting("care_from_date", "careFromDate"),
+                    facilityId,
+                    objReadWriteLog.WriteToLog);
             }
             catch (Exception ex)
             {
-                objReadWriteLog.WriteToLog("Error Getting / Populating CARE worklist data with exception " + ex.Message, false);
+                objReadWriteLog.WriteToLog("Refreshing care_worklist from the CARE worklist API failed with exception " + ex.Message, false);
+                return false;
             }
-
-            return objWorkListItems;
+            finally
+            {
+                objDal?.Dispose();
+            }
         }
 
 
         /// <summary>
-        /// Calls the CARE worklist API, always scoped to one facility via the facility query param.
-        /// Callers reach this only after GetAllCurrentWorklistItemsFromCareAsync has established that a
-        /// Facility ID is present.
+        /// Maps one care_worklist row (with its patient and service request) to the worklist item
+        /// returned in C-FIND responses.
         /// </summary>
-        /// <param name="facilityId">Facility ID to filter on. Required.</param>
-        /// <returns></returns>
-        private async Task<string> GetCareWorklistDetailsAsync(string facilityId)
+        private static WorklistItem ToWorklistItem(CareWorklistRecord record)
         {
-            string responseBody = string.Empty;
-            ucls_ReadWriteLog objReadWriteLog = new ucls_ReadWriteLog();
+            WorklistItem mwlItem = new WorklistItem();
+            mwlItem.AccessionNumber = record.AccessionNumber ?? string.Empty;
 
-            try
+            mwlItem.PatientUHID = record.PatientUhid ?? string.Empty;
+            mwlItem.PatientID = !string.IsNullOrWhiteSpace(record.PatientUhid)
+                ? record.PatientUhid
+                : (record.PatientId ?? string.Empty);
+
+            if (!string.IsNullOrWhiteSpace(record.PatientName))
             {
-                string baseUrl = ConfigurationManager.AppSettings["careBaseUrl"].ToString();
-                string token = ConfigurationManager.AppSettings["careToken"].ToString();
-                string modality = ConfigurationManager.AppSettings["careModality"].ToString();
-                string fromDate = ConfigurationManager.AppSettings["careFromDate"].ToString();
-                string toDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                string[] patNames = record.PatientName.Trim().Split(' ');
 
-                string requestUrl = baseUrl +
-                                    "/api/care_radiology/dicom/worklist/?modality=" + Uri.EscapeDataString(modality) +
-                                    "&from=" + Uri.EscapeDataString(fromDate) +
-                                    "&to=" + Uri.EscapeDataString(toDate);
-
-                requestUrl += "&facility=" + Uri.EscapeDataString(facilityId.Trim());
-
-                objReadWriteLog.WriteToLog("CARE Worklist URL: " + requestUrl, true);
-
-                using (HttpClient client = new HttpClient())
+                if (patNames.Length > 1)
                 {
-                    client.DefaultRequestHeaders.Clear();
-                    client.DefaultRequestHeaders.Add("Authorization", token);
-
-                    HttpResponseMessage response = await client.GetAsync(requestUrl);
-
-                    // Read the body BEFORE throwing. EnsureSuccessStatusCode discards it, which
-                    // made a rejected token, a moved route and a permissions failure all surface
-                    // as a bare "403 (Forbidden)" - the server's own explanation was thrown away.
-                    responseBody = await response.Content.ReadAsStringAsync();
-
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        objReadWriteLog.WriteToLog(
-                            $"CARE Worklist API returned {(int)response.StatusCode} ({response.ReasonPhrase}). Response body: {Truncate(responseBody, 1000)}", false);
-
-                        // A 401/403 is nearly always the careToken not matching the server's
-                        // CARE_RADIOLOGY_WEBHOOK_SECRET. Log a fingerprint of the token in use so
-                        // it can be compared against the server without either side echoing it:
-                        //   echo -n "$SECRET" | sha256sum
-                        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
-                            response.StatusCode == System.Net.HttpStatusCode.Forbidden)
-                        {
-                            objReadWriteLog.WriteToLog(
-                                $"Authorization rejected by CARE. careToken in use: {DescribeToken(token)}. Verify it matches CARE_RADIOLOGY_WEBHOOK_SECRET on the server.", false);
-                        }
-
-                        response.EnsureSuccessStatusCode();
-                    }
+                    mwlItem.Surname = patNames[0];
+                    mwlItem.Forename = string.Join(" ", patNames.Skip(1));
                 }
-
-                objReadWriteLog.WriteToLog("CARE Worklist API call successful. Returning the value", true);
-            }
-            catch (Exception ex)
-            {
-                objReadWriteLog.WriteToLog("Error calling CARE Worklist API with exception " + ex.Message, false);
-                throw;
+                else
+                {
+                    mwlItem.Surname = record.PatientName;
+                    mwlItem.Forename = string.Empty;
+                }
             }
 
-            return responseBody;
+            if (!string.IsNullOrWhiteSpace(record.PatientGender))
+                mwlItem.Sex = NormalizeSex(record.PatientGender);
+
+            if (record.PatientAge.HasValue)
+                mwlItem.DateOfBirth = DateTime.Now.AddYears(record.PatientAge.Value * -1);
+            else
+                mwlItem.DateOfBirth = DateTime.Now;
+
+            mwlItem.Modality = record.ServiceRequestModality ?? "CR";
+            mwlItem.ExamDescription = record.ServiceRequestName ?? string.Empty;
+            mwlItem.HospitalName = record.FacilityName ?? "CARE";
+            mwlItem.FacilityId = record.FacilityId ?? string.Empty;
+            mwlItem.PerformingPhysician = string.Empty;
+            mwlItem.ServiceRequestId = record.ServiceRequestId ?? string.Empty;
+            // Must be unique per item - MPPS N-CREATE correlation (MppsHandler.SetInProgress) matches
+            // worklist items by this value, so every item sharing "200002" caused MPPS to always
+            // resolve to the first CurrentWorklistItems entry regardless of which procedure was performed.
+            mwlItem.ProcedureStepID = mwlItem.AccessionNumber;
+            mwlItem.ProcedureID = DeriveProcedureIdFromAccessionNumber(mwlItem.AccessionNumber);
+            mwlItem.StudyUID = string.Empty;
+            mwlItem.ScheduledAET = ConfigurationManager.AppSettings["careScheduledAET"]?.ToString() ?? "OEC9800";
+            mwlItem.ReferringPhysician = FormatReferringPhysician(record.CreatedByPrefix, record.CreatedByFirstName, record.CreatedByLastName);
+            mwlItem.TechnicianInstruction = record.ServiceRequestTechnicianInstruction ?? string.Empty;
+            mwlItem.PatientInstruction = record.ServiceRequestPatientInstruction ?? string.Empty;
+            mwlItem.Priority = NormalizePriority(record.ServiceRequestPriority);
+            mwlItem.ProcedureCode = record.ServiceRequestProcedureId ?? string.Empty;
+
+            // care_service_request.date is saved already converted to local time.
+            if (record.ServiceRequestDate.HasValue)
+                mwlItem.ExamDateAndTime = record.ServiceRequestDate.Value;
+
+            return mwlItem;
         }
-    
+
 
     public List<WorklistItem> GetAllCurrentWorklistItemsFromPellucidAsync()
         {
@@ -483,33 +429,6 @@ namespace Worklist_SCP.Model
 
 
 
-        /// <summary>
-        /// Caps a logged response body so an HTML error page cannot flood the log file, which
-        /// rolls at 5 KB per part.
-        /// </summary>
-        private static string Truncate(string value, int maxLength)
-        {
-            if (string.IsNullOrEmpty(value)) return "(empty)";
-            value = value.Trim();
-            return value.Length <= maxLength ? value : value.Substring(0, maxLength) + "... (truncated)";
-        }
-
-        /// <summary>
-        /// Describes the configured token without writing it to the log: its length plus a short
-        /// SHA-256 fingerprint, which is enough to compare against the server's own secret.
-        /// </summary>
-        private static string DescribeToken(string token)
-        {
-            if (string.IsNullOrEmpty(token)) return "(not configured)";
-
-            using (var sha = System.Security.Cryptography.SHA256.Create())
-            {
-                byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(token));
-                string hex = BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
-                return $"{token.Length} chars, sha256:{hex.Substring(0, 16)}";
-            }
-        }
-
         private static string NormalizeSex(string value)
         {
             if (string.IsNullOrWhiteSpace(value)) return "O";
@@ -541,18 +460,18 @@ namespace Worklist_SCP.Model
 
         /// <summary>
         /// Builds a DICOM PN-formatted (FamilyName^GivenName^MiddleName^Prefix^Suffix) referring physician
-        /// name from the CARE service_request.createdby object.
+        /// name from the CARE service_request created_by values saved in care_service_request.
         /// </summary>
-        private static string FormatReferringPhysician(CareCreatedBy createdBy)
+        private static string FormatReferringPhysician(string prefix, string firstName, string lastName)
         {
-            if (createdBy == null)
+            if (prefix == null && firstName == null && lastName == null)
             {
                 return string.Empty;
             }
 
-            string familyName = createdBy.last_name ?? string.Empty;
-            string givenName = createdBy.first_name ?? string.Empty;
-            string prefix = createdBy.prefix ?? string.Empty;
+            string familyName = lastName ?? string.Empty;
+            string givenName = firstName ?? string.Empty;
+            prefix = prefix ?? string.Empty;
 
             return $"{familyName}^{givenName}^^{prefix}".TrimEnd('^');
         }
@@ -630,63 +549,5 @@ namespace Worklist_SCP.Model
             objReadWriteLog.WriteToLog("Patient URL Call successfull. Returning the value", true);
             return patientInfoResponseBody;
         }
-    }
-
-    public class CareWorklistResponse
-    {
-        public string status { get; set; }
-        public List<CareWorklistResult> results { get; set; }
-    }
-
-    public class CareWorklistResult
-    {
-        public CareServiceRequest service_request { get; set; }
-        public CareFacility facility { get; set; }
-        public CarePatient patient { get; set; }
-    }
-
-    public class CareServiceRequestMeta 
-    {
-         public string? accession_number { get; set; }
-    }
-    public class CareServiceRequest
-    {
-        public string id { get; set; }
-        public string external_id { get; set; }
-        public string name { get; set; }
-        public DateTime? date { get; set; }
-        public CareServiceRequestMeta? meta  { get; set; }
-        public string modality { get; set; }
-        public CareCreatedBy? created_by { get; set; }
-        public string technician_instruction { get; set; }
-        public string patient_instruction { get; set; }
-        public string priority { get; set; }
-        public string procedure_id { get; set; }
-    }
-
-    public class CareCreatedBy
-    {
-        public string prefix { get; set; }
-        public string first_name { get; set; }
-        public string last_name { get; set; }
-    }
-
-    public class CareFacility
-    {
-        
-        public string id { get; set; }
-        public string name { get; set; }
-    }
-
-    public class CarePatient
-    {
-        public string external_id { get; set; }
-        public string id { get; set; }
-        public string name { get; set; }
-        public string address { get; set; }
-        public string phone_number { get; set; }
-        public string gender { get; set; }
-        public int? age { get; set; }
-        public string patient_uhid { get; set; }
     }
 }

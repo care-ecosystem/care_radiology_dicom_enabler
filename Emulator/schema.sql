@@ -17,23 +17,10 @@ CREATE TABLE IF NOT EXISTS `dcm_servers` (
   `aetitle` varchar(50) NOT NULL,
   `hostaddress` varchar(255) NOT NULL,
   `portnumber` varchar(45) NOT NULL,
-  `facilityid` varchar(100) NOT NULL,
   `description` mediumtext DEFAULT NULL,
   PRIMARY KEY (`pk`),
   UNIQUE KEY `pk_UNIQUE` (`pk`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-
--- CREATE TABLE IF NOT EXISTS above leaves pre-existing installs untouched, so add
--- facilityid separately for databases created before the column existed.
--- (MySQL has no ADD COLUMN IF NOT EXISTS, hence the information_schema check.)
-SET @add_facilityid := IF(
-  (SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'dcm_servers' AND COLUMN_NAME = 'facilityid') = 0,
-  'ALTER TABLE `dcm_servers` ADD COLUMN `facilityid` varchar(100) NOT NULL AFTER `portnumber`',
-  'DO 0');
-PREPARE add_facilityid_stmt FROM @add_facilityid;
-EXECUTE add_facilityid_stmt;
-DEALLOCATE PREPARE add_facilityid_stmt;
 
 CREATE TABLE IF NOT EXISTS `patient` (
   `pk` bigint(20) NOT NULL AUTO_INCREMENT,

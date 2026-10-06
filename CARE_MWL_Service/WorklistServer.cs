@@ -6,11 +6,13 @@ using FellowOakDicom.Log;
 using FellowOakDicom.Network;
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.IO;
 using System.Reflection;
 using System.Threading;
 using Plexus.Common.Database;
 using Serilog;
+using Plexus_MWL_Service.logs;
 
 using Worklist_SCP.Model;
 
@@ -66,7 +68,11 @@ namespace Worklist_SCP
                     .RegisterServices(s => s.AddFellowOakDicom().AddLogManager<ConsoleLogManager>())
                     .Build();
                 _server = DicomServerFactory.Create<WorklistService>(port);
-                // every 30 seconds the worklist source is queried and the current list of items is cached in _currentWorklistItems
+                // The worklist source is first queried worklist_refresh_start_seconds after start, then every
+                // worklist_refresh_interval_seconds, and the current list of items is cached in CurrentWorklistItems.
+                int refreshStartSeconds = GetSecondsSetting("worklist_refresh_start_seconds", "worklistRefreshStartSeconds", 30, 0);
+                int refreshIntervalSeconds = GetSecondsSetting("worklist_refresh_interval_seconds", "worklistRefreshIntervalSeconds", 30, 1);
+                RefreshLogger.Information($"[REFRESH] Worklist refresh starts after {refreshStartSeconds}s, then every {refreshIntervalSeconds}s");
                 _itemsLoaderTimer = new System.Threading.Timer((state) =>
                 {
                     switch(backend)
@@ -81,9 +87,8 @@ namespace Worklist_SCP
                             WorklistServer.CurrentWorklistItems = dbWorklistItems;
                             break;
                         case 2:
-                            // This refresh has no DICOM association, so there is no calling AE to key
-                            // on - GetFacilityId falls back to the single Facility ID in the Server
-                            // List, which is what makes a facility-scoped background fetch possible.
+                            // This refresh has no DICOM association; the Facility ID comes from the
+                            // Configuration tab, the same one every calling AE uses.
                             string refreshFacilityId = ResolveFacilityIdForRefresh();
                             if (string.IsNullOrWhiteSpace(refreshFacilityId))
                             {
@@ -93,13 +98,16 @@ namespace Worklist_SCP
                                 RefreshLogger.Warning("[REFRESH] Skipping periodic CARE worklist fetch - no Facility ID resolved");
                                 break;
                             }
-                            var pellucidWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromCareAsync(refreshFacilityId);
-                            WorklistServer.CurrentWorklistItems = pellucidWorklistItems;
+                            // Keeps care_worklist in line with CARE (new orders, completed ones); the
+                            // cached items are then read back from care_worklist, as C-FIND does.
+                            var itemsSource = CreateItemsSourceService;
+                            itemsSource.RefreshCareWorklistFromApi(refreshFacilityId);
+                            WorklistServer.CurrentWorklistItems = itemsSource.GetCareWorklistItemsFromDB(refreshFacilityId);
                             break;
 
                     }
 
-                }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+                }, null, TimeSpan.FromSeconds(refreshStartSeconds), TimeSpan.FromSeconds(refreshIntervalSeconds));
             }
             catch(Exception ex)
             {
@@ -107,6 +115,63 @@ namespace Worklist_SCP
             }
 
 
+        }
+
+        /// <summary>
+        /// Reads a whole number of seconds from care_config, or App.config when it is blank there,
+        /// falling back to defaultValue when both are missing, not a number or below minValue.
+        /// </summary>
+        private static int GetSecondsSetting(string configKey, string appSettingKey, int defaultValue, int minValue)
+        {
+            string value = GetConfigSetting(configKey, appSettingKey);
+            if (int.TryParse(value, out int parsed) && parsed >= minValue)
+                return parsed;
+            if (!string.IsNullOrWhiteSpace(value))
+                RefreshLogger.Warning($"[REFRESH] {configKey}='{value}' is invalid (must be a whole number >= {minValue}) - using {defaultValue}");
+            return defaultValue;
+        }
+
+        /// <summary>
+        /// Reads a setting from care_config (Configuration tab). When it is blank there, or care_config
+        /// cannot be read, the appSettingKey value from App.config is used (empty when appSettingKey is
+        /// null). Opens its own DAL each call because the refresh timer, C-FIND, C-STORE and MPPS run
+        /// concurrently and a ucls_DAL holds a single connection.
+        /// </summary>
+        public static string GetConfigSetting(string configKey, string appSettingKey)
+        {
+            string fallback = appSettingKey == null ? string.Empty : ConfigurationManager.AppSettings[appSettingKey] ?? string.Empty;
+            string fallbackName = appSettingKey == null ? "the default" : "App.config " + appSettingKey;
+            ucls_DAL dal = null;
+            try
+            {
+                string errorString = string.Empty;
+                dal = new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
+                string value = dal.GetConfigValue(configKey, fallback, ref errorString);
+                if (!string.IsNullOrEmpty(errorString))
+                    RefreshLogger.Error($"[CONFIG] {errorString} - using {fallbackName}");
+                return value;
+            }
+            catch (Exception ex)
+            {
+                RefreshLogger.Error($"[CONFIG] Reading {configKey} failed with exception {ex.Message} - using {fallbackName}");
+                return fallback;
+            }
+            finally
+            {
+                dal?.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Folder received DICOM files are saved to for the SCU service to upload: scp_folder in
+        /// care_config, or SCP under the install folder when it is blank.
+        /// </summary>
+        public static string GetScpFolder()
+        {
+            string folder = GetConfigSetting("scp_folder", null);
+            return string.IsNullOrWhiteSpace(folder)
+                ? Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "SCP")
+                : folder;
         }
 
        
@@ -122,14 +187,8 @@ namespace Worklist_SCP
             {
                 if (_refreshLogger == null)
                 {
-                    string logFilePath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "logs/ModalitySCP.txt");
                     _refreshLogger = new LoggerConfiguration()
-                        .WriteTo.File(logFilePath,
-                            restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information,
-                            shared: true,
-                            retainedFileCountLimit: 3,
-                            rollOnFileSizeLimit: true,
-                            fileSizeLimitBytes: 5120)
+                        .WriteTo.Sink(DailyFolderSink.For("ModalitySCP.txt"), Serilog.Events.LogEventLevel.Information)
                         .CreateLogger();
                 }
                 return _refreshLogger;
@@ -137,9 +196,8 @@ namespace Worklist_SCP
         }
 
         /// <summary>
-        /// Resolves the Facility ID for the periodic refresh from the Server List. Passes no AE title,
-        /// so resolution falls to the single Facility ID configured. Returns empty when none is set or
-        /// when several facilities are configured and no single one can be chosen without a calling AE.
+        /// Resolves the Facility ID for the periodic refresh from the Configuration tab. Returns empty
+        /// when none is set or it cannot be read.
         /// </summary>
         private static string ResolveFacilityIdForRefresh()
         {

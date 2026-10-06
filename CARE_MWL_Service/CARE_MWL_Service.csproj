@@ -103,6 +103,7 @@
     <Reference Include="System.Configuration" />
     <Reference Include="System.Configuration.Install" />
     <Reference Include="System.Core" />
+    <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO, Version=4.1.1.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
       <HintPath>..\packages\System.IO.4.3.0\lib\net462\System.IO.dll</HintPath>
       <Private>True</Private>
@@ -186,6 +187,8 @@
     <Compile Include="Model\WorklistHandler.cs" />
     <Compile Include="Model\WorklistItem.cs" />
     <Compile Include="Logging\ucls_ReadWriteLog.cs" />
+    <Compile Include="Logging\DailyFolderSink.cs" />
+    <Compile Include="Logging\ZipOnDeleteHooks.cs" />
     <Compile Include="Model\WorklistItemsProvider.cs" />
     <Compile Include="PlexusMWLService.cs">
       <SubType>Component</SubType>

@@ -17,6 +17,7 @@ using Plexus.Common.Database;
 using System.Windows.Forms;
 using System.IO;
 using Plexus.Common.config;
+using Plexus_MWL_Service.logs;
 
 namespace Worklist_SCP
 {
@@ -66,7 +67,8 @@ namespace Worklist_SCP
                 shared: true,
                 retainedFileCountLimit: 3,
                 rollOnFileSizeLimit: true,
-                fileSizeLimitBytes: 4048)
+                fileSizeLimitBytes: 10240,
+                hooks: new ZipOnDeleteHooks())
                 .CreateLogger();
         }
 

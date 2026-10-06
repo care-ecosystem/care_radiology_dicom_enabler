@@ -10,6 +10,7 @@ using System.Text;
 using System.Threading.Tasks;
 using FellowOakDicom.Log;
 using Newtonsoft.Json;
+using Plexus.Common.Database;
 
 namespace Worklist_SCP.Model
 {
@@ -45,7 +46,7 @@ namespace Worklist_SCP.Model
                     return;
                 }
 
-                string baseUrl = ConfigurationManager.AppSettings["careBaseUrl"]?.ToString();
+                string baseUrl = ConfigurationManager.AppSettings["careBaseUrl"];
                 string token = ConfigurationManager.AppSettings["careToken"]?.ToString();
 
                 if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token))
@@ -95,6 +96,10 @@ namespace Worklist_SCP.Model
                         _logger.Warn($"MPPS webhook failed: {(int)response.StatusCode} ({response.ReasonPhrase}) for service_request {serviceRequestId} facility {facilityId}. Response body: {(string.IsNullOrWhiteSpace(errorBody) ? "(empty)" : errorBody.Trim())}");
                     }
                 }
+            }
+            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
+            {
+                _logger.Error($"MPPS webhook could not connect to the CARE server: {ex.Message}. {ucls_NetworkCheck.Describe()}");
             }
             catch (Exception ex)
             {

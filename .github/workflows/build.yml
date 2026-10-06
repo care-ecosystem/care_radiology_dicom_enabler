@@ -11,6 +11,10 @@ name: Build CARE DICOM Enabler
 #     - CARE API Token
 #     - DICOM Modality Filter
 #     - Worklist From Date
+#     - Max Upload Failures
+#     - Max Upload Retries
+#     - Worklist Refresh Start (seconds)
+#     - Worklist Refresh Interval (seconds)
 #
 # CARE settings resolve in this order (first non-empty wins):
 #   1. workflow_dispatch input   - one-off override for a manual run
@@ -28,6 +32,9 @@ name: Build CARE DICOM Enabler
 #     CARE_MODALITY    optional, e.g. CT   (leave unset for all modalities)
 #     CARE_FROM_DATE   optional, e.g. 2025-01-01 08:00:00
 #     CARE_BACKEND     optional, 0=List 1=Database 2=CARE Server
+#     CARE_MAX_UPLOAD_RETRIES   optional, e.g. 10  (upload retries before FailedSCP)
+#     CARE_WORKLIST_REFRESH_START     optional, e.g. 30  (seconds after start before the first worklist fetch)
+#     CARE_WORKLIST_REFRESH_INTERVAL  optional, e.g. 30  (seconds between worklist fetches)
 
 on:
   push:
@@ -95,6 +102,21 @@ on:
           - '0'
           - '1'
           - '2'
+      max_upload_retries:
+        description: 'Max Upload Retries before a file moves to FailedSCP (baked into EXE)'
+        required: false
+        default: ''
+        type: string
+      worklist_refresh_start:
+        description: 'Seconds after service start before the first worklist fetch (baked into EXE)'
+        required: false
+        default: ''
+        type: string
+      worklist_refresh_interval:
+        description: 'Seconds between worklist fetches (baked into EXE)'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   build:
@@ -112,6 +134,9 @@ jobs:
       CARE_MODALITY:  ${{ inputs.care_modality   != '' && inputs.care_modality   || vars.CARE_MODALITY }}
       CARE_FROM_DATE: ${{ inputs.care_from_date  != '' && inputs.care_from_date  || vars.CARE_FROM_DATE }}
       CARE_BACKEND:   ${{ inputs.care_backend    != '' && inputs.care_backend    || vars.CARE_BACKEND }}
+      CARE_MAX_UPLOAD_RETRIES:  ${{ inputs.max_upload_retries  != '' && inputs.max_upload_retries  || vars.CARE_MAX_UPLOAD_RETRIES }}
+      CARE_WORKLIST_REFRESH_START:    ${{ inputs.worklist_refresh_start    != '' && inputs.worklist_refresh_start    || vars.CARE_WORKLIST_REFRESH_START }}
+      CARE_WORKLIST_REFRESH_INTERVAL: ${{ inputs.worklist_refresh_interval != '' && inputs.worklist_refresh_interval || vars.CARE_WORKLIST_REFRESH_INTERVAL }}
 
     steps:
       - name: Checkout
@@ -138,8 +163,23 @@ jobs:
           $modality  = "$env:CARE_MODALITY"
           $fromDate  = "$env:CARE_FROM_DATE"
           $backend   = "$env:CARE_BACKEND"
+          $maxRetries  = "$env:CARE_MAX_UPLOAD_RETRIES"
+          $refreshStart    = "$env:CARE_WORKLIST_REFRESH_START"
+          $refreshInterval = "$env:CARE_WORKLIST_REFRESH_INTERVAL"
 
-          if (-not ($serverUrl -or $apiToken -or $modality -or $fromDate -or $backend)) {
+          foreach ($limit in @(@('Max Upload Retries', $maxRetries), @('Worklist Refresh Interval', $refreshInterval))) {
+            if ($limit[1] -and $limit[1] -notmatch '^[1-9][0-9]*$') {
+              Write-Error "$($limit[0]) must be a positive whole number, got '$($limit[1])'"
+              exit 1
+            }
+          }
+          # The start delay may be 0 (fetch immediately on service start).
+          if ($refreshStart -and $refreshStart -notmatch '^[0-9]+$') {
+            Write-Error "Worklist Refresh Start must be a whole number of seconds (0 or more), got '$refreshStart'"
+            exit 1
+          }
+
+          if (-not ($serverUrl -or $apiToken -or $modality -or $fromDate -or $backend -or $maxRetries -or $refreshStart -or $refreshInterval)) {
             Write-Output "No CARE settings supplied - keeping App.config defaults."
             exit 0
           }
@@ -193,12 +233,18 @@ jobs:
             careToken    = $apiToken
             careModality = $modality
             careFromDate = $fromDate
+            worklistRefreshStartSeconds    = $refreshStart
+            worklistRefreshIntervalSeconds = $refreshInterval
           }
 
-          # DICOM upload + study webhook
+          # DICOM upload + study webhook, and the worklist refresh done when an uploaded file's
+          # accession number is not in care_worklist (same modality / from date as the MWL service)
           Update-ConfigFile "CARE_SCU_Service\App.config" @{
-            careBackendURL = $serverUrl
-            staticAPIKey   = $apiToken
+            careBackendURL    = $serverUrl
+            staticAPIKey      = $apiToken
+            maxUploadRetries  = $maxRetries
+            careModality      = $modality
+            careFromDate      = $fromDate
           }
 
           # Stale duplicates shipped in CARE_DICOM_Enabler.exe.config. The
