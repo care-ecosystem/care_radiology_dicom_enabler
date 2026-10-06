@@ -16,7 +16,7 @@ name: Integration Test - CARE Server
 #
 # Every test captures the slice of each service log written while it ran. The run publishes
 # report.html (per-test details, CARE API calls, logs), results.json, JUnit XML and a summary
-# on the job page with the service request IDs, accession numbers and UIDs involved.
+# on the job page listing each test's result and, for failures, the reason.
 #
 # -- Pointing it at an instance / facility / user ------------------------------------------
 # Settings come from a GitHub Environment (Settings > Environments), so one workflow serves any
@@ -361,7 +361,11 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          if (-not (Test-Path "$env:REPORT_DIR\results.json")) { Write-Warning "No results.json - the suite did not run"; exit 0 }
+          if (-not (Test-Path "$env:REPORT_DIR\results.json")) {
+            Write-Warning "No results.json - the suite did not run"
+            "## DICOM Enabler integration — ❌ DID NOT RUN`nThe suite produced no results; check the earlier steps of this job." >> $env:GITHUB_STEP_SUMMARY
+            exit 0
+          }
           python ci/integration/report.py "$env:REPORT_DIR"
           Get-Content "$env:REPORT_DIR\summary.md" -Raw >> $env:GITHUB_STEP_SUMMARY
 
