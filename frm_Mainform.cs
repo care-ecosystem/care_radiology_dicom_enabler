@@ -4,6 +4,7 @@ using Plexus.Common.config;
 using Plexus.Common.Database;
 using Plexus_DICOM_Enabler.Forms;
 using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.Data;
 using System.Drawing;
@@ -272,15 +273,17 @@ namespace Plexus_DICOM_Enabler
         }
 
         /// <summary>
-        /// Appends only the text written to the latest log file since the last read.
-        /// Reloads the whole file when the service rolls over to a new file.
+        /// Shows every part of the log still on disk for the latest day, oldest first. A service rolls to a
+        /// new part when one reaches its size limit, and the earlier parts stay until retention zips and
+        /// deletes them, so errors written just before a roll are still shown. Only the text written to the
+        /// newest part since the last read is appended; any change in the set of parts reloads them all.
         /// </summary>
         private void RefreshLog(RichTextBox logBox, string searchPattern)
         {
             LogTail tail = logTails[searchPattern];
-            string logFile = GetLatestLogFile(searchPattern, out string message);
+            List<string> logFiles = GetLogFiles(searchPattern, out string message);
 
-            if (logFile == null)
+            if (logFiles == null)
             {
                 if (tail.Message != message)
                 {
@@ -292,42 +295,47 @@ namespace Plexus_DICOM_Enabler
                 return;
             }
 
-            using (var fileStream = new FileStream(logFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var latestStream = OpenLogFile(logFiles[logFiles.Count - 1]))
             {
-                bool reload = tail.FilePath != logFile || fileStream.Length < tail.Position;
-                if (!reload && fileStream.Length == tail.Position)
+                bool reload = !logFiles.SequenceEqual(tail.Files) || latestStream.Length < tail.Position;
+                if (!reload && latestStream.Length == tail.Position)
                     return;
 
+                var newText = new StringBuilder();
                 if (reload)
                 {
                     tail.Position = 0;
                     tail.PendingLine = string.Empty;
                     tail.EntryColor = Color.Empty;
+                    foreach (string earlierFile in logFiles.Take(logFiles.Count - 1))
+                        newText.Append(ReadWholeLogPart(earlierFile));
                 }
 
-                fileStream.Seek(tail.Position, SeekOrigin.Begin);
-                string newText;
-                using (var textReader = new StreamReader(fileStream))
+                newText.Append(tail.PendingLine);
+                latestStream.Seek(tail.Position, SeekOrigin.Begin);
+                using (var textReader = new StreamReader(latestStream))
                 {
-                    newText = tail.PendingLine + textReader.ReadToEnd();
-                    tail.Position = fileStream.Position;
+                    newText.Append(textReader.ReadToEnd());
+                    tail.Position = latestStream.Position;
                 }
 
                 // Hold back a partly written last line until the rest arrives, so its level can be read
-                int lastNewLine = newText.LastIndexOf('\n');
-                tail.PendingLine = newText.Substring(lastNewLine + 1);
-                newText = newText.Substring(0, lastNewLine + 1);
-
-                tail.FilePath = logFile;
-                tail.Message = null;
+                string text = newText.ToString();
+                int lastNewLine = text.LastIndexOf('\n');
+                tail.PendingLine = text.Substring(lastNewLine + 1);
+                text = text.Substring(0, lastNewLine + 1);
 
                 // Follow new lines only if the caret is already at the end, so scrolling back to read is not interrupted
-                bool followTail = reload || logBox.SelectionStart >= logBox.TextLength;
+                bool followTail = tail.Files.Count == 0 || logBox.SelectionStart >= logBox.TextLength;
                 int selectionStart = logBox.SelectionStart;
                 int selectionLength = logBox.SelectionLength;
+
+                tail.Files = logFiles;
+                tail.Message = null;
+
                 if (reload)
                     logBox.Clear();
-                AppendLogLines(logBox, tail, newText);
+                AppendLogLines(logBox, tail, text);
 
                 if (followTail)
                 {
@@ -336,8 +344,32 @@ namespace Plexus_DICOM_Enabler
                 }
                 else
                 {
-                    logBox.Select(selectionStart, selectionLength);
+                    selectionStart = Math.Min(selectionStart, logBox.TextLength);
+                    logBox.Select(selectionStart, Math.Min(selectionLength, logBox.TextLength - selectionStart));
                 }
+            }
+        }
+
+        // Allows the service to keep writing, and retention to delete the part, while it is being read
+        private static FileStream OpenLogFile(string path)
+        {
+            return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        }
+
+        private static string ReadWholeLogPart(string path)
+        {
+            try
+            {
+                using (var textReader = new StreamReader(OpenLogFile(path)))
+                {
+                    string text = textReader.ReadToEnd();
+                    return text.Length == 0 || text.EndsWith("\n") ? text : text + Environment.NewLine;
+                }
+            }
+            catch (FileNotFoundException)
+            {
+                // Zipped and deleted since the folder was listed; the next refresh drops it from the list
+                return string.Empty;
             }
         }
 
@@ -400,7 +432,10 @@ namespace Plexus_DICOM_Enabler
             logBox.SelectedText = text;
         }
 
-        private string GetLatestLogFile(string searchPattern, out string message)
+        /// <summary>
+        /// The parts of the log in the folder holding its most recently written part, oldest first.
+        /// </summary>
+        private List<string> GetLogFiles(string searchPattern, out string message)
         {
             message = null;
             string logDirectory = Path.Combine(Application.StartupPath, "logs");
@@ -412,19 +447,31 @@ namespace Plexus_DICOM_Enabler
             var directory = new DirectoryInfo(logDirectory);
             // Services write into a logs/yyyy-MM-dd folder per day
             FileInfo[] files = directory.GetFiles(searchPattern + "*.txt", SearchOption.AllDirectories);
-            if (files.Length > 0 ) {
-                return files.OrderByDescending(f => f.LastWriteTime).First().FullName;
-            }
-            else
+            if (files.Length == 0)
             {
                 message = "No log file found for " + searchPattern + ".";
                 return null;
             }
+            string dayFolder = files.OrderByDescending(f => f.LastWriteTime).First().DirectoryName;
+            return files.Where(f => f.DirectoryName == dayFolder)
+                        .OrderBy(f => GetLogPartNumber(f.Name, searchPattern))
+                        .Select(f => f.FullName)
+                        .ToList();
+        }
+
+        // Serilog names the parts StoreSCU.txt, StoreSCU_001.txt, StoreSCU_002.txt, ... Compared as numbers
+        // because past _999 the names no longer sort as text.
+        private static int GetLogPartNumber(string fileName, string searchPattern)
+        {
+            string suffix = Path.GetFileNameWithoutExtension(fileName).Substring(searchPattern.Length).TrimStart('_');
+            return int.TryParse(suffix, out int partNumber) ? partNumber : 0;
         }
 
         private class LogTail
         {
-            public string FilePath;
+            // The parts shown, oldest first; text is appended from the last one
+            public List<string> Files = new List<string>();
+            // How far the last part has been read
             public long Position;
             public string Message;
             // Text after the last line break read so far, shown once its line is complete
@@ -434,7 +481,7 @@ namespace Plexus_DICOM_Enabler
 
             public void Reset()
             {
-                FilePath = null;
+                Files = new List<string>();
                 Position = 0;
                 Message = null;
                 PendingLine = string.Empty;
