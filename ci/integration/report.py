@@ -91,25 +91,30 @@ def _md(text):
     return str(text).replace("|", "\\|").replace("\n", " ")
 
 
+def _reason(message):
+    # First line only: assertion messages carry pytest's rewritten expression on the following lines.
+    line = next((l.strip() for l in str(message).splitlines() if l.strip()), "")
+    return line if len(line) <= 200 else line[:197] + "..."
+
+
 def render_markdown(data):
-    run, tests = data["run"], data["tests"]
+    tests = data["tests"]
     counts = {k: sum(1 for t in tests if t["outcome"] == k) for k in ("passed", "failed", "skipped")}
+    with_reason = counts["failed"] or counts["skipped"]
     out = [
         f"## DICOM Enabler integration — {'❌ FAILED' if counts['failed'] else '✅ PASSED'}",
-        f"{counts['passed']} passed · {counts['failed']} failed · {counts['skipped']} skipped — "
-        f"`{run.get('care_base_url', '')}` facility `{run.get('facility_id', '')}`, modality `{run.get('modality', '')}`",
+        f"{counts['passed']} passed · {counts['failed']} failed · {counts['skipped']} skipped",
         "",
-        "| | Test | Key details |",
-        "|---|---|---|",
+        "| | Test | Reason |" if with_reason else "| | Test |",
+        "|---|---|---|" if with_reason else "|---|---|",
     ]
     for t in tests:
-        details = "; ".join(f"**{k}**: {_md(v if not isinstance(v, list) else ', '.join(map(str, v)))}"
-                            for k, v in t["details"].items())
-        if t["outcome"] != "passed" and t["message"]:
-            details = f"_{_md(t['message'][:300])}_" + (f"<br>{details}" if details else "")
-        out.append(f"| {ICON.get(t['outcome'], '')} | {_md(t['title'])} | {details[:1500]} |")
+        row = f"| {ICON.get(t['outcome'], '')} | {_md(t['title'])} |"
+        if with_reason:
+            row += f" {_md(_reason(t['message'])) if t['outcome'] != 'passed' else ''} |"
+        out.append(row)
     out.append("")
-    out.append("Full report with per-test service logs: `report.html` in the run artifacts.")
+    out.append("Per-test details and service logs: `report.html` in the run artifacts.")
     return "\n".join(out)
 
 
