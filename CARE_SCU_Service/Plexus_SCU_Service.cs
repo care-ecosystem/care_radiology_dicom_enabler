@@ -43,6 +43,11 @@ namespace Plexus_SCU_Service
         private string careOutage = null;
         // Whether CARE was found reachable in this upload cycle, null until checked. Checked at most once per cycle.
         private bool? careReachableThisCycle = null;
+        // During a CARE outage, CARE is checked again every this many seconds even when no failed file is
+        // due for retry, so the log does not keep showing an outage that has already ended.
+        private const int CareOutageCheckIntervalSeconds = 20;
+        // When CARE was last found unreachable or checked during the current outage
+        private DateTime lastCareOutageCheckTime = DateTime.MinValue;
 
         private enum UploadState { New, DueForRetry, WaitingForRetry }
 
@@ -121,6 +126,9 @@ namespace Plexus_SCU_Service
                 worklistRefreshedThisCycle = false;
                 worklistRefreshSucceeded = false;
                 careReachableThisCycle = null;
+                // Only updates the outage status for the log; failed files are still retried at their retry time
+                if (careOutage != null && DateTime.Now >= lastCareOutageCheckTime.AddSeconds(CareOutageCheckIntervalSeconds))
+                    IsCareReachableForRetry(careBackendURL);
                 int retryDelayMinutes = GetIntSetting("upload_retry_delay_minutes", null, DefaultUploadRetryDelayMinutes);
                 int waitingCount = 0;
                 bool foundLogged = false;
@@ -391,10 +399,14 @@ namespace Plexus_SCU_Service
             if (careReachableThisCycle == null)
             {
                 careReachableThisCycle = ucls_NetworkCheck.IsCareReachable(careBackendURL, out string description);
+                lastCareOutageCheckTime = DateTime.Now;
                 if (careReachableThisCycle.Value)
                 {
                     WriteToLog($"CARE is reachable again (was: {careOutage}) - retrying failed uploads at their next retry time", true);
                     careOutage = null;
+                    // So the MWL service refreshes its worklist now instead of at its next refresh
+                    if (!ucls_NetworkCheck.SignalCareReachable(out string signalError))
+                        WriteToLog($"Could not tell the MWL service that CARE is reachable again: {signalError}", false);
                 }
                 else
                     careOutage = description;
@@ -407,6 +419,7 @@ namespace Plexus_SCU_Service
         private void StartCareOutage(string description)
         {
             careReachableThisCycle = false;
+            lastCareOutageCheckTime = DateTime.Now;
             if (careOutage == null)
                 WriteToLog($"{description} - failed uploads will be retried only once CARE is reachable again", false);
             careOutage = description;

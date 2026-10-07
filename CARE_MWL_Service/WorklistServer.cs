@@ -24,6 +24,9 @@ namespace Worklist_SCP
 
         private static IDicomServer _server;
         private static Timer _itemsLoaderTimer;
+        // Set by the SCU service when it finds CARE reachable again after an outage
+        private static EventWaitHandle _careReachableEvent;
+        private static RegisteredWaitHandle _careReachableWait;
         private static Serilog.ILogger _refreshLogger;
         private static ucls_DAL _refreshDal;
 
@@ -109,6 +112,25 @@ namespace Worklist_SCP
                     }
 
                 }, null, TimeSpan.FromSeconds(refreshStartSeconds), TimeSpan.FromSeconds(refreshIntervalSeconds));
+
+                // When the SCU service finds CARE reachable again after an outage, the CARE worklist is
+                // refreshed straight away instead of at the next refresh
+                if (backend == 2)
+                {
+                    try
+                    {
+                        _careReachableEvent = ucls_NetworkCheck.OpenCareReachableEvent();
+                        _careReachableWait = ThreadPool.RegisterWaitForSingleObject(_careReachableEvent, (state, timedOut) =>
+                        {
+                            RefreshLogger.Information("[REFRESH] CARE is reachable again (from the SCU service) - refreshing the worklist now");
+                            _itemsLoaderTimer?.Change(TimeSpan.Zero, TimeSpan.FromSeconds(refreshIntervalSeconds));
+                        }, null, Timeout.Infinite, false);
+                    }
+                    catch (Exception ex)
+                    {
+                        RefreshLogger.Warning($"[REFRESH] Could not listen for CARE reachable again from the SCU service - the worklist is refreshed only every {refreshIntervalSeconds}s: {ex.Message}");
+                    }
+                }
             }
             catch(Exception ex)
             {
@@ -234,6 +256,8 @@ namespace Worklist_SCP
 
         public static void Stop()
         {
+            _careReachableWait?.Unregister(null);
+            _careReachableEvent?.Dispose();
             _itemsLoaderTimer?.Dispose();
             _server?.Dispose();
         }

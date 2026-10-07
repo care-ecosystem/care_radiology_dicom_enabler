@@ -325,29 +325,59 @@ namespace Plexus_DICOM_Enabler
                 tail.PendingLine = text.Substring(lastNewLine + 1);
                 text = text.Substring(0, lastNewLine + 1);
 
-                // Follow new lines only if the caret is already at the end, so scrolling back to read is not interrupted
-                bool followTail = tail.Files.Count == 0 || logBox.SelectionStart >= logBox.TextLength;
+                // Follow new lines only while the view is scrolled to the bottom, so scrolling back to read is
+                // not interrupted; following starts again once the view is scrolled back to the bottom
+                bool followTail = tail.Files.Count == 0 || IsScrolledToBottom(logBox);
+                int firstVisibleLine = (int)SendMessage(logBox.Handle, EM_GETFIRSTVISIBLELINE, IntPtr.Zero, IntPtr.Zero);
                 int selectionStart = logBox.SelectionStart;
                 int selectionLength = logBox.SelectionLength;
 
                 tail.Files = logFiles;
                 tail.Message = null;
 
-                if (reload)
-                    logBox.Clear();
-                AppendLogLines(logBox, tail, text);
+                // Appending moves the caret and the view, so drawing is held until the view is put back
+                SendMessage(logBox.Handle, WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero);
+                try
+                {
+                    if (reload)
+                        logBox.Clear();
+                    AppendLogLines(logBox, tail, text);
 
-                if (followTail)
-                {
-                    logBox.SelectionStart = logBox.TextLength;
-                    logBox.ScrollToCaret();
+                    if (followTail)
+                    {
+                        logBox.SelectionStart = logBox.TextLength;
+                        logBox.ScrollToCaret();
+                    }
+                    else
+                    {
+                        selectionStart = Math.Min(selectionStart, logBox.TextLength);
+                        logBox.Select(selectionStart, Math.Min(selectionLength, logBox.TextLength - selectionStart));
+                        // Scroll back to the line that was at the top of the view
+                        int linesToScroll = firstVisibleLine - (int)SendMessage(logBox.Handle, EM_GETFIRSTVISIBLELINE, IntPtr.Zero, IntPtr.Zero);
+                        SendMessage(logBox.Handle, EM_LINESCROLL, IntPtr.Zero, (IntPtr)linesToScroll);
+                    }
                 }
-                else
+                finally
                 {
-                    selectionStart = Math.Min(selectionStart, logBox.TextLength);
-                    logBox.Select(selectionStart, Math.Min(selectionLength, logBox.TextLength - selectionStart));
+                    SendMessage(logBox.Handle, WM_SETREDRAW, (IntPtr)1, IntPtr.Zero);
+                    logBox.Invalidate();
                 }
             }
+        }
+
+        private const int WM_SETREDRAW = 0x000B;
+        private const int EM_LINESCROLL = 0x00B6;
+        private const int EM_GETFIRSTVISIBLELINE = 0x00CE;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        // True when the last line of the log is in view (or the whole log fits in the box)
+        private static bool IsScrolledToBottom(RichTextBox logBox)
+        {
+            int lastVisibleChar = logBox.GetCharIndexFromPosition(new Point(1, logBox.ClientSize.Height - 1));
+            // The log ends with a newline, so the last line is empty; the line before it is the last entry
+            return logBox.GetLineFromCharIndex(lastVisibleChar) >= logBox.GetLineFromCharIndex(logBox.TextLength) - 1;
         }
 
         // Allows the service to keep writing, and retention to delete the part, while it is being read

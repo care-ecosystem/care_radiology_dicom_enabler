@@ -3,6 +3,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.NetworkInformation;
+using System.Threading;
 
 namespace Plexus.Common.Database
 {
@@ -106,6 +107,40 @@ namespace Plexus.Common.Database
             return statusCode == HttpStatusCode.BadGateway ||
                    statusCode == HttpStatusCode.ServiceUnavailable ||
                    statusCode == HttpStatusCode.GatewayTimeout;
+        }
+
+        // Named event the SCU service sets when it finds CARE reachable again after an outage, so the MWL
+        // service refreshes its worklist straight away. Global so it works across the services, which all
+        // run as LocalSystem.
+        private const string CareReachableEventName = @"Global\CARE_DICOM_Enabler_CareReachable";
+
+        /// <summary>
+        /// Opens the CARE reachable event, creating it when no service has it open yet. Auto-reset: once
+        /// set it stays set until the MWL service picks it up, even if MWL is busy at that moment.
+        /// </summary>
+        public static EventWaitHandle OpenCareReachableEvent()
+        {
+            return new EventWaitHandle(false, EventResetMode.AutoReset, CareReachableEventName);
+        }
+
+        /// <summary>
+        /// Tells the MWL service that CARE is reachable again. False, with error for the log, when the
+        /// event could not be set.
+        /// </summary>
+        public static bool SignalCareReachable(out string error)
+        {
+            error = null;
+            try
+            {
+                using (EventWaitHandle careReachableEvent = OpenCareReachableEvent())
+                    careReachableEvent.Set();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
         }
 
         private static bool PingSucceeds(string host)
