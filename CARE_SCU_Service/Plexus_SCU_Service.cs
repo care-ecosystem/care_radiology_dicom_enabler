@@ -145,7 +145,7 @@ namespace Plexus_SCU_Service
                     int? failedRetryCount = null;
                     if (isDicomFile)
                     {
-                        UploadState state = GetUploadState(dcmfile, retryDelayMinutes, out int retryCount);
+                        UploadState state = GetUploadState(dcmfile, retryDelayMinutes, out int retryCount, out string studyUid, out string accessionNo);
                         if (state != UploadState.New)
                             failedRetryCount = retryCount;
 
@@ -160,7 +160,7 @@ namespace Plexus_SCU_Service
                         // its retry is rescheduled instead, so the outage does not use up its retries
                         if (state == UploadState.DueForRetry && !IsCareReachableForRetry(careBackendURL))
                         {
-                            RescheduleRetry(dcmfile, $"Not retried: {careOutage}", retryDelayMinutes, retryCount);
+                            RescheduleRetry(dcmfile, studyUid, accessionNo, $"Not retried: {careOutage}", retryDelayMinutes, retryCount);
                             waitingCount++;
                             continue;
                         }
@@ -372,12 +372,15 @@ namespace Plexus_SCU_Service
         // A file that has not failed yet is uploaded straight away. A failed one is retried
         // retryDelayMinutes * 2^retry_count after its last attempt (2, 4, 8... minutes by default),
         // so files that failed together are not all retried at the same time.
-        private UploadState GetUploadState(string dcmfile, int retryDelayMinutes, out int retryCount)
+        // A file is matched to its care_sync_upload row by study UID, accession number and file name,
+        // which are returned for the caller to use for the same row.
+        private UploadState GetUploadState(string dcmfile, int retryDelayMinutes, out int retryCount, out string studyUid, out string accessionNumber)
         {
             string errorString = string.Empty;
             retryCount = 0;
             DateTime? lastRetryTime = null;
-            bool hasFailed = objDAL.GetUploadRetryState(Path.GetFileName(dcmfile), ref retryCount, ref lastRetryTime, ref errorString);
+            ReadUploadKey(dcmfile, out studyUid, out accessionNumber);
+            bool hasFailed = objDAL.GetUploadRetryState(studyUid, accessionNumber, Path.GetFileName(dcmfile), ref retryCount, ref lastRetryTime, ref errorString);
             if (!string.IsNullOrEmpty(errorString))
             {
                 WriteToLog($"{errorString} - uploading {dcmfile} now", false);
@@ -428,11 +431,11 @@ namespace Plexus_SCU_Service
         // For a retry not made, or failed, because CARE could not be reached: moves the file's
         // last_retry_time to now and saves the reason to its log, without counting a retry, so an
         // outage never sends it to FailedSCP.
-        private void RescheduleRetry(string dcmfile, string reason, int retryDelayMinutes, int retryCount)
+        private void RescheduleRetry(string dcmfile, string studyInstanceId, string accessionNumber, string reason, int retryDelayMinutes, int retryCount)
         {
             string log = $"{reason} - retry not counted, next retry at {DateTime.Now.Add(GetRetryDelay(retryDelayMinutes, retryCount)):dd-MM-yyyy HH:mm:ss}";
             string errorString = string.Empty;
-            objDAL.UpdateUploadRetryTime(Path.GetFileName(dcmfile), log, ref errorString);
+            objDAL.UpdateUploadRetryTime(studyInstanceId, accessionNumber, Path.GetFileName(dcmfile), log, ref errorString);
             if (!string.IsNullOrEmpty(errorString))
                 WriteToLog($"care_sync_upload update failed for {dcmfile}: {errorString}", false);
             WriteToLog($"{dcmfile}: {log}", false);
@@ -445,7 +448,26 @@ namespace Plexus_SCU_Service
             if (failedRetryCount == null)
                 RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, failureLog, retryDelayMinutes);
             else
-                RescheduleRetry(dcmfile, failureLog, retryDelayMinutes, failedRetryCount.Value);
+                RescheduleRetry(dcmfile, studyInstanceId, accessionNumber, failureLog, retryDelayMinutes, failedRetryCount.Value);
+        }
+
+        // The StudyInstanceUID and AccessionNumber that identify the file's care_sync_upload row. Only the
+        // header is read (pixel data is skipped). When the file cannot be read both are empty, as they are
+        // in the row saved for a file the upload could not read, so its retries still find that row.
+        private void ReadUploadKey(string dcmfile, out string studyUid, out string accessionNumber)
+        {
+            studyUid = string.Empty;
+            accessionNumber = string.Empty;
+            try
+            {
+                DicomDataset dataset = DicomFile.Open(dcmfile, FileReadOption.SkipLargeTags).Dataset;
+                studyUid = dataset.GetString(DicomTag.StudyInstanceUID);
+                accessionNumber = dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
+            }
+            catch (Exception ex)
+            {
+                WriteToLog($"Reading StudyInstanceUID/AccessionNumber from {dcmfile} failed: {ex.Message}", false);
+            }
         }
 
         private static TimeSpan GetRetryDelay(int retryDelayMinutes, int retryCount)

@@ -832,10 +832,11 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// The retry_count and last_retry_time of the latest FAILED care_sync_upload row for a file
-        /// name. Returns false when the file has no FAILED row (it has not failed yet).
+        /// The retry_count and last_retry_time of the FAILED care_sync_upload row for a file, identified
+        /// by its study UID, accession number and file name, so a different file with the same name is
+        /// not taken for a retry. Returns false when the file has no FAILED row (it has not failed yet).
         /// </summary>
-        public bool GetUploadRetryState(string fileName, ref int retryCount, ref DateTime? lastRetryTime, ref string errorString)
+        public bool GetUploadRetryState(string studyUid, string accessionNumber, string fileName, ref int retryCount, ref DateTime? lastRetryTime, ref string errorString)
         {
             bool found = false;
             retryCount = 0;
@@ -845,10 +846,12 @@ namespace Plexus.Common.Database
                 if (openDBConnection(ref errorString))
                 {
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "SELECT retry_count, last_retry_time FROM care_sync_upload WHERE file_name = @file_name AND status = 'FAILED' " +
-                        "ORDER BY last_retry_time DESC LIMIT 1",
+                        "SELECT retry_count, last_retry_time FROM care_sync_upload WHERE study_uid = @study_uid AND accession_number = @accession_number " +
+                        "AND file_name = @file_name AND status = 'FAILED'",
                         conConnection))
                     {
+                        cmd.Parameters.AddWithValue("@study_uid", studyUid ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@accession_number", accessionNumber ?? string.Empty);
                         cmd.Parameters.AddWithValue("@file_name", fileName ?? string.Empty);
                         using (MySqlDataReader reader = cmd.ExecuteReader())
                         {
@@ -874,11 +877,11 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// Sets last_retry_time to now and log to the given reason on the latest FAILED care_sync_upload
-        /// row for a file name, without changing retry_count, for a retry skipped or failed because CARE
-        /// could not be reached.
+        /// Sets last_retry_time to now and log to the given reason on the FAILED care_sync_upload row for
+        /// a file (study UID, accession number and file name), without changing retry_count, for a retry
+        /// skipped or failed because CARE could not be reached.
         /// </summary>
-        public bool UpdateUploadRetryTime(string fileName, string log, ref string errorString)
+        public bool UpdateUploadRetryTime(string studyUid, string accessionNumber, string fileName, string log, ref string errorString)
         {
             bool updated = false;
             try
@@ -886,10 +889,12 @@ namespace Plexus.Common.Database
                 if (openDBConnection(ref errorString))
                 {
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "UPDATE care_sync_upload SET last_retry_time = NOW(), log = @log WHERE file_name = @file_name AND status = 'FAILED' " +
-                        "ORDER BY last_retry_time DESC LIMIT 1",
+                        "UPDATE care_sync_upload SET last_retry_time = NOW(), log = @log WHERE study_uid = @study_uid " +
+                        "AND accession_number = @accession_number AND file_name = @file_name AND status = 'FAILED'",
                         conConnection))
                     {
+                        cmd.Parameters.AddWithValue("@study_uid", studyUid ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@accession_number", accessionNumber ?? string.Empty);
                         cmd.Parameters.AddWithValue("@file_name", fileName ?? string.Empty);
                         cmd.Parameters.AddWithValue("@log", DbValue(log));
                         updated = cmd.ExecuteNonQuery() > 0;
@@ -908,7 +913,7 @@ namespace Plexus.Common.Database
 
         /// <summary>
         /// Records the outcome of uploading one DICOM file to CARE in care_sync_upload. A retry of
-        /// the same file updates its existing row with the latest status and log and increments
+        /// the same file (same study UID, accession number and file name) updates its existing row with the latest status and log and increments
         /// retry_count. last_retry_time is set to the attempt time on the first upload and on every
         /// retry, and retryCount returns the row's retry_count after the save.
         /// worklist_pk is set from the care_worklist row with the accession number, when there is one,
@@ -930,7 +935,7 @@ namespace Plexus.Common.Database
                         conConnection))
                     {
                         cmd.Parameters.AddWithValue("@study_uid", studyUid ?? string.Empty);
-                        cmd.Parameters.AddWithValue("@accession_number", DbValue(accessionNumber));
+                        cmd.Parameters.AddWithValue("@accession_number", accessionNumber ?? string.Empty);
                         cmd.Parameters.AddWithValue("@file_name", fileName ?? string.Empty);
                         cmd.Parameters.AddWithValue("@status", status);
                         cmd.Parameters.AddWithValue("@log", DbValue(log));
@@ -939,10 +944,11 @@ namespace Plexus.Common.Database
                     }
 
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "SELECT retry_count FROM care_sync_upload WHERE study_uid = @study_uid AND file_name = @file_name",
+                        "SELECT retry_count FROM care_sync_upload WHERE study_uid = @study_uid AND accession_number = @accession_number AND file_name = @file_name",
                         conConnection))
                     {
                         cmd.Parameters.AddWithValue("@study_uid", studyUid ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@accession_number", accessionNumber ?? string.Empty);
                         cmd.Parameters.AddWithValue("@file_name", fileName ?? string.Empty);
                         using (MySqlDataReader reader = cmd.ExecuteReader())
                         {
