@@ -136,7 +136,7 @@ namespace Worklist_SCP
                 returnedItemsCount++;
             }
             UpdateStatusinDB(accessionNos);
-            fileLogger.Information($" C-FIND completed successfully: returned {returnedItemsCount} worklist items (Accession Numbers: {string.Join(", ", accessionNos)}) to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
+            fileLogger.Information($" C-FIND completed successfully: returned {returnedItemsCount} worklist items to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
             yield return new DicomCFindResponse(request, DicomStatus.Success);
             //}
         }

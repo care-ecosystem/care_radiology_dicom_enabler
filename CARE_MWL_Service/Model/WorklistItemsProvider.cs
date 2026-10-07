@@ -208,8 +208,7 @@ namespace Worklist_SCP.Model
                 foreach (CareWorklistRecord record in records)
                     objWorkListItems.Add(ToWorklistItem(record));
 
-                objReadWriteLog.WriteToLog($"care_worklist: {objWorkListItems.Count} scheduled item(s) for Facility ID {facilityId}, Modality {(string.IsNullOrWhiteSpace(modality) ? "(all)" : modality)}" +
-                    (objWorkListItems.Count > 0 ? $" (Accession Numbers: {string.Join(", ", objWorkListItems.Select(x => x.AccessionNumber))})" : string.Empty), true);
+                objReadWriteLog.WriteToLog($"care_worklist: {objWorkListItems.Count} scheduled item(s) for Facility ID {facilityId}, Modality {(string.IsNullOrWhiteSpace(modality) ? "(all)" : modality)}", true);
             }
             catch (Exception ex)
             {

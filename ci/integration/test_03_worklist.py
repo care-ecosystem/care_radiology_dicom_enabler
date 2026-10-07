@@ -100,7 +100,7 @@ def test_device_worklist_returns_only_relevant_service_requests(cfg, dicom, ctx,
     # periodic refresh, so allow one refresh interval for it.
     logs.wait_for("mwl", rf"CARE Worklist URL: .*modality={cfg.modality}&.*&facility={cfg.facility_id}", timeout=45)
     logs.wait_for("mwl", r"care_worklist synced: \d+ new row\(s\) inserted", timeout=45)
-    logs.assert_absent("mwl", r"Error calling CARE Worklist API|CARE worklist API did not report success|"
+    logs.assert_absent("mwl", r"CARE worklist API did not report success|"
                               r"Refreshing care_worklist from the CARE worklist API failed")
 
 

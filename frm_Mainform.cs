@@ -4,6 +4,7 @@ using Plexus.Common.config;
 using Plexus.Common.Database;
 using Plexus_DICOM_Enabler.Forms;
 using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.Data;
 using System.Drawing;
@@ -272,61 +273,199 @@ namespace Plexus_DICOM_Enabler
         }
 
         /// <summary>
-        /// Appends only the text written to the latest log file since the last read.
-        /// Reloads the whole file when the service rolls over to a new file.
+        /// Shows every part of the log still on disk for the latest day, oldest first. A service rolls to a
+        /// new part when one reaches its size limit, and the earlier parts stay until retention zips and
+        /// deletes them, so errors written just before a roll are still shown. Only the text written to the
+        /// newest part since the last read is appended; any change in the set of parts reloads them all.
         /// </summary>
         private void RefreshLog(RichTextBox logBox, string searchPattern)
         {
             LogTail tail = logTails[searchPattern];
-            string logFile = GetLatestLogFile(searchPattern, out string message);
+            List<string> logFiles = GetLogFiles(searchPattern, out string message);
 
-            if (logFile == null)
+            if (logFiles == null)
             {
                 if (tail.Message != message)
                 {
                     tail.Reset();
                     tail.Message = message;
-                    logBox.Text = message;
+                    logBox.Clear();
+                    AppendColoredText(logBox, message, logBox.ForeColor);
                 }
                 return;
             }
 
-            using (var fileStream = new FileStream(logFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var latestStream = OpenLogFile(logFiles[logFiles.Count - 1]))
             {
-                bool reload = tail.FilePath != logFile || fileStream.Length < tail.Position;
-                if (!reload && fileStream.Length == tail.Position)
+                bool reload = !logFiles.SequenceEqual(tail.Files) || latestStream.Length < tail.Position;
+                if (!reload && latestStream.Length == tail.Position)
                     return;
 
+                var newText = new StringBuilder();
                 if (reload)
-                    tail.Position = 0;
-
-                fileStream.Seek(tail.Position, SeekOrigin.Begin);
-                string newText;
-                using (var textReader = new StreamReader(fileStream))
                 {
-                    newText = textReader.ReadToEnd();
-                    tail.Position = fileStream.Position;
+                    tail.Position = 0;
+                    tail.PendingLine = string.Empty;
+                    tail.EntryColor = Color.Empty;
+                    foreach (string earlierFile in logFiles.Take(logFiles.Count - 1))
+                        newText.Append(ReadWholeLogPart(earlierFile));
                 }
 
-                tail.FilePath = logFile;
+                newText.Append(tail.PendingLine);
+                latestStream.Seek(tail.Position, SeekOrigin.Begin);
+                using (var textReader = new StreamReader(latestStream))
+                {
+                    newText.Append(textReader.ReadToEnd());
+                    tail.Position = latestStream.Position;
+                }
+
+                // Hold back a partly written last line until the rest arrives, so its level can be read
+                string text = newText.ToString();
+                int lastNewLine = text.LastIndexOf('\n');
+                tail.PendingLine = text.Substring(lastNewLine + 1);
+                text = text.Substring(0, lastNewLine + 1);
+
+                // Follow new lines only while the view is scrolled to the bottom, so scrolling back to read is
+                // not interrupted; following starts again once the view is scrolled back to the bottom
+                bool followTail = tail.Files.Count == 0 || IsScrolledToBottom(logBox);
+                int firstVisibleLine = (int)SendMessage(logBox.Handle, EM_GETFIRSTVISIBLELINE, IntPtr.Zero, IntPtr.Zero);
+                int selectionStart = logBox.SelectionStart;
+                int selectionLength = logBox.SelectionLength;
+
+                tail.Files = logFiles;
                 tail.Message = null;
 
-                // Follow new lines only if the caret is already at the end, so scrolling back to read is not interrupted
-                bool followTail = reload || logBox.SelectionStart >= logBox.TextLength;
-                if (reload)
-                    logBox.Text = newText;
-                else
-                    logBox.AppendText(newText);
-
-                if (followTail)
+                // Appending moves the caret and the view, so drawing is held until the view is put back
+                SendMessage(logBox.Handle, WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero);
+                try
                 {
-                    logBox.SelectionStart = logBox.TextLength;
-                    logBox.ScrollToCaret();
+                    if (reload)
+                        logBox.Clear();
+                    AppendLogLines(logBox, tail, text);
+
+                    if (followTail)
+                    {
+                        logBox.SelectionStart = logBox.TextLength;
+                        logBox.ScrollToCaret();
+                    }
+                    else
+                    {
+                        selectionStart = Math.Min(selectionStart, logBox.TextLength);
+                        logBox.Select(selectionStart, Math.Min(selectionLength, logBox.TextLength - selectionStart));
+                        // Scroll back to the line that was at the top of the view
+                        int linesToScroll = firstVisibleLine - (int)SendMessage(logBox.Handle, EM_GETFIRSTVISIBLELINE, IntPtr.Zero, IntPtr.Zero);
+                        SendMessage(logBox.Handle, EM_LINESCROLL, IntPtr.Zero, (IntPtr)linesToScroll);
+                    }
+                }
+                finally
+                {
+                    SendMessage(logBox.Handle, WM_SETREDRAW, (IntPtr)1, IntPtr.Zero);
+                    logBox.Invalidate();
                 }
             }
         }
 
-        private string GetLatestLogFile(string searchPattern, out string message)
+        private const int WM_SETREDRAW = 0x000B;
+        private const int EM_LINESCROLL = 0x00B6;
+        private const int EM_GETFIRSTVISIBLELINE = 0x00CE;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        // True when the last line of the log is in view (or the whole log fits in the box)
+        private static bool IsScrolledToBottom(RichTextBox logBox)
+        {
+            int lastVisibleChar = logBox.GetCharIndexFromPosition(new Point(1, logBox.ClientSize.Height - 1));
+            // The log ends with a newline, so the last line is empty; the line before it is the last entry
+            return logBox.GetLineFromCharIndex(lastVisibleChar) >= logBox.GetLineFromCharIndex(logBox.TextLength) - 1;
+        }
+
+        // Allows the service to keep writing, and retention to delete the part, while it is being read
+        private static FileStream OpenLogFile(string path)
+        {
+            return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        }
+
+        private static string ReadWholeLogPart(string path)
+        {
+            try
+            {
+                using (var textReader = new StreamReader(OpenLogFile(path)))
+                {
+                    string text = textReader.ReadToEnd();
+                    return text.Length == 0 || text.EndsWith("\n") ? text : text + Environment.NewLine;
+                }
+            }
+            catch (FileNotFoundException)
+            {
+                // Zipped and deleted since the folder was listed; the next refresh drops it from the list
+                return string.Empty;
+            }
+        }
+
+        // Serilog's file format: "2026-10-07 10:29:30.168 +05:30 [ERR] message"
+        private static readonly System.Text.RegularExpressions.Regex LogEntryHeader =
+            new System.Text.RegularExpressions.Regex(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{2}:\d{2} \[(\w{3})\]");
+
+        /// <summary>
+        /// Appends complete log lines, showing Error and Fatal entries in red and Warning entries in orange.
+        /// Lines that do not start a new entry, such as an exception's stack trace, keep the color of the
+        /// entry they belong to.
+        /// </summary>
+        private void AppendLogLines(RichTextBox logBox, LogTail tail, string text)
+        {
+            var run = new StringBuilder();
+            Color runColor = tail.EntryColor;
+            int lineStart = 0;
+            while (lineStart < text.Length)
+            {
+                int lineEnd = text.IndexOf('\n', lineStart);
+                string line = text.Substring(lineStart, lineEnd - lineStart + 1);
+                lineStart = lineEnd + 1;
+
+                var header = LogEntryHeader.Match(line);
+                if (header.Success)
+                    tail.EntryColor = GetLevelColor(header.Groups[1].Value);
+
+                if (tail.EntryColor != runColor)
+                {
+                    AppendColoredText(logBox, run.ToString(), runColor.IsEmpty ? logBox.ForeColor : runColor);
+                    run.Clear();
+                    runColor = tail.EntryColor;
+                }
+                run.Append(line);
+            }
+            AppendColoredText(logBox, run.ToString(), runColor.IsEmpty ? logBox.ForeColor : runColor);
+        }
+
+        // Color.Empty means the log box's normal text color
+        private static Color GetLevelColor(string level)
+        {
+            switch (level)
+            {
+                case "ERR":
+                case "FTL":
+                    return Color.Red;
+                case "WRN":
+                    return Color.DarkOrange;
+                default:
+                    return Color.Empty;
+            }
+        }
+
+        private static void AppendColoredText(RichTextBox logBox, string text, Color color)
+        {
+            if (text.Length == 0)
+                return;
+            logBox.Select(logBox.TextLength, 0);
+            logBox.SelectionColor = color;
+            logBox.SelectedText = text;
+        }
+
+        /// <summary>
+        /// The parts of the log in the folder holding its most recently written part, oldest first.
+        /// </summary>
+        private List<string> GetLogFiles(string searchPattern, out string message)
         {
             message = null;
             string logDirectory = Path.Combine(Application.StartupPath, "logs");
@@ -338,27 +477,45 @@ namespace Plexus_DICOM_Enabler
             var directory = new DirectoryInfo(logDirectory);
             // Services write into a logs/yyyy-MM-dd folder per day
             FileInfo[] files = directory.GetFiles(searchPattern + "*.txt", SearchOption.AllDirectories);
-            if (files.Length > 0 ) {
-                return files.OrderByDescending(f => f.LastWriteTime).First().FullName;
-            }
-            else
+            if (files.Length == 0)
             {
                 message = "No log file found for " + searchPattern + ".";
                 return null;
             }
+            string dayFolder = files.OrderByDescending(f => f.LastWriteTime).First().DirectoryName;
+            return files.Where(f => f.DirectoryName == dayFolder)
+                        .OrderBy(f => GetLogPartNumber(f.Name, searchPattern))
+                        .Select(f => f.FullName)
+                        .ToList();
+        }
+
+        // Serilog names the parts StoreSCU.txt, StoreSCU_001.txt, StoreSCU_002.txt, ... Compared as numbers
+        // because past _999 the names no longer sort as text.
+        private static int GetLogPartNumber(string fileName, string searchPattern)
+        {
+            string suffix = Path.GetFileNameWithoutExtension(fileName).Substring(searchPattern.Length).TrimStart('_');
+            return int.TryParse(suffix, out int partNumber) ? partNumber : 0;
         }
 
         private class LogTail
         {
-            public string FilePath;
+            // The parts shown, oldest first; text is appended from the last one
+            public List<string> Files = new List<string>();
+            // How far the last part has been read
             public long Position;
             public string Message;
+            // Text after the last line break read so far, shown once its line is complete
+            public string PendingLine = string.Empty;
+            // Color of the last entry shown, so its following lines keep it; Empty for normal text
+            public Color EntryColor = Color.Empty;
 
             public void Reset()
             {
-                FilePath = null;
+                Files = new List<string>();
                 Position = 0;
                 Message = null;
+                PendingLine = string.Empty;
+                EntryColor = Color.Empty;
             }
         }
 

@@ -24,8 +24,14 @@ namespace Worklist_SCP
 
         private static IDicomServer _server;
         private static Timer _itemsLoaderTimer;
+        // Set by the SCU service when it finds CARE reachable again after an outage
+        private static EventWaitHandle _careReachableEvent;
+        private static RegisteredWaitHandle _careReachableWait;
         private static Serilog.ILogger _refreshLogger;
         private static ucls_DAL _refreshDal;
+        // Serializes worklist refreshes; _refreshRequested is 1 while a refresh is still owed
+        private static readonly object _refreshLock = new object();
+        private static int _refreshRequested;
 
 
         protected WorklistServer()
@@ -73,41 +79,27 @@ namespace Worklist_SCP
                 int refreshStartSeconds = GetSecondsSetting("worklist_refresh_start_seconds", "worklistRefreshStartSeconds", 30, 0);
                 int refreshIntervalSeconds = GetSecondsSetting("worklist_refresh_interval_seconds", "worklistRefreshIntervalSeconds", 30, 1);
                 RefreshLogger.Information($"[REFRESH] Worklist refresh starts after {refreshStartSeconds}s, then every {refreshIntervalSeconds}s");
-                _itemsLoaderTimer = new System.Threading.Timer((state) =>
+                _itemsLoaderTimer = new System.Threading.Timer((state) => RequestRefresh(backend),
+                    null, TimeSpan.FromSeconds(refreshStartSeconds), TimeSpan.FromSeconds(refreshIntervalSeconds));
+
+                // When the SCU service finds CARE reachable again after an outage, the CARE worklist is
+                // refreshed straight away instead of at the next refresh
+                if (backend == 2)
                 {
-                    switch(backend)
+                    try
                     {
-                        case 0:
-
-                            var newWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItems();
-                            WorklistServer.CurrentWorklistItems = newWorklistItems;
-                            break;
-                        case 1:
-                            var dbWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromDB();
-                            WorklistServer.CurrentWorklistItems = dbWorklistItems;
-                            break;
-                        case 2:
-                            // This refresh has no DICOM association; the Facility ID comes from the
-                            // Configuration tab, the same one every calling AE uses.
-                            string refreshFacilityId = ResolveFacilityIdForRefresh();
-                            if (string.IsNullOrWhiteSpace(refreshFacilityId))
-                            {
-                                // Facility ID is mandatory. Skipping beats issuing an unfiltered
-                                // request, which would overwrite the facility-scoped cache with items
-                                // from every facility and mislead MPPS correlation.
-                                RefreshLogger.Warning("[REFRESH] Skipping periodic CARE worklist fetch - no Facility ID resolved");
-                                break;
-                            }
-                            // Keeps care_worklist in line with CARE (new orders, completed ones); the
-                            // cached items are then read back from care_worklist, as C-FIND does.
-                            var itemsSource = CreateItemsSourceService;
-                            itemsSource.RefreshCareWorklistFromApi(refreshFacilityId);
-                            WorklistServer.CurrentWorklistItems = itemsSource.GetCareWorklistItemsFromDB(refreshFacilityId);
-                            break;
-
+                        _careReachableEvent = ucls_NetworkCheck.OpenCareReachableEvent();
+                        _careReachableWait = ThreadPool.RegisterWaitForSingleObject(_careReachableEvent, (state, timedOut) =>
+                        {
+                            RefreshLogger.Information("[REFRESH] CARE is reachable again (from the SCU service) - refreshing the worklist now");
+                            _itemsLoaderTimer?.Change(TimeSpan.Zero, TimeSpan.FromSeconds(refreshIntervalSeconds));
+                        }, null, Timeout.Infinite, false);
                     }
-
-                }, null, TimeSpan.FromSeconds(refreshStartSeconds), TimeSpan.FromSeconds(refreshIntervalSeconds));
+                    catch (Exception ex)
+                    {
+                        RefreshLogger.Warning($"[REFRESH] Could not listen for CARE reachable again from the SCU service - the worklist is refreshed only every {refreshIntervalSeconds}s: {ex.Message}");
+                    }
+                }
             }
             catch(Exception ex)
             {
@@ -115,6 +107,69 @@ namespace Worklist_SCP
             }
 
 
+        }
+
+        /// <summary>
+        /// Runs a worklist refresh, one at a time. The timer does not wait for a running callback, and
+        /// the CARE-reachable signal fires it early, so two refreshes could otherwise overlap; an older
+        /// CARE response finishing last would then mark newer orders COMPLETED. A request that arrives
+        /// while a refresh is running is not dropped: the running refresh goes round once more.
+        /// </summary>
+        private static void RequestRefresh(int backend)
+        {
+            Interlocked.Exchange(ref _refreshRequested, 1);
+            do
+            {
+                if (!Monitor.TryEnter(_refreshLock))
+                    return;
+                try
+                {
+                    while (Interlocked.Exchange(ref _refreshRequested, 0) == 1)
+                        RefreshWorklist(backend);
+                }
+                finally
+                {
+                    Monitor.Exit(_refreshLock);
+                }
+                // A request made between the last check and releasing the lock found the lock taken
+                // and returned, so pick it up here
+            } while (Volatile.Read(ref _refreshRequested) == 1);
+        }
+
+        private static void RefreshWorklist(int backend)
+        {
+            switch(backend)
+            {
+                case 0:
+
+                    var newWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItems();
+                    WorklistServer.CurrentWorklistItems = newWorklistItems;
+                    break;
+                case 1:
+                    var dbWorklistItems = CreateItemsSourceService.GetAllCurrentWorklistItemsFromDB();
+                    WorklistServer.CurrentWorklistItems = dbWorklistItems;
+                    break;
+                case 2:
+                    // This refresh has no DICOM association; the Facility ID comes from the
+                    // Configuration tab, the same one every calling AE uses.
+                    string refreshFacilityId = ResolveFacilityIdForRefresh();
+                    if (string.IsNullOrWhiteSpace(refreshFacilityId))
+                    {
+                        // Facility ID is mandatory. Skipping beats issuing an unfiltered
+                        // request, which would overwrite the facility-scoped cache with items
+                        // from every facility and mislead MPPS correlation.
+                        RefreshLogger.Warning("[REFRESH] Skipping periodic CARE worklist fetch - no Facility ID resolved");
+                        break;
+                    }
+                    // Keeps care_worklist in line with CARE (new orders, completed ones); the
+                    // cached items are then read back from care_worklist, as C-FIND does. When the
+                    // refresh fails care_worklist is unchanged, so the cache is left as it is.
+                    var itemsSource = CreateItemsSourceService;
+                    if (itemsSource.RefreshCareWorklistFromApi(refreshFacilityId))
+                        WorklistServer.CurrentWorklistItems = itemsSource.GetCareWorklistItemsFromDB(refreshFacilityId);
+                    break;
+
+            }
         }
 
         /// <summary>
@@ -233,6 +288,19 @@ namespace Worklist_SCP
 
         public static void Stop()
         {
+            // Unregister(null) does not wait for a running CARE-reachable callback, which could then
+            // call Change on the timer disposed below. Unregister signals callbackDone once that
+            // callback has finished, so wait for it before disposing anything it uses.
+            if (_careReachableWait != null)
+            {
+                using (var callbackDone = new ManualResetEvent(false))
+                {
+                    if (_careReachableWait.Unregister(callbackDone))
+                        callbackDone.WaitOne();
+                }
+                _careReachableWait = null;
+            }
+            _careReachableEvent?.Dispose();
             _itemsLoaderTimer?.Dispose();
             _server?.Dispose();
         }

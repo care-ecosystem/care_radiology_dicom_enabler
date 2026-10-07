@@ -874,6 +874,39 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
+        /// Sets last_retry_time to now and log to the given reason on the latest FAILED care_sync_upload
+        /// row for a file name, without changing retry_count, for a retry skipped or failed because CARE
+        /// could not be reached.
+        /// </summary>
+        public bool UpdateUploadRetryTime(string fileName, string log, ref string errorString)
+        {
+            bool updated = false;
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "UPDATE care_sync_upload SET last_retry_time = NOW(), log = @log WHERE file_name = @file_name AND status = 'FAILED' " +
+                        "ORDER BY last_retry_time DESC LIMIT 1",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@file_name", fileName ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@log", DbValue(log));
+                        updated = cmd.ExecuteNonQuery() > 0;
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                errorString = $"Updating the upload retry time for file {fileName} failed with exception " + ex.Message;
+                updated = false;
+            }
+            return updated;
+        }
+
+
+        /// <summary>
         /// Records the outcome of uploading one DICOM file to CARE in care_sync_upload. A retry of
         /// the same file updates its existing row with the latest status and log and increments
         /// retry_count. last_retry_time is set to the attempt time on the first upload and on every

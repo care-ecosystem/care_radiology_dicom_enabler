@@ -179,8 +179,7 @@ namespace Plexus.Common.Database
             }
             catch (Exception ex)
             {
-                writeToLog("Error calling CARE Worklist API with exception " + ex.Message, false);
-                // No response at all: CARE could not be reached
+                // The exception itself is logged by RefreshCareWorklist. No response at all: CARE could not be reached
                 if (!responseReceived && (ex is HttpRequestException || ex is TaskCanceledException))
                     writeToLog("Could not connect to the CARE Worklist API. " + ucls_NetworkCheck.Describe(), false);
                 throw;
