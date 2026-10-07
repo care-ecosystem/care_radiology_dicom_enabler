@@ -99,10 +99,11 @@ namespace Worklist_SCP
                                 break;
                             }
                             // Keeps care_worklist in line with CARE (new orders, completed ones); the
-                            // cached items are then read back from care_worklist, as C-FIND does.
+                            // cached items are then read back from care_worklist, as C-FIND does. When the
+                            // refresh fails care_worklist is unchanged, so the cache is left as it is.
                             var itemsSource = CreateItemsSourceService;
-                            itemsSource.RefreshCareWorklistFromApi(refreshFacilityId);
-                            WorklistServer.CurrentWorklistItems = itemsSource.GetCareWorklistItemsFromDB(refreshFacilityId);
+                            if (itemsSource.RefreshCareWorklistFromApi(refreshFacilityId))
+                                WorklistServer.CurrentWorklistItems = itemsSource.GetCareWorklistItemsFromDB(refreshFacilityId);
                             break;
 
                     }

@@ -286,7 +286,8 @@ namespace Plexus_DICOM_Enabler
                 {
                     tail.Reset();
                     tail.Message = message;
-                    logBox.Text = message;
+                    logBox.Clear();
+                    AppendColoredText(logBox, message, logBox.ForeColor);
                 }
                 return;
             }
@@ -298,32 +299,105 @@ namespace Plexus_DICOM_Enabler
                     return;
 
                 if (reload)
+                {
                     tail.Position = 0;
+                    tail.PendingLine = string.Empty;
+                    tail.EntryColor = Color.Empty;
+                }
 
                 fileStream.Seek(tail.Position, SeekOrigin.Begin);
                 string newText;
                 using (var textReader = new StreamReader(fileStream))
                 {
-                    newText = textReader.ReadToEnd();
+                    newText = tail.PendingLine + textReader.ReadToEnd();
                     tail.Position = fileStream.Position;
                 }
+
+                // Hold back a partly written last line until the rest arrives, so its level can be read
+                int lastNewLine = newText.LastIndexOf('\n');
+                tail.PendingLine = newText.Substring(lastNewLine + 1);
+                newText = newText.Substring(0, lastNewLine + 1);
 
                 tail.FilePath = logFile;
                 tail.Message = null;
 
                 // Follow new lines only if the caret is already at the end, so scrolling back to read is not interrupted
                 bool followTail = reload || logBox.SelectionStart >= logBox.TextLength;
+                int selectionStart = logBox.SelectionStart;
+                int selectionLength = logBox.SelectionLength;
                 if (reload)
-                    logBox.Text = newText;
-                else
-                    logBox.AppendText(newText);
+                    logBox.Clear();
+                AppendLogLines(logBox, tail, newText);
 
                 if (followTail)
                 {
                     logBox.SelectionStart = logBox.TextLength;
                     logBox.ScrollToCaret();
                 }
+                else
+                {
+                    logBox.Select(selectionStart, selectionLength);
+                }
             }
+        }
+
+        // Serilog's file format: "2026-10-07 10:29:30.168 +05:30 [ERR] message"
+        private static readonly System.Text.RegularExpressions.Regex LogEntryHeader =
+            new System.Text.RegularExpressions.Regex(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{2}:\d{2} \[(\w{3})\]");
+
+        /// <summary>
+        /// Appends complete log lines, showing Error and Fatal entries in red and Warning entries in orange.
+        /// Lines that do not start a new entry, such as an exception's stack trace, keep the color of the
+        /// entry they belong to.
+        /// </summary>
+        private void AppendLogLines(RichTextBox logBox, LogTail tail, string text)
+        {
+            var run = new StringBuilder();
+            Color runColor = tail.EntryColor;
+            int lineStart = 0;
+            while (lineStart < text.Length)
+            {
+                int lineEnd = text.IndexOf('\n', lineStart);
+                string line = text.Substring(lineStart, lineEnd - lineStart + 1);
+                lineStart = lineEnd + 1;
+
+                var header = LogEntryHeader.Match(line);
+                if (header.Success)
+                    tail.EntryColor = GetLevelColor(header.Groups[1].Value);
+
+                if (tail.EntryColor != runColor)
+                {
+                    AppendColoredText(logBox, run.ToString(), runColor.IsEmpty ? logBox.ForeColor : runColor);
+                    run.Clear();
+                    runColor = tail.EntryColor;
+                }
+                run.Append(line);
+            }
+            AppendColoredText(logBox, run.ToString(), runColor.IsEmpty ? logBox.ForeColor : runColor);
+        }
+
+        // Color.Empty means the log box's normal text color
+        private static Color GetLevelColor(string level)
+        {
+            switch (level)
+            {
+                case "ERR":
+                case "FTL":
+                    return Color.Red;
+                case "WRN":
+                    return Color.DarkOrange;
+                default:
+                    return Color.Empty;
+            }
+        }
+
+        private static void AppendColoredText(RichTextBox logBox, string text, Color color)
+        {
+            if (text.Length == 0)
+                return;
+            logBox.Select(logBox.TextLength, 0);
+            logBox.SelectionColor = color;
+            logBox.SelectedText = text;
         }
 
         private string GetLatestLogFile(string searchPattern, out string message)
@@ -353,12 +427,18 @@ namespace Plexus_DICOM_Enabler
             public string FilePath;
             public long Position;
             public string Message;
+            // Text after the last line break read so far, shown once its line is complete
+            public string PendingLine = string.Empty;
+            // Color of the last entry shown, so its following lines keep it; Empty for normal text
+            public Color EntryColor = Color.Empty;
 
             public void Reset()
             {
                 FilePath = null;
                 Position = 0;
                 Message = null;
+                PendingLine = string.Empty;
+                EntryColor = Color.Empty;
             }
         }
 

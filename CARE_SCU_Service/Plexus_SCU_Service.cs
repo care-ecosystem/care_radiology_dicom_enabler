@@ -35,10 +35,16 @@ namespace Plexus_SCU_Service
         // cycle have an accession number or CARE patient id that is not in care_worklist.
         private bool worklistRefreshedThisCycle = false;
         private bool worklistRefreshSucceeded = false;
-        // Set when an upload could not reach CARE because of a local network or internet issue. While
-        // set, files that failed before are not retried and the network is checked on every poll; new
-        // files are still tried once so they get a last_retry_time.
-        private bool networkDown = false;
+        // Set, with the reason for the log, when CARE could not be reached: a local network issue, an
+        // internet issue, or the CARE server itself unreachable or unavailable. While set, a failed file
+        // whose retry time comes is retried only after a check finds CARE reachable again; otherwise its
+        // last_retry_time is moved to now. New files are still tried once so they get a care_sync_upload
+        // row and a last_retry_time.
+        private string careOutage = null;
+        // Whether CARE was found reachable in this upload cycle, null until checked. Checked at most once per cycle.
+        private bool? careReachableThisCycle = null;
+
+        private enum UploadState { New, DueForRetry, WaitingForRetry }
 
         public Plexus_SCU_Service()
         {
@@ -81,9 +87,6 @@ namespace Plexus_SCU_Service
             {
                 timer.Enabled = false;
 
-                if (networkDown)
-                    CheckNetworkRestored();
-
                 string careBackendURL = (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).TrimEnd('/');
                 string uploadPath = ConfigurationManager.AppSettings["uploadURL"] ?? string.Empty;
                 string staticAPIKey = ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty;
@@ -114,42 +117,73 @@ namespace Plexus_SCU_Service
                     return;
                 }
 
-                WriteToLog($"Found {dcmfiles.Length} file(s) to upload from {dcmPushPath}", true);
-
                 string uploadURL = careBackendURL + uploadPath;
                 worklistRefreshedThisCycle = false;
                 worklistRefreshSucceeded = false;
+                careReachableThisCycle = null;
                 int retryDelayMinutes = GetIntSetting("upload_retry_delay_minutes", null, DefaultUploadRetryDelayMinutes);
                 int waitingCount = 0;
+                bool foundLogged = false;
 
                 foreach (string dcmfile in dcmfiles)
                 {
                     if (string.IsNullOrWhiteSpace(dcmfile)) continue;
 
-                    // Only .dcm / .dicom files are uploaded; any other file is moved straight to the failed folder
                     string extension = Path.GetExtension(dcmfile);
-                    if (!extension.Equals(".dcm", StringComparison.OrdinalIgnoreCase) &&
-                        !extension.Equals(".dicom", StringComparison.OrdinalIgnoreCase))
+                    bool isDicomFile = extension.Equals(".dcm", StringComparison.OrdinalIgnoreCase) ||
+                                       extension.Equals(".dicom", StringComparison.OrdinalIgnoreCase);
+
+                    // The file's retry_count when this upload is a retry, null for a new file
+                    int? failedRetryCount = null;
+                    if (isDicomFile)
+                    {
+                        UploadState state = GetUploadState(dcmfile, retryDelayMinutes, out int retryCount);
+                        if (state != UploadState.New)
+                            failedRetryCount = retryCount;
+
+                        // A file that failed before waits for its next retry time
+                        if (state == UploadState.WaitingForRetry)
+                        {
+                            waitingCount++;
+                            continue;
+                        }
+
+                        // While CARE cannot be reached, a file whose retry time has come is not retried:
+                        // its retry is rescheduled instead, so the outage does not use up its retries
+                        if (state == UploadState.DueForRetry && !IsCareReachableForRetry(careBackendURL))
+                        {
+                            RescheduleRetry(dcmfile, $"Not retried: {careOutage}", retryDelayMinutes, retryCount);
+                            waitingCount++;
+                            continue;
+                        }
+                    }
+
+                    // Logged only once a file is actually processed, so a cycle where every file is
+                    // waiting for its retry time logs just the "waiting" line below
+                    if (!foundLogged)
+                    {
+                        WriteToLog($"Found {dcmfiles.Length} file(s) to upload from {dcmPushPath}", true);
+                        foundLogged = true;
+                    }
+
+                    // Only .dcm / .dicom files are uploaded; any other file is moved straight to the failed folder
+                    if (!isDicomFile)
                     {
                         WriteToLog($"Not a .dcm or .dicom file - not uploaded: {dcmfile}", false);
                         MoveToFailedSCP(dcmfile, string.Empty, string.Empty, 0, "Not a .dcm or .dicom file");
                         continue;
                     }
 
-                    // A file that failed before waits for its next retry time
-                    if (!IsDueForUpload(dcmfile, retryDelayMinutes))
-                    {
-                        waitingCount++;
-                        continue;
-                    }
-
-                    UploadDicomFileViaHttp(dcmfile, uploadURL, staticAPIKey, retryDelayMinutes);
+                    UploadDicomFileViaHttp(dcmfile, uploadURL, staticAPIKey, retryDelayMinutes, failedRetryCount);
                 }
 
                 if (waitingCount > 0)
-                    WriteToLog(networkDown
-                        ? $"{waitingCount} failed file(s) waiting for the network issue to be solved"
-                        : $"{waitingCount} file(s) waiting for their next retry time", true);
+                {
+                    if (careOutage != null)
+                        WriteToLog($"{careOutage} - {waitingCount} file(s) waiting to be uploaded/retried once CARE is reachable", false);
+                    else
+                        WriteToLog($"{waitingCount} file(s) waiting for their next retry time", true);
+                }
             }
             catch (Exception ex)
             {
@@ -161,7 +195,8 @@ namespace Plexus_SCU_Service
             }
         }
 
-        private void UploadDicomFileViaHttp(string dcmfile, string uploadURL, string staticApiKey, int retryDelayMinutes)
+        // failedRetryCount is the file's retry_count when this upload is a retry, null for a new file
+        private void UploadDicomFileViaHttp(string dcmfile, string uploadURL, string staticApiKey, int retryDelayMinutes, int? failedRetryCount)
         {
             string studyInstanceId = string.Empty;
             string accessionNumber = string.Empty;
@@ -193,9 +228,11 @@ namespace Plexus_SCU_Service
                     if (!RefreshCareWorklistOncePerCycle())
                     {
                         // The worklist could not be fetched, so it is not known whether the accession number is in it
-                        RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber,
-                            $"AccessionNumber={accessionNumber} or its CARE patient id is not in care_worklist and the CARE worklist API could not be reached to refresh it - not uploaded",
-                            retryDelayMinutes);
+                        string refreshFailureLog = $"AccessionNumber={accessionNumber} or its CARE patient id is not in care_worklist and the CARE worklist API could not be reached to refresh it - not uploaded";
+                        if (careReachableThisCycle == false)
+                            RecordOutageFailure(dcmfile, studyInstanceId, accessionNumber, refreshFailureLog, retryDelayMinutes, failedRetryCount);
+                        else
+                            RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, refreshFailureLog, retryDelayMinutes);
                         return;
                     }
                     carePatientId = LookupCarePatientId(accessionNumber);
@@ -251,15 +288,11 @@ namespace Plexus_SCU_Service
                     }
                     catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
                     {
-                        // CARE could not be reached: find out whether the local network or the internet is down
-                        bool networkIssue = ucls_NetworkCheck.HasNetworkIssue(out string networkCheck);
+                        // CARE could not be reached: find out whether the local network, the internet or the CARE server is down
+                        ucls_NetworkCheck.HasNetworkIssue(out string networkCheck);
                         WriteToLog($"Could not connect to CARE - upload of {dcmfile} failed: {ex.Message}. {networkCheck}", false);
-                        if (networkIssue && !networkDown)
-                        {
-                            networkDown = true;
-                            WriteToLog($"Network issue detected - failed uploads will not be retried until it is solved: {networkCheck}", false);
-                        }
-                        RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, $"Could not connect to CARE: {ex.Message}. {networkCheck}{patientIdNote}", retryDelayMinutes);
+                        StartCareOutage(networkCheck);
+                        RecordOutageFailure(dcmfile, studyInstanceId, accessionNumber, $"Could not connect to CARE: {ex.Message}. {networkCheck}{patientIdNote}", retryDelayMinutes, failedRetryCount);
                         return;
                     }
                     string responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
@@ -282,8 +315,14 @@ namespace Plexus_SCU_Service
                         WriteToLog($"Upload failed ({(int)response.StatusCode}) for {dcmfile}: {responseBody}{patientIdNote}", false);
 
                         string failureLog = $"HTTP {(int)response.StatusCode} ({response.ReasonPhrase}): {responseBody}{patientIdNote}";
-                        // 400 and 409 fail the same way on every retry; 401, 403, 429, 5xx and any other status are retried
-                        if (response.StatusCode == HttpStatusCode.BadRequest || response.StatusCode == HttpStatusCode.Conflict)
+                        // 502, 503 and 504 come from a proxy in front of CARE while CARE itself is down
+                        if (ucls_NetworkCheck.IsCareUnavailableStatus(response.StatusCode))
+                        {
+                            StartCareOutage($"CARE server unavailable (HTTP {(int)response.StatusCode} {response.ReasonPhrase})");
+                            RecordOutageFailure(dcmfile, studyInstanceId, accessionNumber, failureLog, retryDelayMinutes, failedRetryCount);
+                        }
+                        // 400 and 409 fail the same way on every retry; 401, 403, 429, 500 and any other status are retried
+                        else if (response.StatusCode == HttpStatusCode.BadRequest || response.StatusCode == HttpStatusCode.Conflict)
                             FailWithoutRetry(dcmfile, studyInstanceId, accessionNumber, failureLog);
                         else
                             RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, failureLog, retryDelayMinutes);
@@ -325,38 +364,75 @@ namespace Plexus_SCU_Service
         // A file that has not failed yet is uploaded straight away. A failed one is retried
         // retryDelayMinutes * 2^retry_count after its last attempt (2, 4, 8... minutes by default),
         // so files that failed together are not all retried at the same time.
-        private bool IsDueForUpload(string dcmfile, int retryDelayMinutes)
+        private UploadState GetUploadState(string dcmfile, int retryDelayMinutes, out int retryCount)
         {
             string errorString = string.Empty;
-            int retryCount = 0;
+            retryCount = 0;
             DateTime? lastRetryTime = null;
             bool hasFailed = objDAL.GetUploadRetryState(Path.GetFileName(dcmfile), ref retryCount, ref lastRetryTime, ref errorString);
             if (!string.IsNullOrEmpty(errorString))
             {
                 WriteToLog($"{errorString} - uploading {dcmfile} now", false);
-                return true;
+                return UploadState.New;
             }
             if (!hasFailed)
-                return true;
-            // While there is a network issue only new files are tried
-            if (networkDown)
-                return false;
-            if (lastRetryTime == null)
-                return true;
-            return DateTime.Now >= lastRetryTime.Value.Add(GetRetryDelay(retryDelayMinutes, retryCount));
+                return UploadState.New;
+            if (lastRetryTime == null || DateTime.Now >= lastRetryTime.Value.Add(GetRetryDelay(retryDelayMinutes, retryCount)))
+                return UploadState.DueForRetry;
+            return UploadState.WaitingForRetry;
         }
 
-        // Checks on every poll whether the local network or internet issue that stopped uploads is
-        // solved, and logs the result. Once it is, failed files are retried at their next retry time.
-        private void CheckNetworkRestored()
+        // True when a failed file may be retried now: there is no CARE outage, or a check (at most
+        // once per cycle) finds CARE reachable again, which ends the outage.
+        private bool IsCareReachableForRetry(string careBackendURL)
         {
-            if (ucls_NetworkCheck.HasNetworkIssue(out string networkCheck))
+            if (careOutage == null)
+                return true;
+            if (careReachableThisCycle == null)
             {
-                WriteToLog($"Network issue not solved yet - failed uploads are not retried: {networkCheck}", false);
-                return;
+                careReachableThisCycle = ucls_NetworkCheck.IsCareReachable(careBackendURL, out string description);
+                if (careReachableThisCycle.Value)
+                {
+                    WriteToLog($"CARE is reachable again (was: {careOutage}) - retrying failed uploads at their next retry time", true);
+                    careOutage = null;
+                }
+                else
+                    careOutage = description;
             }
-            networkDown = false;
-            WriteToLog("Network issue solved (local network and internet are up) - retrying failed uploads at their next retry time", true);
+            return careReachableThisCycle.Value;
+        }
+
+        // Called when CARE could not be reached, with the reason for the log. Logs the start of an
+        // outage once; until CARE is reachable again, failed files are rescheduled instead of retried.
+        private void StartCareOutage(string description)
+        {
+            careReachableThisCycle = false;
+            if (careOutage == null)
+                WriteToLog($"{description} - failed uploads will be retried only once CARE is reachable again", false);
+            careOutage = description;
+        }
+
+        // For a retry not made, or failed, because CARE could not be reached: moves the file's
+        // last_retry_time to now and saves the reason to its log, without counting a retry, so an
+        // outage never sends it to FailedSCP.
+        private void RescheduleRetry(string dcmfile, string reason, int retryDelayMinutes, int retryCount)
+        {
+            string log = $"{reason} - retry not counted, next retry at {DateTime.Now.Add(GetRetryDelay(retryDelayMinutes, retryCount)):dd-MM-yyyy HH:mm:ss}";
+            string errorString = string.Empty;
+            objDAL.UpdateUploadRetryTime(Path.GetFileName(dcmfile), log, ref errorString);
+            if (!string.IsNullOrEmpty(errorString))
+                WriteToLog($"care_sync_upload update failed for {dcmfile}: {errorString}", false);
+            WriteToLog($"{dcmfile}: {log}", false);
+        }
+
+        // Records an upload that failed because CARE could not be reached. A new file gets its first
+        // care_sync_upload row (retry_count 0) and so a last_retry_time; a retry is only rescheduled.
+        private void RecordOutageFailure(string dcmfile, string studyInstanceId, string accessionNumber, string failureLog, int retryDelayMinutes, int? failedRetryCount)
+        {
+            if (failedRetryCount == null)
+                RecordUploadFailure(dcmfile, studyInstanceId, accessionNumber, failureLog, retryDelayMinutes);
+            else
+                RescheduleRetry(dcmfile, failureLog, retryDelayMinutes, failedRetryCount.Value);
         }
 
         private static TimeSpan GetRetryDelay(int retryDelayMinutes, int retryCount)
@@ -519,6 +595,14 @@ namespace Plexus_SCU_Service
             {
                 worklistRefreshedThisCycle = true;
                 worklistRefreshSucceeded = RefreshCareWorklist();
+
+                // A refresh that failed because CARE could not be reached starts an outage, like a failed upload
+                if (!worklistRefreshSucceeded && careReachableThisCycle != false)
+                {
+                    string careBackendURL = (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).TrimEnd('/');
+                    if (!ucls_NetworkCheck.IsCareReachable(careBackendURL, out string description))
+                        StartCareOutage(description);
+                }
             }
             return worklistRefreshSucceeded;
         }
@@ -578,7 +662,9 @@ namespace Plexus_SCU_Service
                     GetConfigSetting("care_modality", "careModality"),
                     GetConfigSetting("care_from_date", "careFromDate"),
                     facilityId,
-                    WriteToLog);
+                    // The worklist API's progress lines belong to the MWL log; keep only its errors here,
+                    // since they explain why an upload is kept for retry
+                    (message, isInfo) => { if (!isInfo) WriteToLog(message, false); });
             }
             catch (Exception ex)
             {

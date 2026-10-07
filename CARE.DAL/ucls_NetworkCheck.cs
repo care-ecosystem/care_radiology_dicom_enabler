@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Net.NetworkInformation;
 
 namespace Plexus.Common.Database
@@ -63,6 +64,48 @@ namespace Plexus.Common.Database
                 description = "Network check failed: " + ex.Message;
                 return false;
             }
+        }
+
+        // Short timeout so a check against an unreachable server does not hold up the upload cycle
+        private static readonly HttpClient probeClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+
+        /// <summary>
+        /// True when the CARE server at baseUrl answers an HTTP request. Any response counts, even a
+        /// 404, except 502/503/504: those come from a proxy in front of CARE when CARE itself is down.
+        /// When it is not reachable, description says why for the log: a local network issue, an
+        /// internet issue, or the CARE server itself being unreachable or unavailable.
+        /// </summary>
+        public static bool IsCareReachable(string baseUrl, out string description)
+        {
+            try
+            {
+                using (HttpResponseMessage response = probeClient.GetAsync(baseUrl, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult())
+                {
+                    if (!IsCareUnavailableStatus(response.StatusCode))
+                    {
+                        description = "CARE server is reachable";
+                        return true;
+                    }
+                    description = $"CARE server unavailable (HTTP {(int)response.StatusCode} {response.ReasonPhrase})";
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+                // No response at all: find out whether the local network or the internet is the cause
+                HasNetworkIssue(out description);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 502/503/504: a proxy in front of CARE answered, but CARE itself is down or not responding.
+        /// </summary>
+        public static bool IsCareUnavailableStatus(HttpStatusCode statusCode)
+        {
+            return statusCode == HttpStatusCode.BadGateway ||
+                   statusCode == HttpStatusCode.ServiceUnavailable ||
+                   statusCode == HttpStatusCode.GatewayTimeout;
         }
 
         private static bool PingSucceeds(string host)
