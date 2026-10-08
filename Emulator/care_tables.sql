@@ -68,7 +68,11 @@ CREATE TABLE IF NOT EXISTS `care_worklist` (
   CONSTRAINT `fk_care_worklist_patient` FOREIGN KEY (`patient_pk`) REFERENCES `care_patient` (`pk`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Outcome of each DICOM file upload to CARE, one row per file. A file that failed with a
+-- Outcome of each DICOM instance upload to CARE, one row per instance. instance_key identifies
+-- the instance: StudyInstanceUID|SeriesInstanceUID|SOPInstanceUID AES-encrypted with a fixed IV,
+-- so the same instance always gives the same key (ascii_bin, since base64 is case-sensitive).
+-- A file is matched to its row by instance_key, never by file_name, so a resent or renamed copy
+-- of an instance already uploaded is found. A file that failed with a
 -- retryable error stays in the SCP folder and is retried, so a retry updates the same row with
 -- the latest status and log and increments retry_count (0 on the first attempt). last_retry_time
 -- is when the file was last sent to CARE: set on the first upload attempt and refreshed on every
@@ -81,6 +85,7 @@ CREATE TABLE IF NOT EXISTS `care_worklist` (
 CREATE TABLE IF NOT EXISTS `care_sync_upload` (
   `pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `worklist_pk` bigint(20) DEFAULT NULL,
+  `instance_key` varchar(400) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   `study_uid` varchar(250) NOT NULL DEFAULT '',
   `accession_number` varchar(64) DEFAULT NULL,
   `file_name` varchar(255) NOT NULL,
@@ -91,7 +96,7 @@ CREATE TABLE IF NOT EXISTS `care_sync_upload` (
   `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`pk`),
-  UNIQUE KEY `uq_care_sync_upload_study_file` (`study_uid`, `file_name`),
+  UNIQUE KEY `uq_care_sync_upload_instance_key` (`instance_key`),
   KEY `idx_care_sync_upload_accession_number` (`accession_number`),
   KEY `idx_care_sync_upload_status` (`status`),
   KEY `idx_care_sync_upload_worklist_pk` (`worklist_pk`),
