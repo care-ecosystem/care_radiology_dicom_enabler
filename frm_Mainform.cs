@@ -878,7 +878,7 @@ namespace Plexus_DICOM_Enabler
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(mtxtb_FacilityId.Text))
+                if (string.IsNullOrWhiteSpace(mtxtb_FacilityId.Text) && string.IsNullOrWhiteSpace(GetConfigDefault("facility_id")))
                 {
                     MessageBox.Show(this, "Please enter the Facility Id. The CARE worklist is not fetched without it.",
                                      "Check Mandatory", MessageBoxButtons.OK,
@@ -1250,6 +1250,8 @@ namespace Plexus_DICOM_Enabler
         {
             switch (configKey)
             {
+                case "facility_id":
+                    return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careFacilityId"), ReadServiceSetting("CARE_SCU_Service", "careFacilityId"));
                 case "care_modality":
                     return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careModality"), ReadServiceSetting("CARE_SCU_Service", "careModality"));
                 case "care_from_date":

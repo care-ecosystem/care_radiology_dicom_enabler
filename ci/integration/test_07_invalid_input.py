@@ -3,7 +3,7 @@
 Checks each hop refuses bad input without losing the service:
   Store SCP  - a dataset without a Study Instance UID is refused and nothing is saved
   Store SCU  - a non-DICOM file in the outbound folder is not uploaded
-  CARE       - upload-dicom-external rejects a non-DICOM payload
+  CARE       - the external imaging study upload rejects a non-DICOM payload
 """
 import datetime as dt
 import shutil
@@ -55,9 +55,9 @@ def test_store_scu_does_not_upload_non_dicom_file(cfg, logs, record):
         shutil.rmtree(folder, ignore_errors=True)
 
 
-def test_care_rejects_non_dicom_upload(cfg, api, record):
-    """CARE's upload-dicom-external endpoint rejects a non-DICOM payload"""
-    response = api.upload_external("not-a-dicom-file.dcm", b"not dicom at all" * 32, cfg.patient_id)
+def test_care_rejects_non_dicom_upload(api, record):
+    """CARE's external imaging study upload endpoint rejects a non-DICOM payload"""
+    response = api.upload_external("not-a-dicom-file.dcm", b"not dicom at all" * 32)
     record["http_status"] = response.status_code
     record["response"] = response.text[:300]
     assert not response.ok, f"CARE accepted a non-DICOM upload with HTTP {response.status_code}"

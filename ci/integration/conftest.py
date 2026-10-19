@@ -145,7 +145,7 @@ def pytest_sessionfinish(session, exitstatus):
             "mwl": f"{cfg.mwl_aet}@{cfg.host}:{cfg.mwl_port}",
             "store": f"{cfg.store_aet}@{cfg.host}:{cfg.store_port}",
             "calling_aet": cfg.calling_aet,
-            "mpps_statuses": [cfg.status_started, cfg.status_completed, cfg.status_discontinued],
+            "scan_statuses": [cfg.status_started, cfg.status_completed],
         })
         report_dir = cfg.report_dir
         secrets = cfg.secrets

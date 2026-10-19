@@ -4,7 +4,6 @@ using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace Plexus.Common.Database
 {
@@ -15,14 +14,36 @@ namespace Plexus.Common.Database
     /// </summary>
     public static class ucls_CareWorklist
     {
+        /// <summary>Page size sent as limit; CARE returns at most this many results per call.</summary>
+        public const int PageSize = 14;
+
         /// <summary>
-        /// Calls the CARE worklist API, always scoped to one facility via the facility query param,
-        /// and returns the parsed response. Throws when the API does not return a success status code.
         /// </summary>
         public static CareWorklistResponse FetchWorklist(string baseUrl, string token, string modality, string fromDate, string facilityId, Action<string, bool> writeToLog)
         {
-            string responseBody = GetCareWorklistDetailsAsync(baseUrl, token, modality, fromDate, facilityId, writeToLog).GetAwaiter().GetResult();
-            return JsonConvert.DeserializeObject<CareWorklistResponse>(responseBody);
+            // Fixed for every page so the date window does not move while paging
+            string toDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            var all = new CareWorklistResponse { status = "success", results = new List<CareWorklistResult>() };
+            int offset = 0;
+            while (true)
+            {
+                string responseBody = GetCareWorklistDetailsAsync(baseUrl, token, modality, fromDate, toDate, facilityId, offset, writeToLog).GetAwaiter().GetResult();
+                CareWorklistResponse page = JsonConvert.DeserializeObject<CareWorklistResponse>(responseBody);
+                if (!IsSuccess(page))
+                    return page;
+
+                all.count = page.count;
+                int pageCount = page.results?.Count ?? 0;
+                if (pageCount > 0)
+                    all.results.AddRange(page.results);
+
+                offset += pageCount;
+                // An empty page ends the loop even if count says more, so a count that changed
+                // between calls cannot keep it requesting pages forever
+                if (pageCount == 0 || offset >= page.count)
+                    break;
+            }
+            return all;
         }
 
         /// <summary>
@@ -38,7 +59,7 @@ namespace Plexus.Common.Database
         }
 
         /// <summary>
-        /// The accession number for a worklist result: service_request.meta.accession_number, or when
+        /// The accession number for a worklist result: service_request.accession_number, or when
         /// that is empty, the last two dash-separated parts of the service request id joined together.
         /// </summary>
         public static string GetAccessionNumber(CareWorklistResult item)
@@ -49,12 +70,17 @@ namespace Plexus.Common.Database
 
             string result = parts.Length >= 2 ? parts[parts.Length - 2] + parts[parts.Length - 1] : acc_servicerequestid;
 
-            string accNum = item.service_request?.meta?.accession_number ?? string.Empty;
+            string accNum = item.service_request?.accession_number ?? string.Empty;
 
             return string.IsNullOrWhiteSpace(accNum) ? result : accNum;
         }
 
-        public static CareWorklistRecord ToCareWorklistRecord(CareWorklistResult item, string accessionNumber)
+        /// <summary>
+        /// Maps a worklist result to a care_worklist record. The facility ID and modality are the
+        /// Configuration tab values the worklist was fetched with (facility_id, and care_modality or
+        /// App.config careModality), not values from the response.
+        /// </summary>
+        public static CareWorklistRecord ToCareWorklistRecord(CareWorklistResult item, string accessionNumber, string facilityId, string modality)
         {
             CareServiceRequest sr = item.service_request;
             return new CareWorklistRecord
@@ -63,24 +89,19 @@ namespace Plexus.Common.Database
                 ServiceRequestId = sr?.id,
                 ServiceRequestName = sr?.name,
                 ServiceRequestDate = sr?.date?.ToLocalTime(),
-                ServiceRequestBodySite = sr?.body_site == null || sr.body_site.Type == JTokenType.Null ? null : sr.body_site.ToString(Formatting.None),
-                ServiceRequestDescription = sr?.description,
-                ServiceRequestModality = sr?.modality,
-                ServiceRequestProcedureId = sr?.procedure_id,
-                ServiceRequestPriority = sr?.priority,
-                ServiceRequestTechnicianInstruction = sr?.technician_instruction,
-                ServiceRequestPatientInstruction = sr?.patient_instruction,
-                CreatedByPrefix = sr?.created_by?.prefix,
-                CreatedByFirstName = sr?.created_by?.first_name,
-                CreatedByLastName = sr?.created_by?.last_name,
-                FacilityId = item.facility?.id,
+                ServiceRequestModality = NullIfBlank(modality),
+                FacilityId = NullIfBlank(facilityId),
                 FacilityName = item.facility?.name,
                 PatientId = item.patient?.id,
                 PatientName = item.patient?.name,
                 PatientGender = item.patient?.gender,
-                PatientAge = item.patient?.age,
-                PatientUhid = item.patient?.patient_uhid
+                PatientAge = item.patient?.age
             };
+        }
+
+        private static string NullIfBlank(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
 
         /// <summary>
@@ -102,7 +123,7 @@ namespace Plexus.Common.Database
                 if (careResponse.results != null)
                 {
                     foreach (CareWorklistResult item in careResponse.results)
-                        careRecords.Add(ToCareWorklistRecord(item, GetAccessionNumber(item)));
+                        careRecords.Add(ToCareWorklistRecord(item, GetAccessionNumber(item), facilityId, modality));
                 }
 
                 string errorString = string.Empty;
@@ -113,7 +134,7 @@ namespace Plexus.Common.Database
                     writeToLog(errorString, false);
                     return false;
                 }
-                writeToLog($"care_worklist synced: {insertedCount} new row(s) inserted, {completedCount} row(s) marked COMPLETED, {careRecords.Count} item(s) in the CARE response", true);
+                writeToLog($"care_worklist synced: {insertedCount} new row(s) inserted, {completedCount} row(s) marked COMPLETED, {careRecords.Count} item(s) in the CARE response (count={careResponse.count})", true);
                 return true;
             }
             catch (Exception ex)
@@ -123,22 +144,25 @@ namespace Plexus.Common.Database
             }
         }
 
-        /// <param name="facilityId">Facility ID to filter on. Required.</param>
-        private static async Task<string> GetCareWorklistDetailsAsync(string baseUrl, string token, string modality, string fromDate, string facilityId, Action<string, bool> writeToLog)
+        /// <summary>Fetches one page (PageSize results from offset) of the facility's worklist.</summary>
+        /// <param name="facilityId">Facility ID (UUID) the worklist is fetched for. Required.</param>
+        private static async Task<string> GetCareWorklistDetailsAsync(string baseUrl, string token, string modality, string fromDate, string toDate, string facilityId, int offset, Action<string, bool> writeToLog)
         {
             string responseBody = string.Empty;
             bool responseReceived = false;
 
             try
             {
-                string toDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-
                 string requestUrl = baseUrl +
-                                    "/api/care_radiology/dicom/worklist/?modality=" + Uri.EscapeDataString(modality ?? string.Empty) +
-                                    "&from=" + Uri.EscapeDataString(fromDate ?? string.Empty) +
-                                    "&to=" + Uri.EscapeDataString(toDate);
+                                    "/api/care_radiology/facility/" + Uri.EscapeDataString(facilityId.Trim()) + "/external/worklist/" +
+                                    "?limit=" + PageSize +
+                                    "&offset=" + offset;
 
-                requestUrl += "&facility=" + Uri.EscapeDataString(facilityId.Trim());
+                if (!string.IsNullOrWhiteSpace(modality))
+                    requestUrl += "&modality=" + Uri.EscapeDataString(modality.Trim());
+                if (!string.IsNullOrWhiteSpace(fromDate))
+                    requestUrl += "&created_date_after=" + Uri.EscapeDataString(fromDate.Trim());
+                requestUrl += "&created_date_before=" + Uri.EscapeDataString(toDate);
 
                 writeToLog("CARE Worklist URL: " + requestUrl, true);
 
@@ -218,6 +242,8 @@ namespace Plexus.Common.Database
 
     public class CareWorklistResponse
     {
+        /// <summary>Total results across all pages, not just this page's.</summary>
+        public int count { get; set; }
         public string status { get; set; }
         public List<CareWorklistResult> results { get; set; }
     }
@@ -225,38 +251,31 @@ namespace Plexus.Common.Database
     public class CareWorklistResult
     {
         public CareServiceRequest service_request { get; set; }
+        public List<CareDevice> devices { get; set; }
         public CareFacility facility { get; set; }
         public CarePatient patient { get; set; }
-    }
-
-    public class CareServiceRequestMeta
-    {
-        public string accession_number { get; set; }
     }
 
     public class CareServiceRequest
     {
         public string id { get; set; }
-        public string external_id { get; set; }
         public string name { get; set; }
         public DateTime? date { get; set; }
-        public CareServiceRequestMeta meta { get; set; }
-        // Kept as raw JSON: CARE sends null or an object, and it is only stored, never read.
-        public JToken body_site { get; set; }
-        public string description { get; set; }
-        public string modality { get; set; }
-        public CareCreatedBy created_by { get; set; }
-        public string technician_instruction { get; set; }
-        public string patient_instruction { get; set; }
-        public string priority { get; set; }
-        public string procedure_id { get; set; }
+        public string accession_number { get; set; }
     }
 
-    public class CareCreatedBy
+    public class CareDevice
     {
-        public string prefix { get; set; }
-        public string first_name { get; set; }
-        public string last_name { get; set; }
+        public string id { get; set; }
+        public string registered_name { get; set; }
+        public string user_friendly_name { get; set; }
+        public CareLocation current_location { get; set; }
+    }
+
+    public class CareLocation
+    {
+        public string id { get; set; }
+        public string name { get; set; }
     }
 
     public class CareFacility
@@ -267,13 +286,9 @@ namespace Plexus.Common.Database
 
     public class CarePatient
     {
-        public string external_id { get; set; }
         public string id { get; set; }
         public string name { get; set; }
-        public string address { get; set; }
-        public string phone_number { get; set; }
         public string gender { get; set; }
         public int? age { get; set; }
-        public string patient_uhid { get; set; }
     }
 }

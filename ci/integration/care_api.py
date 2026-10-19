@@ -4,7 +4,7 @@ Two credentials are in play, as in production:
   * a user JWT (POST /api/v1/auth/login/) for core EMR calls - creating service requests and
     reading them back;
   * the plugin's static key (CARE_RADIOLOGY_WEBHOOK_SECRET) for the endpoints the enabler itself
-    calls - worklist, webhooks and upload-dicom-external.
+    calls - worklist, webhooks and the external imaging study upload.
 """
 import time
 
@@ -169,17 +169,31 @@ class CareApi:
     def studies_for_service_request(self, sr_id):
         return self._json("GET", "/api/care_radiology/dicom/studies/", params={"serviceRequestId": sr_id})
 
+    WORKLIST_PAGE_SIZE = 14
+
     def worklist(self, from_dt, to_dt, modality=None):
-        params = {"facility": self.cfg.facility_id, "from": from_dt, "to": to_dt}
+        """Every page of the facility's worklist, merged into one response like the enabler does."""
+        params = {"created_date_after": from_dt, "created_date_before": to_dt, "limit": self.WORKLIST_PAGE_SIZE}
         if modality:
             params["modality"] = modality
-        return self._json("GET", "/api/care_radiology/dicom/worklist/", auth="key", params=params)
+        path = f"/api/care_radiology/facility/{self.cfg.facility_id}/external/worklist/"
+        merged, offset = None, 0
+        while True:
+            page = self._json("GET", path, auth="key", params={**params, "offset": offset})
+            results = page.get("results") or []
+            if merged is None:
+                merged = page
+            else:
+                merged["results"].extend(results)
+            offset += len(results)
+            if not results or offset >= page.get("count", 0):
+                return merged
 
-    def upload_external(self, filename, content, patient_id):
+    def upload_external(self, filename, content):
         return self._request(
-            "POST", "/api/care_radiology/dicom/upload-dicom-external/", auth="key", timeout=600,
+            "POST", f"/api/care_radiology/facility/{self.cfg.facility_id}/external/imaging_study/upload/",
+            auth="key", timeout=600,
             files={"file": (filename, content, "application/dicom")},
-            data={"patient_id": patient_id},
         )
 
 
