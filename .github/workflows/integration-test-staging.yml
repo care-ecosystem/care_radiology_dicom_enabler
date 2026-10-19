@@ -266,14 +266,11 @@ jobs:
           Write-Error "MySQL did not become ready"; exit 1
 
       # The full enabler schema (tables + stored procedures the services call), then the CARE
-      # tables (care_config etc.), in the same order as Initializer.ps1. schema.sql's ALTER USER
-      # line sets a root password for desktop installs; the CI root keeps an empty one.
+      # tables (care_config etc.), in the same order as Initializer.ps1.
       - name: Create database and register the calling modality
         shell: pwsh
         run: |
-          (Get-Content "Emulator\schema.sql") |
-            Where-Object { $_ -notmatch '^\s*(ALTER USER|FLUSH PRIVILEGES)' } |
-            & $env:MYSQL_EXE -u root --protocol=TCP
+          Get-Content "Emulator\schema.sql" | & $env:MYSQL_EXE -u root --protocol=TCP
           if ($LASTEXITCODE -ne 0) { Write-Error "Schema creation failed"; exit 1 }
 
           Get-Content "Emulator\care_tables.sql" | & $env:MYSQL_EXE -u root --protocol=TCP

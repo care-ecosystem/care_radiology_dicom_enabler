@@ -1,8 +1,8 @@
 -- Full plexus_mi2 schema used by the DICOM Enabler services and the Modality Emulator.
 -- Run via Initializer.ps1 / Initializer.bat. Safe to re-run: tables use IF NOT EXISTS,
 -- and stored procedures are dropped and recreated each time.
-ALTER USER 'root'@'localhost' IDENTIFIED BY 'inzin@123';
-FLUSH PRIVILEGES;
+-- The root password is not changed here: Initializer.ps1 does that as its last step,
+-- so care_tables.sql (applied after this file) still connects with the entered password.
 
 CREATE DATABASE IF NOT EXISTS `plexus_mi2` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `plexus_mi2`;

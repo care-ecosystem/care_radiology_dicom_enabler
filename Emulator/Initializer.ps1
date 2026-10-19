@@ -17,13 +17,9 @@ Env vars (all optional):
   DICOM_SKIP_SERVICE_CHECK Set to "1" to skip the Windows-service check
                             (use this if MySQL runs outside a Windows service,
                             e.g. Docker, WSL, XAMPP)
-  DICOM_SET_MYSQL_ROOT_PWD Set to "1" to also run the documented
-                            ALTER USER 'root'@'localhost' step (see schema.sql
-                            comment). Off by default - changing another
-                            login's password is not something this script
-                            does silently.
-  DICOM_MYSQL_NEW_PWD      New root password to set when DICOM_SET_MYSQL_ROOT_PWD=1
-                            (default: inzin@123, matching the documented setup)
+  DICOM_MYSQL_NEW_PWD      Password root@localhost is changed to as the final step,
+                            after all SQL files are applied
+                            (default: inzin@123, matching App.config's connectionstring)
 #>
 
 $MySqlHost   = if ($env:DICOM_MYSQL_HOST) { $env:DICOM_MYSQL_HOST } else { 'localhost' }
@@ -32,6 +28,7 @@ $MySqlUser   = if ($env:DICOM_MYSQL_USER) { $env:DICOM_MYSQL_USER } else { 'root
 $DbName      = 'plexus_mi2' # matches the database/tables baked into schema.sql - not independently configurable
 $SkipService = $env:DICOM_SKIP_SERVICE_CHECK -eq '1'
 $DefaultPwd  = 'care'
+$NewPwd      = if ($env:DICOM_MYSQL_NEW_PWD) { $env:DICOM_MYSQL_NEW_PWD } else { 'inzin@123' }
 
 $script:HadFailure = $false
 
@@ -202,17 +199,14 @@ if (-not $mysqlExe) {
             }
         }
 
-        if ($env:DICOM_SET_MYSQL_ROOT_PWD -eq '1') {
-            $newPwd = if ($env:DICOM_MYSQL_NEW_PWD) { $env:DICOM_MYSQL_NEW_PWD } else { 'inzin@123' }
-            $alterSql = "ALTER USER 'root'@'localhost' IDENTIFIED BY '$newPwd'; FLUSH PRIVILEGES;"
-            & $mysqlExe @mysqlArgs -e $alterSql
-            if ($LASTEXITCODE -ne 0) {
-                Write-Fail "Failed to set the root@localhost password." "Run manually in a mysql shell: ALTER USER 'root'@'localhost' IDENTIFIED BY '<password>'; FLUSH PRIVILEGES;"
-            } else {
-                Write-Ok "root@localhost password set (DICOM_SET_MYSQL_ROOT_PWD=1). Remember to update DICOM_MYSQL_PWD for future runs."
-            }
+        # Runs last: every mysql call above authenticates with the password entered at the prompt,
+        # so changing it any earlier would lock out the remaining steps.
+        $alterSql = "ALTER USER 'root'@'localhost' IDENTIFIED BY '$NewPwd'; FLUSH PRIVILEGES;"
+        & $mysqlExe @mysqlArgs -e $alterSql
+        if ($LASTEXITCODE -ne 0) {
+            Write-Fail "Failed to set the root@localhost password." "Run manually in a mysql shell: ALTER USER 'root'@'localhost' IDENTIFIED BY '$NewPwd'; FLUSH PRIVILEGES;"
         } else {
-            Write-Host "  Skipped setting root@localhost's password (opt in with DICOM_SET_MYSQL_ROOT_PWD=1 to run the documented ALTER USER step)." -ForegroundColor DarkGray
+            Write-Ok "root@localhost password set to the one the DICOM Enabler services use (App.config connectionstring). Enter it at the prompt on future runs."
         }
     }
 }
