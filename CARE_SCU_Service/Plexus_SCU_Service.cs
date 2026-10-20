@@ -45,6 +45,9 @@ namespace Plexus_SCU_Service
         // last_retry_time is moved to now. New files are still tried once so they get a care_sync_upload
         // row and a last_retry_time.
         private string careOutage = null;
+        // Accession numbers whose Scan Completed is held back because of failed uploads, so the reason
+        // is logged once rather than every cycle
+        private readonly HashSet<string> scanCompletedHeldLogged = new HashSet<string>(StringComparer.Ordinal);
         // Whether CARE was found reachable in this upload cycle, null until checked. Checked at most once per cycle.
         private bool? careReachableThisCycle = null;
         // During a CARE outage, CARE is checked again every this many seconds even when no failed file is
@@ -154,7 +157,8 @@ namespace Plexus_SCU_Service
                 if (dcmfiles.Length <= 0)
                 {
                     WriteToLog($"Folder {dcmPushPath} has no files to upload.", true);
-                    SendScanCompletedStatuses(facilityId.Trim(), statusURL, staticAPIKey, new HashSet<string>());
+                    SendPendingScanStartedStatuses(facilityId.Trim(), statusURL, staticAPIKey);
+                    SendScanCompletedStatuses(facilityId.Trim(), statusURL, staticAPIKey, dcmPushPath, dcmfiles, new HashSet<string>());
                     return;
                 }
 
@@ -262,8 +266,9 @@ namespace Plexus_SCU_Service
                         WriteToLog($"{waitingCount} file(s) waiting for their next retry time", true);
                 }
 
+                SendPendingScanStartedStatuses(facilityId.Trim(), statusURL, staticAPIKey);
                 if (!unreadableFilePending)
-                    SendScanCompletedStatuses(facilityId.Trim(), statusURL, staticAPIKey, pendingAccessionNumbers);
+                    SendScanCompletedStatuses(facilityId.Trim(), statusURL, staticAPIKey, dcmPushPath, dcmfiles, pendingAccessionNumbers);
             }
             catch (Exception ex)
             {
@@ -651,12 +656,11 @@ namespace Plexus_SCU_Service
 
         // Sends Scan Started for the accession number's service request before the first upload of a file
         // with it. Once sent, care_worklist.scan_status is STARTED and it is not sent again. When it cannot
-        // be sent the file is still uploaded, and it is tried again before the next file's upload. While
-        // CARE cannot be reached it is not tried, since the upload will fail and be retried too.
+        // be sent (or CARE cannot be reached) the file is still uploaded and scan_status is set to
+        // START_PENDING, so it is tried again every cycle by SendPendingScanStartedStatuses even when the
+        // file was uploaded and deleted.
         private void SendScanStartedStatus(string accessionNumber, string statusURL, string staticApiKey)
         {
-            if (careOutage != null)
-                return;
             string errorString = string.Empty;
             string serviceRequestId = null;
             string scanStatus = null;
@@ -666,7 +670,7 @@ namespace Plexus_SCU_Service
                 WriteToLog($"Not sending {ScanStatusStarted} for AccessionNumber={accessionNumber}: {errorString}", false);
                 return;
             }
-            if (!string.IsNullOrEmpty(scanStatus))
+            if (scanStatus == "STARTED" || scanStatus == "COMPLETED")
                 return;
             if (string.IsNullOrWhiteSpace(serviceRequestId))
             {
@@ -674,22 +678,64 @@ namespace Plexus_SCU_Service
                 return;
             }
 
-            if (SendScanStatus(statusURL, staticApiKey, serviceRequestId, accessionNumber, ScanStatusStarted))
+            if (careOutage == null && SendScanStatus(statusURL, staticApiKey, serviceRequestId, accessionNumber, ScanStatusStarted))
                 SaveScanStatus(accessionNumber, "STARTED");
+            else if (scanStatus != "START_PENDING")
+                SaveScanStatus(accessionNumber, "START_PENDING");
         }
 
-        // Sends Scan Completed for each of the facility's accession numbers whose Scan Started was sent,
-        // once none of its files are left in the SCP folder (pendingAccessionNumbers) and none was sent
-        // to CARE for scan_completed_wait_seconds. When it cannot be sent it is tried again next cycle,
-        // and while CARE cannot be reached it is not tried until it is reachable again.
-        private void SendScanCompletedStatuses(string facilityId, string statusURL, string staticApiKey, HashSet<string> pendingAccessionNumbers)
+        // Sends Scan Started for each of the facility's accession numbers whose Scan Started could not be
+        // sent before its upload (scan_status START_PENDING). When it cannot be sent it is tried again
+        // next cycle, and while CARE cannot be reached it is not tried until it is reachable again.
+        private void SendPendingScanStartedStatuses(string facilityId, string statusURL, string staticApiKey)
         {
             if (careOutage != null)
                 return;
             try
             {
                 string errorString = string.Empty;
-                List<ScanInProgress> scans = objDAL.GetScansInProgress(facilityId, ref errorString);
+                List<ScanInProgress> scans = objDAL.GetScansWithStatus(facilityId, "START_PENDING", ref errorString);
+                if (!string.IsNullOrEmpty(errorString))
+                {
+                    WriteToLog($"Not retrying {ScanStatusStarted}: {errorString}", false);
+                    return;
+                }
+
+                foreach (ScanInProgress scan in scans)
+                {
+                    if (string.IsNullOrWhiteSpace(scan.ServiceRequestId))
+                    {
+                        WriteToLog($"Not sending {ScanStatusStarted} for AccessionNumber={scan.AccessionNumber}: no service request id in care_worklist", false);
+                        continue;
+                    }
+
+                    if (SendScanStatus(statusURL, staticApiKey, scan.ServiceRequestId, scan.AccessionNumber, ScanStatusStarted))
+                        SaveScanStatus(scan.AccessionNumber, "STARTED");
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteToLog($"Retrying {ScanStatusStarted} failed with exception {ex.Message}", false);
+            }
+        }
+
+        // Sends Scan Completed for each of the facility's accession numbers whose Scan Started was sent,
+        // once none of its files are left in the SCP folder (pendingAccessionNumbers) and none was sent
+        // to CARE for scan_completed_wait_seconds. It is held back while any of its instances is FAILED in
+        // care_sync_upload (a file moved to FailedSCP is not a finished upload) or none uploaded; a resent
+        // copy of a failed instance that uploads updates the same row to SUCCESS and releases it. When it
+        // cannot be sent it is tried again next cycle, and while CARE cannot be reached it is not tried
+        // until it is reachable again. pendingAccessionNumbers only covers cycleFiles, the files listed at
+        // the start of the cycle, so before the first Scan Completed is sent the SCP folder is checked
+        // again for files the Store SCP saved during the cycle.
+        private void SendScanCompletedStatuses(string facilityId, string statusURL, string staticApiKey, string dcmPushPath, string[] cycleFiles, HashSet<string> pendingAccessionNumbers)
+        {
+            if (careOutage != null)
+                return;
+            try
+            {
+                string errorString = string.Empty;
+                List<ScanInProgress> scans = objDAL.GetScansWithStatus(facilityId, "STARTED", ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
                 {
                     WriteToLog($"Not sending {ScanStatusCompleted}: {errorString}", false);
@@ -699,17 +745,35 @@ namespace Plexus_SCU_Service
                     return;
 
                 int waitSeconds = GetIntSetting("scan_completed_wait_seconds", "scanCompletedWaitSeconds", DefaultScanCompletedWaitSeconds);
+                bool folderRechecked = false;
                 foreach (ScanInProgress scan in scans)
                 {
                     if (pendingAccessionNumbers.Contains(scan.AccessionNumber))
                         continue;
                     if (scan.LastUploadTime != null && DateTime.Now < scan.LastUploadTime.Value.AddSeconds(waitSeconds))
                         continue;
+                    if (scan.FailedUploads > 0 || scan.SuccessfulUploads == 0)
+                    {
+                        if (scanCompletedHeldLogged.Add(scan.AccessionNumber))
+                            WriteToLog($"Not sending {ScanStatusCompleted} for AccessionNumber={scan.AccessionNumber}: " +
+                                       $"{scan.FailedUploads} instance(s) failed to upload, {scan.SuccessfulUploads} uploaded", false);
+                        continue;
+                    }
+                    scanCompletedHeldLogged.Remove(scan.AccessionNumber);
                     if (string.IsNullOrWhiteSpace(scan.ServiceRequestId))
                     {
                         WriteToLog($"Not sending {ScanStatusCompleted} for AccessionNumber={scan.AccessionNumber}: no service request id in care_worklist", false);
                         continue;
                     }
+
+                    if (!folderRechecked)
+                    {
+                        folderRechecked = true;
+                        if (!AddAccessionNumbersOfNewFiles(dcmPushPath, cycleFiles, pendingAccessionNumbers))
+                            return;
+                    }
+                    if (pendingAccessionNumbers.Contains(scan.AccessionNumber))
+                        continue;
 
                     if (SendScanStatus(statusURL, staticApiKey, scan.ServiceRequestId, scan.AccessionNumber, ScanStatusCompleted))
                         SaveScanStatus(scan.AccessionNumber, "COMPLETED");
@@ -719,6 +783,35 @@ namespace Plexus_SCU_Service
             {
                 WriteToLog($"Sending {ScanStatusCompleted} failed with exception {ex.Message}", false);
             }
+        }
+
+        // Adds the accession numbers of .dcm / .dicom files in the SCP folder that are not in cycleFiles
+        // (saved by the Store SCP while the cycle ran) to pendingAccessionNumbers. Returns false when one
+        // of them cannot be read yet, since the SCP may still be writing it and it could belong to any
+        // accession number; those files are uploaded next cycle.
+        private bool AddAccessionNumbersOfNewFiles(string dcmPushPath, string[] cycleFiles, HashSet<string> pendingAccessionNumbers)
+        {
+            var listedFiles = new HashSet<string>(cycleFiles, StringComparer.OrdinalIgnoreCase);
+            foreach (string dcmfile in Directory.GetFiles(dcmPushPath, "*.*", SearchOption.AllDirectories))
+            {
+                if (listedFiles.Contains(dcmfile))
+                    continue;
+                string extension = Path.GetExtension(dcmfile);
+                if (!extension.Equals(".dcm", StringComparison.OrdinalIgnoreCase) && !extension.Equals(".dicom", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                try
+                {
+                    string accessionNumber = DicomFile.Open(dcmfile).Dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
+                    if (!string.IsNullOrWhiteSpace(accessionNumber))
+                        pendingAccessionNumbers.Add(accessionNumber);
+                }
+                catch (Exception ex)
+                {
+                    WriteToLog($"Not sending {ScanStatusCompleted} this cycle: {dcmfile} arrived during the cycle and cannot be read yet ({ex.Message})", true);
+                    return false;
+                }
+            }
+            return true;
         }
 
         // PATCHes study_status for a service request to the CARE scan status API. Returns whether CARE accepted it.

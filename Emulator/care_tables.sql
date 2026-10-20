@@ -4,6 +4,8 @@ USE `plexus_mi2`;
 
 -- CARE service requests from the worklist API (service_request object), one row per CARE
 -- service request id. Refreshed with the latest values each time the worklist is fetched.
+-- modality is not in the response: it is the modality the worklist was fetched with
+-- (care_modality, or App.config careModality).
 CREATE TABLE IF NOT EXISTS `care_service_request` (
   `pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `service_request_id` varchar(64) NOT NULL,
@@ -16,13 +18,27 @@ CREATE TABLE IF NOT EXISTS `care_service_request` (
   `priority` varchar(32) DEFAULT NULL,
   `technician_instruction` text DEFAULT NULL,
   `patient_instruction` text DEFAULT NULL,
-  `created_by_prefix` varchar(64) DEFAULT NULL,
-  `created_by_first_name` varchar(255) DEFAULT NULL,
-  `created_by_last_name` varchar(255) DEFAULT NULL,
   `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`pk`),
   UNIQUE KEY `uq_care_service_request_id` (`service_request_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Locations and devices a CARE service request is scheduled on, from the worklist API (locations
+-- array, each with its devices). One row per device, or one row with NULL device_id/device_name for
+-- a location without devices. A service request's rows are replaced each time the worklist is fetched.
+CREATE TABLE IF NOT EXISTS `care_service_request_device` (
+  `pk` bigint(20) NOT NULL AUTO_INCREMENT,
+  `service_request_pk` bigint(20) NOT NULL,
+  `location_id` varchar(64) DEFAULT NULL,
+  `location_name` varchar(255) DEFAULT NULL,
+  `device_id` varchar(64) DEFAULT NULL,
+  `device_name` varchar(255) DEFAULT NULL,
+  `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`pk`),
+  KEY `idx_care_service_request_device_sr_pk` (`service_request_pk`),
+  KEY `idx_care_service_request_device_device_id` (`device_id`),
+  CONSTRAINT `fk_care_service_request_device_sr` FOREIGN KEY (`service_request_pk`) REFERENCES `care_service_request` (`pk`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- CARE patients from the worklist API (patient object), one row per CARE patient id.
@@ -47,8 +63,9 @@ CREATE TABLE IF NOT EXISTS `care_patient` (
 -- then holds the file's StudyInstanceUID. When files for the same accession number carry
 -- different StudyInstanceUIDs, each one is added once, separated by ','.
 -- scan_status is the last status the SCU service sent to CARE for the row's service request: NULL
--- until then, STARTED once Scan Started was sent before the first upload of a file with the row's
--- accession number, COMPLETED once Scan Completed was sent after its last file was uploaded.
+-- until then, START_PENDING when Scan Started could not be sent before the first upload of a file with
+-- the row's accession number (it is retried every cycle), STARTED once Scan Started was sent,
+-- COMPLETED once Scan Completed was sent after its last file was uploaded.
 -- scan_started_at and scan_completed_at are when each was sent.
 CREATE TABLE IF NOT EXISTS `care_worklist` (
   `pk` bigint(20) NOT NULL AUTO_INCREMENT,

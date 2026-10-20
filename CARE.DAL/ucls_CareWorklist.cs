@@ -89,14 +89,55 @@ namespace Plexus.Common.Database
                 ServiceRequestId = sr?.id,
                 ServiceRequestName = sr?.name,
                 ServiceRequestDate = sr?.date?.ToLocalTime(),
+                ServiceRequestBodySite = sr?.body_site,
+                ServiceRequestDescription = sr?.description,
                 ServiceRequestModality = NullIfBlank(modality),
+                ServiceRequestProcedureId = sr?.procedure_id,
+                ServiceRequestPriority = sr?.priority,
+                ServiceRequestTechnicianInstruction = sr?.technician_instruction,
+                ServiceRequestPatientInstruction = sr?.patient_instruction,
                 FacilityId = NullIfBlank(facilityId),
                 FacilityName = item.facility?.name,
                 PatientId = item.patient?.id,
                 PatientName = item.patient?.name,
                 PatientGender = item.patient?.gender,
-                PatientAge = item.patient?.age
+                PatientAge = item.patient?.age,
+                PatientUhid = item.patient?.patient_uhid,
+                Devices = ToCareWorklistDevices(item.locations)
             };
+        }
+
+        /// <summary>
+        /// Flattens the result's locations into one entry per device, or one entry without a device
+        /// for a location that has none.
+        /// </summary>
+        private static List<CareWorklistDevice> ToCareWorklistDevices(List<CareLocation> locations)
+        {
+            var devices = new List<CareWorklistDevice>();
+            if (locations == null)
+                return devices;
+
+            foreach (CareLocation location in locations)
+            {
+                if (location == null)
+                    continue;
+                if (location.devices == null || location.devices.Count == 0)
+                {
+                    devices.Add(new CareWorklistDevice { LocationId = location.id, LocationName = location.name });
+                    continue;
+                }
+                foreach (CareDevice device in location.devices)
+                {
+                    devices.Add(new CareWorklistDevice
+                    {
+                        LocationId = location.id,
+                        LocationName = location.name,
+                        DeviceId = device?.id,
+                        DeviceName = device?.name
+                    });
+                }
+            }
+            return devices;
         }
 
         private static string NullIfBlank(string value)
@@ -251,7 +292,7 @@ namespace Plexus.Common.Database
     public class CareWorklistResult
     {
         public CareServiceRequest service_request { get; set; }
-        public List<CareDevice> devices { get; set; }
+        public List<CareLocation> locations { get; set; }
         public CareFacility facility { get; set; }
         public CarePatient patient { get; set; }
     }
@@ -260,19 +301,24 @@ namespace Plexus.Common.Database
     {
         public string id { get; set; }
         public string name { get; set; }
+        public string description { get; set; }
+        public string body_site { get; set; }
+        public string procedure_id { get; set; }
+        public string priority { get; set; }
+        public string technician_instruction { get; set; }
+        public string patient_instruction { get; set; }
         public DateTime? date { get; set; }
         public string accession_number { get; set; }
     }
 
-    public class CareDevice
+    public class CareLocation
     {
         public string id { get; set; }
-        public string registered_name { get; set; }
-        public string user_friendly_name { get; set; }
-        public CareLocation current_location { get; set; }
+        public string name { get; set; }
+        public List<CareDevice> devices { get; set; }
     }
 
-    public class CareLocation
+    public class CareDevice
     {
         public string id { get; set; }
         public string name { get; set; }
@@ -290,5 +336,6 @@ namespace Plexus.Common.Database
         public string name { get; set; }
         public string gender { get; set; }
         public int? age { get; set; }
+        public string patient_uhid { get; set; }
     }
 }

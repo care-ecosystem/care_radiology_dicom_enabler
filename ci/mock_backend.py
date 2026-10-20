@@ -17,14 +17,19 @@ WORKLIST_RESPONSE = json.dumps({
         "service_request": {
             "id": "ci-sr-id",
             "name": "CT Chest CI Test",
+            "description": "CT of chest",
+            "body_site": "Chest",
+            "procedure_id": "169069000",
+            "priority": "routine",
+            "technician_instruction": None,
+            "patient_instruction": None,
             "date": "2026-06-10T10:00:00Z",
             "accession_number": "CI0000000001"
         },
-        "devices": [{
-            "id": "ci-device-id",
-            "registered_name": "CT",
-            "user_friendly_name": "CI CT Scanner",
-            "current_location": {"id": "ci-location-id", "name": "CI Radiology"}
+        "locations": [{
+            "id": "ci-location-id",
+            "name": "CI Radiology",
+            "devices": [{"id": "ci-device-id", "name": "CT"}]
         }],
         "facility": {
             "id": "ci-fac-id",
@@ -34,7 +39,8 @@ WORKLIST_RESPONSE = json.dumps({
             "id": "ci-patient-id",
             "name": "CI^TestPatient",
             "gender": "M",
-            "age": 30
+            "age": 30,
+            "patient_uhid": None
         }
     }]
 })

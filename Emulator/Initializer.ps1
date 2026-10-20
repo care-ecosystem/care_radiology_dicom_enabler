@@ -204,7 +204,7 @@ if (-not $mysqlExe) {
         $alterSql = "ALTER USER 'root'@'localhost' IDENTIFIED BY '$NewPwd'; FLUSH PRIVILEGES;"
         & $mysqlExe @mysqlArgs -e $alterSql
         if ($LASTEXITCODE -ne 0) {
-            Write-Fail "Failed to set the root@localhost password." "Run manually in a mysql shell: ALTER USER 'root'@'localhost' IDENTIFIED BY '$NewPwd'; FLUSH PRIVILEGES;"
+            Write-Fail "Failed to set the root@localhost password." "Run manually in a mysql shell: ALTER USER 'root'@'localhost' IDENTIFIED BY '<password>'; FLUSH PRIVILEGES;"
         } else {
             Write-Ok "root@localhost password set to the one the DICOM Enabler services use (App.config connectionstring). Enter it at the prompt on future runs."
         }
