@@ -832,12 +832,23 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// The retry_count and last_retry_time of the latest FAILED care_sync_upload row for a file
-        /// name. Returns false when the file has no FAILED row (it has not failed yet).
+        /// The care_sync_upload instance_key for a DICOM instance: StudyInstanceUID|SeriesInstanceUID|SOPInstanceUID
+        /// AES-encrypted. The IV is fixed, so the same instance always gives the same key and a file is
+        /// matched to its row by its instance, not by its file name.
         /// </summary>
-        public bool GetUploadRetryState(string fileName, ref int retryCount, ref DateTime? lastRetryTime, ref string errorString)
+        public static string BuildInstanceKey(string studyUid, string seriesUid, string sopInstanceUid)
+        {
+            return ucls_EnDcryption.EncryptString(EncKey.encdeKey, $"{studyUid}|{seriesUid}|{sopInstanceUid}");
+        }
+
+
+        /// <summary>
+        /// The status, retry_count and last_retry_time of the care_sync_upload row for an instance_key. Returns false when the instance has no row (it has not been uploaded yet).
+        /// </summary>
+        public bool GetUploadRetryState(string instanceKey, ref string status, ref int retryCount, ref DateTime? lastRetryTime, ref string errorString)
         {
             bool found = false;
+            status = null;
             retryCount = 0;
             lastRetryTime = null;
             try
@@ -845,16 +856,16 @@ namespace Plexus.Common.Database
                 if (openDBConnection(ref errorString))
                 {
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "SELECT retry_count, last_retry_time FROM care_sync_upload WHERE file_name = @file_name AND status = 'FAILED' " +
-                        "ORDER BY last_retry_time DESC LIMIT 1",
+                        "SELECT status, retry_count, last_retry_time FROM care_sync_upload WHERE instance_key = @instance_key",
                         conConnection))
                     {
-                        cmd.Parameters.AddWithValue("@file_name", fileName ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@instance_key", instanceKey);
                         using (MySqlDataReader reader = cmd.ExecuteReader())
                         {
                             if (reader.Read())
                             {
                                 found = true;
+                                status = DbString(reader, "status");
                                 retryCount = Convert.ToInt32(reader["retry_count"]);
                                 if (reader["last_retry_time"] != DBNull.Value)
                                     lastRetryTime = Convert.ToDateTime(reader["last_retry_time"]);
@@ -866,7 +877,7 @@ namespace Plexus.Common.Database
             }
             catch (Exception ex)
             {
-                errorString = $"Reading the upload retry state for file {fileName} failed with exception " + ex.Message;
+                errorString = "Reading the upload retry state failed with exception " + ex.Message;
                 found = false;
             }
             return found;
@@ -874,11 +885,11 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// Sets last_retry_time to now and log to the given reason on the latest FAILED care_sync_upload
-        /// row for a file name, without changing retry_count, for a retry skipped or failed because CARE
+        /// Sets last_retry_time to now and log to the given reason on the FAILED care_sync_upload row
+        /// for an instance_key, without changing retry_count, for a retry skipped or failed because CARE
         /// could not be reached.
         /// </summary>
-        public bool UpdateUploadRetryTime(string fileName, string log, ref string errorString)
+        public bool UpdateUploadRetryTime(string instanceKey, string log, ref string errorString)
         {
             bool updated = false;
             try
@@ -886,11 +897,10 @@ namespace Plexus.Common.Database
                 if (openDBConnection(ref errorString))
                 {
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "UPDATE care_sync_upload SET last_retry_time = NOW(), log = @log WHERE file_name = @file_name AND status = 'FAILED' " +
-                        "ORDER BY last_retry_time DESC LIMIT 1",
+                        "UPDATE care_sync_upload SET last_retry_time = NOW(), log = @log WHERE instance_key = @instance_key AND status = 'FAILED'",
                         conConnection))
                     {
-                        cmd.Parameters.AddWithValue("@file_name", fileName ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@instance_key", instanceKey);
                         cmd.Parameters.AddWithValue("@log", DbValue(log));
                         updated = cmd.ExecuteNonQuery() > 0;
                     }
@@ -899,7 +909,7 @@ namespace Plexus.Common.Database
             }
             catch (Exception ex)
             {
-                errorString = $"Updating the upload retry time for file {fileName} failed with exception " + ex.Message;
+                errorString = "Updating the upload retry time failed with exception " + ex.Message;
                 updated = false;
             }
             return updated;
@@ -907,14 +917,15 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// Records the outcome of uploading one DICOM file to CARE in care_sync_upload. A retry of
-        /// the same file updates its existing row with the latest status and log and increments
-        /// retry_count. last_retry_time is set to the attempt time on the first upload and on every
-        /// retry, and retryCount returns the row's retry_count after the save.
+        /// Records the outcome of uploading one DICOM instance to CARE in care_sync_upload. The row is
+        /// found by instanceKey (see BuildInstanceKey), so a retry of the same instance updates its
+        /// existing row with the latest status, log and file name and increments retry_count, even if
+        /// the file was renamed or resent. last_retry_time is set to the attempt time on the first upload
+        /// and on every retry, and retryCount returns the row's retry_count after the save.
         /// worklist_pk is set from the care_worklist row with the accession number, when there is one,
         /// and studyUid is added to that row's study_uid (comma-separated) if it is not already there.
         /// </summary>
-        public bool SaveStudyUpload(string studyUid, string accessionNumber, string fileName, string status, string log, ref int retryCount, ref string errorString)
+        public bool SaveStudyUpload(string instanceKey, string studyUid, string accessionNumber, string fileName, string status, string log, ref int retryCount, ref string errorString)
         {
             bool saved = false;
             retryCount = 0;
@@ -923,12 +934,13 @@ namespace Plexus.Common.Database
                 if (openDBConnection(ref errorString))
                 {
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "INSERT INTO care_sync_upload (worklist_pk, study_uid, accession_number, file_name, status, log, last_retry_time) VALUES " +
-                        "((SELECT pk FROM care_worklist WHERE accession_number = @accession_number LIMIT 1), @study_uid, @accession_number, @file_name, @status, @log, NOW()) " +
-                        "ON DUPLICATE KEY UPDATE worklist_pk = COALESCE(VALUES(worklist_pk), worklist_pk), status = VALUES(status), log = VALUES(log), " +
+                        "INSERT INTO care_sync_upload (worklist_pk, instance_key, study_uid, accession_number, file_name, status, log, last_retry_time) VALUES " +
+                        "((SELECT pk FROM care_worklist WHERE accession_number = @accession_number LIMIT 1), @instance_key, @study_uid, @accession_number, @file_name, @status, @log, NOW()) " +
+                        "ON DUPLICATE KEY UPDATE worklist_pk = COALESCE(VALUES(worklist_pk), worklist_pk), file_name = VALUES(file_name), status = VALUES(status), log = VALUES(log), " +
                         "retry_count = retry_count + 1, last_retry_time = VALUES(last_retry_time)",
                         conConnection))
                     {
+                        cmd.Parameters.AddWithValue("@instance_key", instanceKey);
                         cmd.Parameters.AddWithValue("@study_uid", studyUid ?? string.Empty);
                         cmd.Parameters.AddWithValue("@accession_number", DbValue(accessionNumber));
                         cmd.Parameters.AddWithValue("@file_name", fileName ?? string.Empty);
@@ -939,11 +951,10 @@ namespace Plexus.Common.Database
                     }
 
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "SELECT retry_count FROM care_sync_upload WHERE study_uid = @study_uid AND file_name = @file_name",
+                        "SELECT retry_count FROM care_sync_upload WHERE instance_key = @instance_key",
                         conConnection))
                     {
-                        cmd.Parameters.AddWithValue("@study_uid", studyUid ?? string.Empty);
-                        cmd.Parameters.AddWithValue("@file_name", fileName ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@instance_key", instanceKey);
                         using (MySqlDataReader reader = cmd.ExecuteReader())
                         {
                             if (reader.Read())
