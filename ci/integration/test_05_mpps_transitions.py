@@ -1,9 +1,10 @@
 """MPPS status transitions: discontinued path and refused transitions
 
 Covers the other ways an MPPS can move, and that the enabler refuses messages that do not fit
-the procedure's state instead of forwarding them to CARE:
-  IN PROGRESS -> DISCONTINUED             accepted, 'discontinued' webhook
-  DISCONTINUED -> COMPLETED               refused (no procedure in progress), no webhook
+the procedure's state. MPPS no longer sends any status to CARE - the Store SCU sends Scan Started
+and Scan Completed with the upload - so none of these may reach CARE:
+  IN PROGRESS -> DISCONTINUED             accepted, no status sent
+  DISCONTINUED -> COMPLETED               refused (no procedure in progress), no status sent
   N-CREATE for an unknown procedure step  refused
   N-SET for an unknown SOP Instance       refused
   N-SET with a status other than COMPLETED/DISCONTINUED  refused as an invalid attribute value
@@ -12,7 +13,7 @@ import re
 
 from pydicom.uid import generate_uid
 
-from checks import wait_for_mpps_radiology_status, wait_for_tag
+from checks import tag_displays
 from conftest import need, sr
 from dicom_client import SUCCESS, status_name
 
@@ -21,7 +22,7 @@ INVALID_ATTRIBUTE_VALUE = 0x0106
 
 
 def test_in_progress_then_discontinued(cfg, api, dicom, ctx, logs, record):
-    """IN PROGRESS -> DISCONTINUED: both accepted and CARE marks the SR cancelled"""
+    """IN PROGRESS -> DISCONTINUED: both accepted, with no status sent to CARE"""
     need(ctx, "worklist_ok")
     entry = sr(ctx, "discontinue")
     record["service_request_id"] = entry["id"]
@@ -31,22 +32,22 @@ def test_in_progress_then_discontinued(cfg, api, dicom, ctx, logs, record):
     record["mpps_sop_instance_uid"] = mpps_uid
     record["n_create_status"] = status_name(status)
     assert status == SUCCESS, f"N-CREATE returned {status_name(status)}"
-    logs.wait_for("mwl", rf"\[MPPS\] MPPS webhook sent to CARE: {re.escape(cfg.status_started)} for service_request {entry['id']}", timeout=60)
-    wait_for_tag(api, cfg, entry["id"], cfg.status_started, record)
+    logs.wait_for("mwl", rf"\[MPPS\] SetInProgress: matched ServiceRequestId={entry['id']}", timeout=15)
 
     status = dicom.mpps_set(mpps_uid, "DISCONTINUED")
     record["n_set_status"] = status_name(status)
     assert status == SUCCESS, f"N-SET DISCONTINUED returned {status_name(status)}"
-    hook = logs.wait_for("mwl", rf"\[MPPS\] MPPS webhook (sent to CARE|failed|skipped): {re.escape(cfg.status_discontinued)}.*", timeout=60)
-    record["status_webhook"] = hook.group(0)
-    assert hook.group(1) == "sent to CARE", hook.group(0)
-    wait_for_tag(api, cfg, entry["id"], cfg.status_discontinued, record)
-    wait_for_mpps_radiology_status(api, cfg, entry["id"], "CANCELLED", record)
+    logs.wait_for("mwl", rf"\[MPPS\] SetDiscontinued: ServiceRequestId={entry['id']}", timeout=15)
+    logs.assert_absent("mwl", r"MPPS webhook")
+    tags = tag_displays(api, entry["id"])
+    record["sr_tags"] = sorted(t for t in tags if t)
+    assert not {cfg.status_started, cfg.status_completed} & tags, \
+        "CARE shows a scan status on the SR although no file was uploaded for it"
     entry["discontinued_mpps_uid"] = mpps_uid
 
 
 def test_completed_after_discontinued_is_refused(cfg, api, dicom, ctx, logs, record):
-    """DISCONTINUED -> COMPLETED is refused and no completed webhook is sent"""
+    """DISCONTINUED -> COMPLETED is refused and no status is sent to CARE"""
     entry = sr(ctx, "discontinue")
     mpps_uid, = need(entry, "discontinued_mpps_uid")
     status = dicom.mpps_set(mpps_uid, "COMPLETED")
@@ -55,8 +56,8 @@ def test_completed_after_discontinued_is_refused(cfg, api, dicom, ctx, logs, rec
     record["n_set_status"] = status_name(status)
     assert status == PROCESSING_FAILURE, f"Expected Processing Failure, got {status_name(status)}"
     logs.wait_for("mwl", rf"\[MPPS\] SetCompleted: no procedure in progress for SOPInstanceUID={re.escape(mpps_uid)}", timeout=15)
-    logs.assert_absent("mwl", rf"MPPS webhook sent to CARE: {re.escape(cfg.status_completed)} for service_request {entry['id']}")
-    assert cfg.status_completed not in {t.get("display") for t in api.get_service_request(entry["id"]).get("tags", [])}, \
+    logs.assert_absent("mwl", r"MPPS webhook")
+    assert cfg.status_completed not in tag_displays(api, entry["id"]), \
         "CARE shows the SR completed although the procedure was discontinued"
 
 

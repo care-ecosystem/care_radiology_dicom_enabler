@@ -312,7 +312,8 @@ namespace Worklist_SCP.Model
             mwlItem.ProcedureID = DeriveProcedureIdFromAccessionNumber(mwlItem.AccessionNumber);
             mwlItem.StudyUID = string.Empty;
             mwlItem.ScheduledAET = ConfigurationManager.AppSettings["careScheduledAET"]?.ToString() ?? "OEC9800";
-            mwlItem.ReferringPhysician = FormatReferringPhysician(record.CreatedByPrefix, record.CreatedByFirstName, record.CreatedByLastName);
+            // The CARE worklist API does not return who created the service request
+            mwlItem.ReferringPhysician = string.Empty;
             mwlItem.TechnicianInstruction = record.ServiceRequestTechnicianInstruction ?? string.Empty;
             mwlItem.PatientInstruction = record.ServiceRequestPatientInstruction ?? string.Empty;
             mwlItem.Priority = NormalizePriority(record.ServiceRequestPriority);
@@ -481,24 +482,6 @@ namespace Worklist_SCP.Model
                 case "routine": case "normal":                return "ROUTINE";
                 default:                                      return "ROUTINE";
             }
-        }
-
-        /// <summary>
-        /// Builds a DICOM PN-formatted (FamilyName^GivenName^MiddleName^Prefix^Suffix) referring physician
-        /// name from the CARE service_request created_by values saved in care_service_request.
-        /// </summary>
-        private static string FormatReferringPhysician(string prefix, string firstName, string lastName)
-        {
-            if (prefix == null && firstName == null && lastName == null)
-            {
-                return string.Empty;
-            }
-
-            string familyName = lastName ?? string.Empty;
-            string givenName = firstName ?? string.Empty;
-            prefix = prefix ?? string.Empty;
-
-            return $"{familyName}^{givenName}^^{prefix}".TrimEnd('^');
         }
 
         /// <summary>

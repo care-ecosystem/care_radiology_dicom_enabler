@@ -4,6 +4,8 @@ USE `plexus_mi2`;
 
 -- CARE service requests from the worklist API (service_request object), one row per CARE
 -- service request id. Refreshed with the latest values each time the worklist is fetched.
+-- modality is not in the response: it is the modality the worklist was fetched with
+-- (care_modality, or App.config careModality).
 CREATE TABLE IF NOT EXISTS `care_service_request` (
   `pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `service_request_id` varchar(64) NOT NULL,
@@ -16,13 +18,27 @@ CREATE TABLE IF NOT EXISTS `care_service_request` (
   `priority` varchar(32) DEFAULT NULL,
   `technician_instruction` text DEFAULT NULL,
   `patient_instruction` text DEFAULT NULL,
-  `created_by_prefix` varchar(64) DEFAULT NULL,
-  `created_by_first_name` varchar(255) DEFAULT NULL,
-  `created_by_last_name` varchar(255) DEFAULT NULL,
   `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`pk`),
   UNIQUE KEY `uq_care_service_request_id` (`service_request_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Locations and devices a CARE service request is scheduled on, from the worklist API (locations
+-- array, each with its devices). One row per device, or one row with NULL device_id/device_name for
+-- a location without devices. A service request's rows are replaced each time the worklist is fetched.
+CREATE TABLE IF NOT EXISTS `care_service_request_device` (
+  `pk` bigint(20) NOT NULL AUTO_INCREMENT,
+  `service_request_pk` bigint(20) NOT NULL,
+  `location_id` varchar(64) DEFAULT NULL,
+  `location_name` varchar(255) DEFAULT NULL,
+  `device_id` varchar(64) DEFAULT NULL,
+  `device_name` varchar(255) DEFAULT NULL,
+  `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`pk`),
+  KEY `idx_care_service_request_device_sr_pk` (`service_request_pk`),
+  KEY `idx_care_service_request_device_device_id` (`device_id`),
+  CONSTRAINT `fk_care_service_request_device_sr` FOREIGN KEY (`service_request_pk`) REFERENCES `care_service_request` (`pk`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- CARE patients from the worklist API (patient object), one row per CARE patient id.
@@ -41,11 +57,16 @@ CREATE TABLE IF NOT EXISTS `care_patient` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Local copy of the CARE worklist, one row per accession number, linked to its service request
--- and patient. fetched_at is when the enabler first read the row (e.g. to look up the patient for
--- an upload) and last_fetched_at is when it last read it; both stay NULL until the row is read.
+-- and patient. fetched_at is when the enabler first read the row (e.g. to check the accession
+-- number of a file to upload) and last_fetched_at is when it last read it; both stay NULL until the row is read.
 -- study_uid is NULL until a DICOM file with the row's accession number is picked up for upload,
 -- then holds the file's StudyInstanceUID. When files for the same accession number carry
 -- different StudyInstanceUIDs, each one is added once, separated by ','.
+-- scan_status is the last status the SCU service sent to CARE for the row's service request: NULL
+-- until then, START_PENDING when Scan Started could not be sent before the first upload of a file with
+-- the row's accession number (it is retried every cycle), STARTED once Scan Started was sent,
+-- COMPLETED once Scan Completed was sent after its last file was uploaded.
+-- scan_started_at and scan_completed_at are when each was sent.
 CREATE TABLE IF NOT EXISTS `care_worklist` (
   `pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `accession_number` varchar(64) NOT NULL,
@@ -57,11 +78,15 @@ CREATE TABLE IF NOT EXISTS `care_worklist` (
   `study_uid` text DEFAULT NULL,
   `fetched_at` datetime DEFAULT NULL,
   `last_fetched_at` datetime DEFAULT NULL,
+  `scan_status` varchar(20) DEFAULT NULL,
+  `scan_started_at` datetime DEFAULT NULL,
+  `scan_completed_at` datetime DEFAULT NULL,
   `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`pk`),
   UNIQUE KEY `uq_care_worklist_accession_number` (`accession_number`),
   KEY `idx_care_worklist_status` (`status`),
+  KEY `idx_care_worklist_scan_status` (`scan_status`),
   KEY `idx_care_worklist_service_request_pk` (`service_request_pk`),
   KEY `idx_care_worklist_patient_pk` (`patient_pk`),
   CONSTRAINT `fk_care_worklist_service_request` FOREIGN KEY (`service_request_pk`) REFERENCES `care_service_request` (`pk`),
@@ -104,9 +129,9 @@ CREATE TABLE IF NOT EXISTS `care_sync_upload` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Integration settings for this enabler's facility, one row per setting, edited in the
--- Configuration tab. facility_id is required. For every other key a blank value means the
--- service uses its App.config value (or built-in default), so existing installs keep working
--- until a value is entered here. API keys and tokens stay in App.config.
+-- Configuration tab. A blank value means the service uses its App.config value (or built-in
+-- default), so values baked in at build time apply until one is entered here. facility_id must
+-- be set here or baked in as App.config careFacilityId. API keys and tokens stay in App.config.
 CREATE TABLE IF NOT EXISTS `care_config` (
   `config_key` varchar(100) NOT NULL,
   `config_value` varchar(1000) DEFAULT NULL,
@@ -117,7 +142,7 @@ CREATE TABLE IF NOT EXISTS `care_config` (
 
 -- INSERT IGNORE adds keys missing from older installs without overwriting values already set.
 INSERT IGNORE INTO `care_config` (`config_key`, `config_value`, `description`) VALUES
-  ('facility_id', NULL, 'CARE Facility ID used to fetch the worklist and in MPPS updates. Required.'),
+  ('facility_id', NULL, 'CARE Facility ID used to fetch the worklist, upload DICOM files and send scan status updates. Blank = App.config careFacilityId; one of them is required.'),
   ('care_modality', NULL, 'Modality filter for the CARE worklist. Blank = App.config careModality.'),
   ('care_from_date', NULL, 'Earliest worklist date fetched from CARE (yyyy-MM-dd HH:mm:ss). Blank = App.config careFromDate.'),
   ('scu_poll_interval_seconds', NULL, 'Seconds between scans of the SCP folder for files to upload. Blank = 5. Restart the SCU service to apply.'),
@@ -125,5 +150,6 @@ INSERT IGNORE INTO `care_config` (`config_key`, `config_value`, `description`) V
   ('worklist_refresh_interval_seconds', NULL, 'Seconds between worklist refreshes. Blank = App.config. Restart the MWL service to apply.'),
   ('max_upload_retries', NULL, 'Upload retries before a file is moved to the failed folder. Blank = App.config maxUploadRetries.'),
   ('upload_retry_delay_minutes', NULL, 'Minutes after a failed upload before the first retry; the wait doubles after each retry (2, 4, 8...). Blank = 2.'),
+  ('scan_completed_wait_seconds', NULL, 'Seconds after the last upload of an accession number, with none of its files left in the SCP folder, before Scan Completed is sent to CARE. Blank = App.config scanCompletedWaitSeconds, or 60.'),
   ('scp_folder', NULL, 'Folder where received DICOM files are saved and picked up for upload. Blank = SCP under the install folder. Restart the services to apply.'),
   ('failed_scp_folder', NULL, 'Folder files are moved to after the upload retry limit is hit. Blank = FailedSCP under the install folder.');

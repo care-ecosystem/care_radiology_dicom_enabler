@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Data;
 using System.IO;
 
@@ -421,8 +422,9 @@ namespace Plexus.Common.Database
 
         /// <summary>
         /// Get the Facility ID to filter the CARE worklist by, from the facility_id setting in
-        /// care_config. Each enabler serves one facility, so every calling AE gets the same value;
-        /// callingAET is only used in the error message.
+        /// care_config, or when that is blank, the careFacilityId baked into the running service's
+        /// App.config at build time. Each enabler serves one facility, so every calling AE gets the
+        /// same value; callingAET is only used in the error message.
         /// </summary>
         /// <param name="resolvedFrom">Set to a human-readable description of how the value was found,
         /// for logging - or why it could not be.</param>
@@ -435,10 +437,15 @@ namespace Plexus.Common.Database
                 facilityId = GetConfigValue("facility_id", string.Empty, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
                     errorString = $"Getting Facility ID for AETitle {callingAET} failed: " + errorString;
-                else if (string.IsNullOrWhiteSpace(facilityId))
-                    resolvedFrom = "no Facility ID entered in the Configuration tab";
-                else
+                else if (!string.IsNullOrWhiteSpace(facilityId))
                     resolvedFrom = "facility_id in the Configuration tab";
+                else
+                {
+                    facilityId = (ConfigurationManager.AppSettings["careFacilityId"] ?? string.Empty).Trim();
+                    resolvedFrom = string.IsNullOrWhiteSpace(facilityId)
+                        ? "no Facility ID entered in the Configuration tab or set in App.config careFacilityId"
+                        : "App.config careFacilityId (Configuration tab facility_id is blank)";
+                }
             }
             catch (Exception ex)
             {
@@ -577,13 +584,20 @@ namespace Plexus.Common.Database
 
                 const string serviceRequestQuery =
                     "INSERT INTO care_service_request (service_request_id, name, date, body_site, description, modality, procedure_id, priority, " +
-                    "technician_instruction, patient_instruction, created_by_prefix, created_by_first_name, created_by_last_name) VALUES " +
+                    "technician_instruction, patient_instruction) VALUES " +
                     "(@service_request_id, @name, @date, @body_site, @description, @modality, @procedure_id, @priority, " +
-                    "@technician_instruction, @patient_instruction, @created_by_prefix, @created_by_first_name, @created_by_last_name) " +
+                    "@technician_instruction, @patient_instruction) " +
                     "ON DUPLICATE KEY UPDATE name = VALUES(name), date = VALUES(date), body_site = VALUES(body_site), description = VALUES(description), " +
                     "modality = VALUES(modality), procedure_id = VALUES(procedure_id), priority = VALUES(priority), " +
-                    "technician_instruction = VALUES(technician_instruction), patient_instruction = VALUES(patient_instruction), " +
-                    "created_by_prefix = VALUES(created_by_prefix), created_by_first_name = VALUES(created_by_first_name), created_by_last_name = VALUES(created_by_last_name)";
+                    "technician_instruction = VALUES(technician_instruction), patient_instruction = VALUES(patient_instruction)";
+
+                const string deleteDevicesQuery =
+                    "DELETE d FROM care_service_request_device d JOIN care_service_request sr ON sr.pk = d.service_request_pk " +
+                    "WHERE sr.service_request_id = @service_request_id";
+
+                const string deviceQuery =
+                    "INSERT INTO care_service_request_device (service_request_pk, location_id, location_name, device_id, device_name) " +
+                    "SELECT pk, @location_id, @location_name, @device_id, @device_name FROM care_service_request WHERE service_request_id = @service_request_id";
 
                 const string worklistQuery =
                     "INSERT IGNORE INTO care_worklist (accession_number, status, service_request_pk, patient_pk, facility_id, facility_name) VALUES " +
@@ -624,10 +638,26 @@ namespace Plexus.Common.Database
                             cmd.Parameters.AddWithValue("@priority", DbValue(record.ServiceRequestPriority));
                             cmd.Parameters.AddWithValue("@technician_instruction", DbValue(record.ServiceRequestTechnicianInstruction));
                             cmd.Parameters.AddWithValue("@patient_instruction", DbValue(record.ServiceRequestPatientInstruction));
-                            cmd.Parameters.AddWithValue("@created_by_prefix", DbValue(record.CreatedByPrefix));
-                            cmd.Parameters.AddWithValue("@created_by_first_name", DbValue(record.CreatedByFirstName));
-                            cmd.Parameters.AddWithValue("@created_by_last_name", DbValue(record.CreatedByLastName));
                             cmd.ExecuteNonQuery();
+                        }
+
+                        using (MySqlCommand cmd = new MySqlCommand(deleteDevicesQuery, conConnection, transaction))
+                        {
+                            cmd.Parameters.AddWithValue("@service_request_id", record.ServiceRequestId);
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        foreach (CareWorklistDevice device in record.Devices ?? new List<CareWorklistDevice>())
+                        {
+                            using (MySqlCommand cmd = new MySqlCommand(deviceQuery, conConnection, transaction))
+                            {
+                                cmd.Parameters.AddWithValue("@service_request_id", record.ServiceRequestId);
+                                cmd.Parameters.AddWithValue("@location_id", DbValue(device.LocationId));
+                                cmd.Parameters.AddWithValue("@location_name", DbValue(device.LocationName));
+                                cmd.Parameters.AddWithValue("@device_id", DbValue(device.DeviceId));
+                                cmd.Parameters.AddWithValue("@device_name", DbValue(device.DeviceName));
+                                cmd.ExecuteNonQuery();
+                            }
                         }
                     }
 
@@ -701,7 +731,7 @@ namespace Plexus.Common.Database
                     using (MySqlCommand cmd = new MySqlCommand(
                         "SELECT w.accession_number, w.facility_id, w.facility_name, " +
                         "sr.service_request_id, sr.name AS sr_name, sr.date AS sr_date, sr.body_site, sr.description, sr.modality, sr.procedure_id, sr.priority, " +
-                        "sr.technician_instruction, sr.patient_instruction, sr.created_by_prefix, sr.created_by_first_name, sr.created_by_last_name, " +
+                        "sr.technician_instruction, sr.patient_instruction, " +
                         "p.patient_id, p.name AS patient_name, p.gender, p.age, p.patient_uhid " +
                         "FROM care_worklist w " +
                         "LEFT JOIN care_service_request sr ON sr.pk = w.service_request_pk " +
@@ -732,9 +762,6 @@ namespace Plexus.Common.Database
                                     ServiceRequestPriority = DbString(reader, "priority"),
                                     ServiceRequestTechnicianInstruction = DbString(reader, "technician_instruction"),
                                     ServiceRequestPatientInstruction = DbString(reader, "patient_instruction"),
-                                    CreatedByPrefix = DbString(reader, "created_by_prefix"),
-                                    CreatedByFirstName = DbString(reader, "created_by_first_name"),
-                                    CreatedByLastName = DbString(reader, "created_by_last_name"),
                                     PatientId = DbString(reader, "patient_id"),
                                     PatientName = DbString(reader, "patient_name"),
                                     PatientGender = DbString(reader, "gender"),
@@ -757,53 +784,9 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// Returns the CARE patient ID (UUID) from care_patient for the care_worklist row with an
-        /// accession number, or empty when the accession number is not in care_worklist. A row that
-        /// is found has fetched_at set to now on its first read and last_fetched_at set to now on
-        /// every read.
-        /// </summary>
-        public string GetCarePatientIdByAccessionNo(string accessionNo, ref string errorString)
-        {
-            string patientId = string.Empty;
-            try
-            {
-                if (openDBConnection(ref errorString))
-                {
-                    using (MySqlCommand cmd = new MySqlCommand(
-                        "SELECT p.patient_id FROM care_worklist w JOIN care_patient p ON p.pk = w.patient_pk WHERE w.accession_number = @accession_number LIMIT 1",
-                        conConnection))
-                    {
-                        cmd.Parameters.AddWithValue("@accession_number", accessionNo ?? string.Empty);
-                        var result = cmd.ExecuteScalar();
-                        if (result != null && result != DBNull.Value)
-                            patientId = result.ToString();
-                    }
-
-                    if (!string.IsNullOrEmpty(patientId))
-                    {
-                        using (MySqlCommand cmd = new MySqlCommand(
-                            "UPDATE care_worklist SET fetched_at = COALESCE(fetched_at, NOW()), last_fetched_at = NOW(), updated_time = updated_time WHERE accession_number = @accession_number",
-                            conConnection))
-                        {
-                            cmd.Parameters.AddWithValue("@accession_number", accessionNo);
-                            cmd.ExecuteNonQuery();
-                        }
-                    }
-                }
-                closeDBConnection(ref errorString);
-            }
-            catch (Exception ex)
-            {
-                errorString = $"Getting CARE patient ID for Accession No {accessionNo} failed with exception " + ex.Message;
-                patientId = string.Empty;
-            }
-            return patientId;
-        }
-
-
-        /// <summary>
         /// True when care_worklist has a row with the accession number, whether or not it is linked
-        /// to a care_patient row.
+        /// to a care_patient row. A row that is found has fetched_at set to now on its first read and
+        /// last_fetched_at set to now on every read.
         /// </summary>
         public bool IsAccessionNoInCareWorklist(string accessionNo, ref string errorString)
         {
@@ -819,6 +802,17 @@ namespace Plexus.Common.Database
                         cmd.Parameters.AddWithValue("@accession_number", accessionNo ?? string.Empty);
                         found = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
                     }
+
+                    if (found)
+                    {
+                        using (MySqlCommand cmd = new MySqlCommand(
+                            "UPDATE care_worklist SET fetched_at = COALESCE(fetched_at, NOW()), last_fetched_at = NOW(), updated_time = updated_time WHERE accession_number = @accession_number",
+                            conConnection))
+                        {
+                            cmd.Parameters.AddWithValue("@accession_number", accessionNo);
+                            cmd.ExecuteNonQuery();
+                        }
+                    }
                 }
                 closeDBConnection(ref errorString);
             }
@@ -828,6 +822,133 @@ namespace Plexus.Common.Database
                 found = false;
             }
             return found;
+        }
+
+
+        /// <summary>
+        /// The CARE service request id and scan_status of the care_worklist row with an accession
+        /// number. Returns false when the accession number is not in care_worklist.
+        /// </summary>
+        public bool GetScanState(string accessionNo, ref string serviceRequestId, ref string scanStatus, ref string errorString)
+        {
+            bool found = false;
+            serviceRequestId = null;
+            scanStatus = null;
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "SELECT sr.service_request_id, w.scan_status FROM care_worklist w " +
+                        "LEFT JOIN care_service_request sr ON sr.pk = w.service_request_pk WHERE w.accession_number = @accession_number",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@accession_number", accessionNo ?? string.Empty);
+                        using (MySqlDataReader reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                found = true;
+                                serviceRequestId = DbString(reader, "service_request_id");
+                                scanStatus = DbString(reader, "scan_status");
+                            }
+                        }
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                errorString = $"Reading the scan status for Accession No {accessionNo} failed with exception " + ex.Message;
+                found = false;
+            }
+            return found;
+        }
+
+
+        /// <summary>
+        /// Sets scan_status on the care_worklist row with an accession number to START_PENDING, STARTED
+        /// or COMPLETED, with scan_started_at or scan_completed_at set to now for STARTED or COMPLETED.
+        /// </summary>
+        public bool SetScanStatus(string accessionNo, string scanStatus, ref string errorString)
+        {
+            bool updated = false;
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "UPDATE care_worklist SET scan_status = @scan_status, " +
+                        "scan_started_at = IF(@scan_status = 'STARTED', NOW(), scan_started_at), " +
+                        "scan_completed_at = IF(@scan_status = 'COMPLETED', NOW(), scan_completed_at), " +
+                        "updated_time = updated_time WHERE accession_number = @accession_number",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@scan_status", scanStatus);
+                        cmd.Parameters.AddWithValue("@accession_number", accessionNo);
+                        updated = cmd.ExecuteNonQuery() > 0;
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                errorString = $"Setting the scan status for Accession No {accessionNo} failed with exception " + ex.Message;
+                updated = false;
+            }
+            return updated;
+        }
+
+
+        /// <summary>
+        /// The facility's care_worklist rows with a scan_status (START_PENDING: Scan Started not sent yet;
+        /// STARTED: Scan Started sent, Scan Completed not yet), with their service request id and when a
+        /// file with the accession number was last sent to CARE (the latest care_sync_upload
+        /// last_retry_time, or scan_started_at when there is none), and how many of its care_sync_upload
+        /// rows are SUCCESS and FAILED.
+        /// </summary>
+        public List<ScanInProgress> GetScansWithStatus(string facilityId, string scanStatus, ref string errorString)
+        {
+            var scans = new List<ScanInProgress>();
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "SELECT w.accession_number, sr.service_request_id, " +
+                        "COALESCE((SELECT MAX(u.last_retry_time) FROM care_sync_upload u WHERE u.accession_number = w.accession_number), w.scan_started_at) AS last_upload_time, " +
+                        "(SELECT COUNT(*) FROM care_sync_upload u WHERE u.accession_number = w.accession_number AND u.status = 'SUCCESS') AS success_count, " +
+                        "(SELECT COUNT(*) FROM care_sync_upload u WHERE u.accession_number = w.accession_number AND u.status = 'FAILED') AS failed_count " +
+                        "FROM care_worklist w LEFT JOIN care_service_request sr ON sr.pk = w.service_request_pk " +
+                        "WHERE w.scan_status = @scan_status AND w.facility_id = @facility_id",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@scan_status", scanStatus);
+                        cmd.Parameters.AddWithValue("@facility_id", facilityId ?? string.Empty);
+                        using (MySqlDataReader reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                scans.Add(new ScanInProgress
+                                {
+                                    AccessionNumber = DbString(reader, "accession_number"),
+                                    ServiceRequestId = DbString(reader, "service_request_id"),
+                                    LastUploadTime = reader["last_upload_time"] == DBNull.Value ? (DateTime?)null : Convert.ToDateTime(reader["last_upload_time"]),
+                                    SuccessfulUploads = Convert.ToInt32(reader["success_count"]),
+                                    FailedUploads = Convert.ToInt32(reader["failed_count"])
+                                });
+                            }
+                        }
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                errorString = "Reading the scans in progress failed with exception " + ex.Message;
+                scans.Clear();
+            }
+            return scans;
         }
 
 
@@ -1001,8 +1122,22 @@ namespace Plexus.Common.Database
 
 
     /// <summary>
+    /// A care_worklist row whose Scan Started was sent to CARE but not yet its Scan Completed.
+    /// </summary>
+    public class ScanInProgress
+    {
+        public string AccessionNumber { get; set; }
+        public string ServiceRequestId { get; set; }
+        public DateTime? LastUploadTime { get; set; }
+        public int SuccessfulUploads { get; set; }
+        public int FailedUploads { get; set; }
+    }
+
+
+    /// <summary>
     /// One CARE worklist API result, split by SyncCareWorklist across care_service_request,
-    /// care_patient and care_worklist.
+    /// care_service_request_device, care_patient and care_worklist. Devices is filled only from the
+    /// API response; GetScheduledCareWorklist leaves it empty.
     /// </summary>
     public class CareWorklistRecord
     {
@@ -1017,9 +1152,6 @@ namespace Plexus.Common.Database
         public string ServiceRequestPriority { get; set; }
         public string ServiceRequestTechnicianInstruction { get; set; }
         public string ServiceRequestPatientInstruction { get; set; }
-        public string CreatedByPrefix { get; set; }
-        public string CreatedByFirstName { get; set; }
-        public string CreatedByLastName { get; set; }
         public string FacilityId { get; set; }
         public string FacilityName { get; set; }
         public string PatientId { get; set; }
@@ -1027,5 +1159,19 @@ namespace Plexus.Common.Database
         public string PatientGender { get; set; }
         public int? PatientAge { get; set; }
         public string PatientUhid { get; set; }
+        public List<CareWorklistDevice> Devices { get; set; } = new List<CareWorklistDevice>();
+    }
+
+
+    /// <summary>
+    /// One care_service_request_device row: a device a service request is scheduled on, with its
+    /// location. DeviceId and DeviceName are null for a location without devices.
+    /// </summary>
+    public class CareWorklistDevice
+    {
+        public string LocationId { get; set; }
+        public string LocationName { get; set; }
+        public string DeviceId { get; set; }
+        public string DeviceName { get; set; }
     }
 }

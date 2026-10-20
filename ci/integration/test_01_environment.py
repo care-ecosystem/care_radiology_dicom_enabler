@@ -134,14 +134,14 @@ def test_care_preflight(cfg, api, ctx, record):
     record["encounter_id"] = f"{encounter['id']} ({'created' if created else 'existing'})"
 
     missing = []
-    for status in (cfg.status_started, cfg.status_completed, cfg.status_discontinued):
+    for status in (cfg.status_started, cfg.status_completed):
         tag = api.facility_tag_config(status)
         record[f"tag_{status}"] = tag["id"] if tag else "MISSING"
         if not tag:
             missing.append(status)
     assert not missing, (
-        f"Facility has no service_request tag config with display {missing}. The status webhook "
-        "rejects any study_status without one - create the tags or set MPPS_STATUS_* to match."
+        f"Facility has no service_request tag config with display {missing}. The scan status API "
+        "rejects any study_status without one - create the tags or set SCAN_STATUS_* to match."
     )
 
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")

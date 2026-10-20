@@ -42,7 +42,7 @@ def test_create_service_requests(cfg, api, ctx, record):
 
 
 def _accession_for(api, cfg, sr_id):
-    """Accession number from the radiology record, falling back to the worklist API meta."""
+    """Accession number from the radiology record, falling back to the worklist API."""
     rsr = api.radiology_service_request(sr_id)
     if rsr and rsr.get("accession_number"):
         return rsr["accession_number"]
@@ -50,7 +50,7 @@ def _accession_for(api, cfg, sr_id):
     end = (dt.datetime.now() + dt.timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
     for result in api.worklist(start, end).get("results", []):
         if result["service_request"]["id"] == sr_id:
-            return (result["service_request"].get("meta") or {}).get("accession_number")
+            return result["service_request"].get("accession_number")
     return None
 
 
