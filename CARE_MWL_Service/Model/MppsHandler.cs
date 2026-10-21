@@ -3,14 +3,20 @@
 
 using System;
 using System.Collections.Generic;
+using System.Configuration;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using FellowOakDicom.Log;
+using Plexus.Common.Database;
 
 namespace Worklist_SCP.Model
 {
 
     /// <summary>
-    /// An implementation of IMppsSource, that does only logging but does not store the MPPS messages
+    /// An implementation of IMppsSource. For the CARE backend it sends Scan Started to CARE when the
+    /// modality starts a procedure; Scan Completed is sent by the SCU service once the study's images
+    /// are uploaded. It does not store the MPPS messages
     /// </summary>
     class MppsHandler : IMppsSource
     {
@@ -44,6 +50,85 @@ namespace Worklist_SCP.Model
         }
 
 
+        // Only the CARE backend (backend 2) has care_worklist and the CARE scan status API
+        private static bool IsCareBackend => (ConfigurationManager.AppSettings["backend"] ?? "2").Trim() == "2";
+
+        // Opens its own DAL each call because C-FIND, C-STORE, MPPS and the refresh timer run
+        // concurrently and a ucls_DAL holds a single connection.
+        private static ucls_DAL OpenDal() => new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
+
+
+        /// <summary>
+        /// Sends Scan Started for the work item's service request when the modality starts the procedure.
+        /// Once sent, care_worklist.scan_status is STARTED and the SCU service does not send it again
+        /// before the upload. When it cannot be sent scan_status is set to START_PENDING, so the SCU
+        /// service sends it like one that could not be sent before an upload.
+        /// </summary>
+        private void SendScanStarted(WorklistItem workItem)
+        {
+            if (!IsCareBackend)
+                return;
+            string accessionNumber = workItem.AccessionNumber;
+            string scanStatusStarted = ucls_CareScanStatus.StatusStarted;
+            ucls_DAL dal = null;
+            try
+            {
+                dal = OpenDal();
+                string errorString = string.Empty;
+                string serviceRequestId = null;
+                string scanStatus = null;
+                bool found = dal.GetScanState(accessionNumber, ref serviceRequestId, ref scanStatus, ref errorString);
+                if (!string.IsNullOrEmpty(errorString) || !found)
+                {
+                    LogWarn($"[MPPS] Not sending {scanStatusStarted} for AccessionNumber={accessionNumber}: {(found ? errorString : "not in care_worklist")}");
+                    return;
+                }
+                if (scanStatus == "STARTED" || scanStatus == "COMPLETED")
+                {
+                    LogInfo($"[MPPS] Not sending {scanStatusStarted} for AccessionNumber={accessionNumber}: scan_status is already {scanStatus}");
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(serviceRequestId))
+                {
+                    LogWarn($"[MPPS] Not sending {scanStatusStarted} for AccessionNumber={accessionNumber}: no service request id in care_worklist");
+                    return;
+                }
+
+                string resolvedFrom = string.Empty;
+                string facilityId = dal.GetFacilityId(string.Empty, ref resolvedFrom, ref errorString);
+                string baseUrl = ConfigurationManager.AppSettings["careBaseUrl"];
+                string token = ConfigurationManager.AppSettings["careToken"];
+                string statusPath = ConfigurationManager.AppSettings["statusURL"];
+
+                bool sent = false;
+                if (!string.IsNullOrEmpty(errorString) || string.IsNullOrWhiteSpace(facilityId))
+                    LogWarn($"[MPPS] Not sending {scanStatusStarted} for AccessionNumber={accessionNumber}: no Facility ID - {(string.IsNullOrEmpty(errorString) ? resolvedFrom : errorString)}. The SCU service will send it.");
+                else if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(statusPath))
+                    LogWarn($"[MPPS] Not sending {scanStatusStarted} for AccessionNumber={accessionNumber}: careBaseUrl, careToken or statusURL is not set in App.config. The SCU service will send it.");
+                else
+                    sent = ucls_CareScanStatus.Send(ucls_CareScanStatus.BuildStatusURL(baseUrl, statusPath, facilityId), token, serviceRequestId, accessionNumber, scanStatusStarted,
+                        (message, isInfo) => { if (isInfo) LogInfo("[MPPS] " + message); else LogWarn("[MPPS] " + message + ". The SCU service will send it."); });
+
+                string newScanStatus = sent ? "STARTED" : "START_PENDING";
+                if (newScanStatus != scanStatus)
+                {
+                    errorString = string.Empty;
+                    dal.SetScanStatus(accessionNumber, newScanStatus, ref errorString);
+                    if (!string.IsNullOrEmpty(errorString))
+                        LogWarn($"[MPPS] care_worklist scan_status update failed for AccessionNumber={accessionNumber}: {errorString}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogWarn($"[MPPS] Sending {scanStatusStarted} for AccessionNumber={accessionNumber} failed with exception {ex.Message}");
+            }
+            finally
+            {
+                dal?.Dispose();
+            }
+        }
+
+
         public bool SetInProgress(string sopInstanceUID, string procedureStepId)
         {
             LogInfo($"[MPPS] SetInProgress: looking up ProcedureStepID={procedureStepId} among {WorklistServer.CurrentWorklistItems.Count} cached worklist items");
@@ -65,6 +150,8 @@ namespace Worklist_SCP.Model
             // remember the sopInstanceUID and store the worklistitem to which the sopInstanceUID belongs.
             // You should do this more permanent like in database or in file
             PendingProcedures.Add(sopInstanceUID, workItem);
+
+            SendScanStarted(workItem);
 
             return true;
         }

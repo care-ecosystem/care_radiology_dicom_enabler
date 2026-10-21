@@ -62,10 +62,11 @@ CREATE TABLE IF NOT EXISTS `care_patient` (
 -- study_uid is NULL until a DICOM file with the row's accession number is picked up for upload,
 -- then holds the file's StudyInstanceUID. When files for the same accession number carry
 -- different StudyInstanceUIDs, each one is added once, separated by ','.
--- scan_status is the last status the SCU service sent to CARE for the row's service request: NULL
--- until then, START_PENDING when Scan Started could not be sent before the first upload of a file with
--- the row's accession number (it is retried every cycle), STARTED once Scan Started was sent,
--- COMPLETED once Scan Completed was sent after its last file was uploaded.
+-- scan_status is the last status sent to CARE for the row's service request: NULL until then,
+-- START_PENDING when Scan Started could not be sent when the modality sent MPPS IN PROGRESS (by the
+-- MWL service) or before the first upload of a file with the row's accession number (by the SCU
+-- service) - the SCU service retries it every cycle -, STARTED once Scan Started was sent, COMPLETED
+-- once Scan Completed was sent after its last file was uploaded (MPPS COMPLETED does not send it).
 -- scan_started_at and scan_completed_at are when each was sent.
 CREATE TABLE IF NOT EXISTS `care_worklist` (
   `pk` bigint(20) NOT NULL AUTO_INCREMENT,

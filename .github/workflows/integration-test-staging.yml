@@ -206,6 +206,7 @@ jobs:
             careModality           = $env:CARE_MODALITY
             careFromDate           = $env:CARE_FROM_DATE
             careScheduledAET       = $env:CALLING_AET
+            scanStatusStarted      = $env:SCAN_STATUS_STARTED
           }
           # DICOM upload + scan status
           Set-AppSettings "CARE_SCU_Service\App.config" @{

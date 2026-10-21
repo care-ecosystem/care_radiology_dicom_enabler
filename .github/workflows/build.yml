@@ -147,7 +147,7 @@ jobs:
       # pointing at whatever is committed, which is the shared
       # staging server:
       #
-      #   CARE_MWL_Service  careBaseUrl    -> worklist C-FIND
+      #   CARE_MWL_Service  careBaseUrl    -> worklist C-FIND, Scan Started on MPPS IN PROGRESS
       #                     careToken
       #   CARE_SCU_Service  careBackendURL -> DICOM upload, scan status
       #                     staticAPIKey
