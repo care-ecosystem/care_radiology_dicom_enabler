@@ -38,6 +38,14 @@ namespace Plexus_DICOM_Enabler
             mtxtb_ScpFolder.TrailingIcon = CreateFolderIcon();
             mtxtb_FailedScpFolder.TrailingIcon = CreateFolderIcon();
 
+            // Server List is hidden for now, unless checkserver is on: the DICOM services then reject any
+            // scanner not listed there, and the tab is the only place to list it or turn checkserver off.
+            // Removed before the colour scheme is set below: the drawer bakes each icon at its tab's position
+            // then, so removing a tab later leaves the icons of the tabs after it drawn off screen.
+            bool.TryParse(cls_PlexusConfig.ReadDetailsFromXML(Global._applicationPath, @"/configurations/checkserver"), out bool checkServer);
+            if (!checkServer)
+                mtc_Modules.TabPages.Remove(tbp_ServerList);
+
             var materialSkinManager = MaterialSkinManager.Instance;
             materialSkinManager.AddFormToManage(this);
             materialSkinManager.Theme = MaterialSkinManager.Themes.LIGHT;
@@ -701,11 +709,6 @@ namespace Plexus_DICOM_Enabler
             {
                 HideControlsForServer(Global.deployType);
             }
-            // Server List is hidden for now, unless checkserver is on: the DICOM services then reject any
-            // scanner not listed there, and the tab is the only place to list it or turn checkserver off
-            bool.TryParse(cls_PlexusConfig.ReadDetailsFromXML(Global._applicationPath, @"/configurations/checkserver"), out bool checkServer);
-            if (!checkServer)
-                mtc_Modules.TabPages.Remove(tbp_ServerList);
             uctrl_ServerManager1.EnableDisableButtons();
 
             // On small or scaled screens the window can be taller than the screen, which hides the
