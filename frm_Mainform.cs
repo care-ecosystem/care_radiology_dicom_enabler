@@ -868,7 +868,7 @@ namespace Plexus_DICOM_Enabler
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(mtxtb_FacilityId.Text) && string.IsNullOrWhiteSpace(GetConfigDefault("facility_id")))
+                if (string.IsNullOrWhiteSpace(mtxtb_FacilityId.Text))
                 {
                     MessageBox.Show(this, "Please enter the Facility Id. The CARE worklist is not fetched without it.",
                                      "Check Mandatory", MessageBoxButtons.OK,
