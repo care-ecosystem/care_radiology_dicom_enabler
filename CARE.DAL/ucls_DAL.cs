@@ -943,8 +943,9 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// Sets scan_status on the care_worklist row with an accession number to START_PENDING, STARTED
-        /// or COMPLETED, with scan_started_at or scan_completed_at set to now for STARTED or COMPLETED.
+        /// Sets scan_status on the care_worklist row with an accession number to START_PENDING, STARTED,
+        /// COMPLETED, CANCEL_PENDING or CANCELLED, with scan_started_at, scan_completed_at or
+        /// scan_cancelled_at set to now for STARTED, COMPLETED or CANCELLED.
         /// </summary>
         public bool SetScanStatus(string accessionNo, string scanStatus, ref string errorString)
         {
@@ -957,6 +958,7 @@ namespace Plexus.Common.Database
                         "UPDATE care_worklist SET scan_status = @scan_status, " +
                         "scan_started_at = IF(@scan_status = 'STARTED', NOW(), scan_started_at), " +
                         "scan_completed_at = IF(@scan_status = 'COMPLETED', NOW(), scan_completed_at), " +
+                        "scan_cancelled_at = IF(@scan_status = 'CANCELLED', NOW(), scan_cancelled_at), " +
                         "updated_time = updated_time WHERE accession_number = @accession_number",
                         conConnection))
                     {
@@ -977,8 +979,8 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// The facility's care_worklist rows with a scan_status (START_PENDING: Scan Started not sent yet;
-        /// STARTED: Scan Started sent, Scan Completed not yet), with their service request id and when a
+        /// The facility's care_worklist rows with a scan_status (START_PENDING: IN_PROGRESS not sent yet;
+        /// STARTED: IN_PROGRESS sent, COMPLETED not yet; CANCEL_PENDING: CANCELLED not sent yet), with their service request id and when a
         /// file with the accession number was last sent to CARE (the latest care_sync_upload
         /// last_retry_time, or scan_started_at when there is none), and how many of its care_sync_upload
         /// rows are SUCCESS and FAILED.
@@ -1198,7 +1200,7 @@ namespace Plexus.Common.Database
 
 
     /// <summary>
-    /// A care_worklist row whose Scan Started was sent to CARE but not yet its Scan Completed.
+    /// A care_worklist row with a scan_status, e.g. IN_PROGRESS sent to CARE but not yet COMPLETED.
     /// </summary>
     public class ScanInProgress
     {

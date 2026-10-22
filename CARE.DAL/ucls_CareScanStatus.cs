@@ -1,5 +1,4 @@
 using System;
-using System.Configuration;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
@@ -9,28 +8,23 @@ namespace Plexus.Common.Database
 {
     /// <summary>
     /// Sends study_status for a service request to the CARE scan status API. Shared by CARE_MWL_Service
-    /// (Scan Started when the modality sends MPPS IN PROGRESS) and CARE_SCU_Service (Scan Started before
-    /// the first upload when MPPS did not send it, and Scan Completed once the study is uploaded).
+    /// (IN_PROGRESS when the modality sends MPPS IN PROGRESS, CANCELLED on MPPS DISCONTINUED) and
+    /// CARE_SCU_Service (IN_PROGRESS before the first upload when MPPS did not send it, COMPLETED once
+    /// the study is uploaded, and the retries of IN_PROGRESS and CANCELLED that could not be sent).
     /// </summary>
     public static class ucls_CareScanStatus
     {
-        // The MWL service sends Scan Started while the modality waits for its N-CREATE response, so a
-        // CARE that does not answer must not hold the modality for HttpClient's default 100 seconds
+        // The MWL service sends IN_PROGRESS and CANCELLED while the modality waits for its N-CREATE / N-SET
+        // response, so a CARE that does not answer must not hold the modality for HttpClient's default 100 seconds
         private static readonly HttpClient httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
 
         /// <summary>
-        /// study_status values sent to the CARE scan status API. CARE adds the facility tag config whose
-        /// display equals the value exactly, so they are configurable (App.config scanStatusStarted /
-        /// scanStatusCompleted) to match how a facility named its tags.
+        /// study_status values the CARE scan status API accepts. CARE sets the imaging study to the value
+        /// (an imaging study already COMPLETED or CANCELLED is left unchanged) and tags the service request itself.
         /// </summary>
-        public static string StatusStarted => ReadStatus("scanStatusStarted", "Scan Started");
-        public static string StatusCompleted => ReadStatus("scanStatusCompleted", "Scan Completed");
-
-        private static string ReadStatus(string key, string defaultValue)
-        {
-            string value = ConfigurationManager.AppSettings[key];
-            return string.IsNullOrWhiteSpace(value) ? defaultValue : value.Trim();
-        }
+        public const string StatusInProgress = "IN_PROGRESS";
+        public const string StatusCompleted = "COMPLETED";
+        public const string StatusCancelled = "CANCELLED";
 
         /// <summary>
         /// The facility's scan status API URL: statusPath (App.config statusURL) under baseUrl, with

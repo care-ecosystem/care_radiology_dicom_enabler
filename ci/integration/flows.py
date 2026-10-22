@@ -5,7 +5,7 @@ import time
 
 from pydicom import dcmwrite
 
-from checks import wait_for_linked_study, wait_for_tag
+from checks import wait_for_linked_study
 from dicom_client import SUCCESS, build_ct_image, status_name
 
 
@@ -16,7 +16,7 @@ def encoded_size(ds):
 
 
 def wait_for_scan_status(cfg, logs, entry, status, timeout, service="scu"):
-    """Wait for the Store SCU (or, for Scan Started on MPPS IN PROGRESS, the MWL service) to send
+    """Wait for the Store SCU (or, for IN_PROGRESS / CANCELLED on MPPS, the MWL service) to send
     study_status for entry's service request and assert CARE accepted it."""
     sent = logs.wait_for(
         service, rf"Scan status (sent to CARE|failed|could not connect to CARE): {re.escape(status)}\b.*?service_request {re.escape(entry['id'])}",
@@ -27,8 +27,8 @@ def wait_for_scan_status(cfg, logs, entry, status, timeout, service="scu"):
 
 def store_and_verify_upload(cfg, api, dicom, logs, record, entry, target_bytes, upload_timeout, started_by_mpps=False):
     """C-STORE an image for entry's worklist item, then follow it through the Store SCP, the Store
-    SCU's Scan Started, upload to CARE, study link and Scan Completed. Shared by the small and large
-    file tests, which each use their own service request. started_by_mpps: Scan Started was already
+    SCU's IN_PROGRESS, upload to CARE, study link and COMPLETED. Shared by the small and large
+    file tests, which each use their own service request. started_by_mpps: IN_PROGRESS was already
     sent by the MWL service on MPPS IN PROGRESS, so the Store SCU must not send it again."""
     item = entry["worklist_item"]
     ds = build_ct_image(item, target_bytes=target_bytes)
@@ -57,7 +57,6 @@ def store_and_verify_upload(cfg, api, dicom, logs, record, entry, target_bytes, 
 
     if not started_by_mpps:
         record["scan_started"] = wait_for_scan_status(cfg, logs, entry, cfg.status_started, timeout=upload_timeout)
-    wait_for_tag(api, cfg, entry["id"], cfg.status_started, record)
     uploaded = logs.wait_for("scu", rf"Upload succeeded \((\d+)\) for .*{sop}\.dcm", timeout=upload_timeout)
     record["care_upload_http_status"] = int(uploaded.group(1))
     record["upload_seconds_after_store"] = round(time.monotonic() - stored_at, 1)
@@ -74,8 +73,6 @@ def store_and_verify_upload(cfg, api, dicom, logs, record, entry, target_bytes, 
     # Sent once the study's last file was uploaded and none arrived for scan_completed_wait_s
     record["scan_completed"] = wait_for_scan_status(cfg, logs, entry, cfg.status_completed,
                                                     timeout=cfg.scan_completed_wait_s + 60)
-    tags = wait_for_tag(api, cfg, entry["id"], cfg.status_completed, record)
-    assert cfg.status_started in tags, "The started tag was lost when the completed tag was added"
     if started_by_mpps:
         logs.assert_absent("scu", rf"Scan status sent to CARE: {re.escape(cfg.status_started)}\b.*?service_request {re.escape(entry['id'])}")
     return ds

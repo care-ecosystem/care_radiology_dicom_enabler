@@ -1,9 +1,9 @@
 """MPPS status transitions: discontinued path and refused transitions
 
 Covers the other ways an MPPS can move, and that the enabler refuses messages that do not fit
-the procedure's state. MPPS IN PROGRESS makes the MWL service send Scan Started; MPPS COMPLETED
-sends nothing - the Store SCU sends Scan Completed once the study's images are uploaded:
-  IN PROGRESS -> DISCONTINUED             accepted, Scan Started sent, no Scan Completed
+the procedure's state. MPPS IN PROGRESS makes the MWL service send IN_PROGRESS and MPPS DISCONTINUED
+CANCELLED; MPPS COMPLETED sends nothing - the Store SCU sends COMPLETED once the study's images are uploaded:
+  IN PROGRESS -> DISCONTINUED             accepted, IN_PROGRESS then CANCELLED sent, no COMPLETED
   DISCONTINUED -> COMPLETED               refused (no procedure in progress), no status sent
   N-CREATE for an unknown procedure step  refused
   N-SET for an unknown SOP Instance       refused
@@ -13,7 +13,6 @@ import re
 
 from pydicom.uid import generate_uid
 
-from checks import tag_displays, wait_for_tag
 from conftest import need, sr
 from dicom_client import SUCCESS, status_name
 from flows import wait_for_scan_status
@@ -23,7 +22,7 @@ INVALID_ATTRIBUTE_VALUE = 0x0106
 
 
 def test_in_progress_then_discontinued(cfg, api, dicom, ctx, logs, record):
-    """IN PROGRESS -> DISCONTINUED: both accepted, with Scan Started sent and no Scan Completed"""
+    """IN PROGRESS -> DISCONTINUED: both accepted, with IN_PROGRESS then CANCELLED sent and no COMPLETED"""
     need(ctx, "worklist_ok")
     entry = sr(ctx, "discontinue")
     record["service_request_id"] = entry["id"]
@@ -40,9 +39,8 @@ def test_in_progress_then_discontinued(cfg, api, dicom, ctx, logs, record):
     record["n_set_status"] = status_name(status)
     assert status == SUCCESS, f"N-SET DISCONTINUED returned {status_name(status)}"
     logs.wait_for("mwl", rf"\[MPPS\] SetDiscontinued: ServiceRequestId={entry['id']}", timeout=15)
-    tags = wait_for_tag(api, cfg, entry["id"], cfg.status_started, record)
-    assert cfg.status_completed not in tags, \
-        "CARE shows the SR completed although the procedure was discontinued"
+    record["scan_cancelled"] = wait_for_scan_status(cfg, logs, entry, cfg.status_cancelled, timeout=60, service="mwl")
+    logs.assert_absent("scu", rf"Scan status sent to CARE: {cfg.status_completed}\b.*?service_request {re.escape(entry['id'])}")
     entry["discontinued_mpps_uid"] = mpps_uid
 
 
@@ -57,8 +55,7 @@ def test_completed_after_discontinued_is_refused(cfg, api, dicom, ctx, logs, rec
     assert status == PROCESSING_FAILURE, f"Expected Processing Failure, got {status_name(status)}"
     logs.wait_for("mwl", rf"\[MPPS\] SetCompleted: no procedure in progress for SOPInstanceUID={re.escape(mpps_uid)}", timeout=15)
     logs.assert_absent("mwl", r"Scan status sent to CARE")
-    assert cfg.status_completed not in tag_displays(api, entry["id"]), \
-        "CARE shows the SR completed although the procedure was discontinued"
+    logs.assert_absent("scu", rf"Scan status sent to CARE: {cfg.status_completed}\b.*?service_request {re.escape(entry['id'])}")
 
 
 def test_n_create_for_unknown_procedure_step_is_refused(dicom, ctx, logs, record):

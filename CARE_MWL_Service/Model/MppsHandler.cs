@@ -14,9 +14,9 @@ namespace Worklist_SCP.Model
 {
 
     /// <summary>
-    /// An implementation of IMppsSource. For the CARE backend it sends Scan Started to CARE when the
-    /// modality starts a procedure; Scan Completed is sent by the SCU service once the study's images
-    /// are uploaded. It does not store the MPPS messages
+    /// An implementation of IMppsSource. For the CARE backend it sends IN_PROGRESS to CARE when the
+    /// modality starts a procedure and CANCELLED when it discontinues it; COMPLETED is sent by the SCU
+    /// service once the study's images are uploaded. It does not store the MPPS messages
     /// </summary>
     class MppsHandler : IMppsSource
     {
@@ -59,17 +59,40 @@ namespace Worklist_SCP.Model
 
 
         /// <summary>
-        /// Sends Scan Started for the work item's service request when the modality starts the procedure.
+        /// Sends IN_PROGRESS for the work item's service request when the modality starts the procedure.
         /// Once sent, care_worklist.scan_status is STARTED and the SCU service does not send it again
         /// before the upload. When it cannot be sent scan_status is set to START_PENDING, so the SCU
-        /// service sends it like one that could not be sent before an upload.
+        /// service sends it like one that could not be sent before an upload. Not sent for a procedure
+        /// already started, completed or cancelled.
         /// </summary>
         private void SendScanStarted(WorklistItem workItem)
+        {
+            SendStudyStatus(workItem, ucls_CareScanStatus.StatusInProgress, "STARTED", "START_PENDING",
+                new[] { "STARTED", "COMPLETED", "CANCEL_PENDING", "CANCELLED" });
+        }
+
+        /// <summary>
+        /// Sends CANCELLED for the work item's service request when the modality discontinues the procedure.
+        /// Once sent, care_worklist.scan_status is CANCELLED and the SCU service never sends COMPLETED for it.
+        /// When it cannot be sent scan_status is set to CANCEL_PENDING and the SCU service retries it every
+        /// cycle. Not sent once COMPLETED was sent, as CARE leaves a completed imaging study unchanged.
+        /// </summary>
+        private void SendScanCancelled(WorklistItem workItem)
+        {
+            SendStudyStatus(workItem, ucls_CareScanStatus.StatusCancelled, "CANCELLED", "CANCEL_PENDING",
+                new[] { "COMPLETED", "CANCELLED" });
+        }
+
+        /// <summary>
+        /// Sends studyStatus for the work item's service request and sets care_worklist.scan_status to
+        /// sentScanStatus, or to pendingScanStatus when it cannot be sent so the SCU service retries it.
+        /// Nothing is sent while scan_status is one of skipScanStatuses.
+        /// </summary>
+        private void SendStudyStatus(WorklistItem workItem, string studyStatus, string sentScanStatus, string pendingScanStatus, string[] skipScanStatuses)
         {
             if (!IsCareBackend)
                 return;
             string accessionNumber = workItem.AccessionNumber;
-            string scanStatusStarted = ucls_CareScanStatus.StatusStarted;
             ucls_DAL dal = null;
             try
             {
@@ -80,17 +103,17 @@ namespace Worklist_SCP.Model
                 bool found = dal.GetScanState(accessionNumber, ref serviceRequestId, ref scanStatus, ref errorString);
                 if (!string.IsNullOrEmpty(errorString) || !found)
                 {
-                    LogWarn($"[MPPS] Not sending {scanStatusStarted} for AccessionNumber={accessionNumber}: {(found ? errorString : "not in care_worklist")}");
+                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: {(found ? errorString : "not in care_worklist")}");
                     return;
                 }
-                if (scanStatus == "STARTED" || scanStatus == "COMPLETED")
+                if (skipScanStatuses.Contains(scanStatus))
                 {
-                    LogInfo($"[MPPS] Not sending {scanStatusStarted} for AccessionNumber={accessionNumber}: scan_status is already {scanStatus}");
+                    LogInfo($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: scan_status is already {scanStatus}");
                     return;
                 }
                 if (string.IsNullOrWhiteSpace(serviceRequestId))
                 {
-                    LogWarn($"[MPPS] Not sending {scanStatusStarted} for AccessionNumber={accessionNumber}: no service request id in care_worklist");
+                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: no service request id in care_worklist");
                     return;
                 }
 
@@ -102,14 +125,14 @@ namespace Worklist_SCP.Model
 
                 bool sent = false;
                 if (!string.IsNullOrEmpty(errorString) || string.IsNullOrWhiteSpace(facilityId))
-                    LogWarn($"[MPPS] Not sending {scanStatusStarted} for AccessionNumber={accessionNumber}: no Facility ID - {(string.IsNullOrEmpty(errorString) ? resolvedFrom : errorString)}. The SCU service will send it.");
+                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: no Facility ID - {(string.IsNullOrEmpty(errorString) ? resolvedFrom : errorString)}. The SCU service will send it.");
                 else if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(statusPath))
-                    LogWarn($"[MPPS] Not sending {scanStatusStarted} for AccessionNumber={accessionNumber}: careBaseUrl, careToken or statusURL is not set in App.config. The SCU service will send it.");
+                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: careBaseUrl, careToken or statusURL is not set in App.config. The SCU service will send it.");
                 else
-                    sent = ucls_CareScanStatus.Send(ucls_CareScanStatus.BuildStatusURL(baseUrl, statusPath, facilityId), token, serviceRequestId, accessionNumber, scanStatusStarted,
+                    sent = ucls_CareScanStatus.Send(ucls_CareScanStatus.BuildStatusURL(baseUrl, statusPath, facilityId), token, serviceRequestId, accessionNumber, studyStatus,
                         (message, isInfo) => { if (isInfo) LogInfo("[MPPS] " + message); else LogWarn("[MPPS] " + message + ". The SCU service will send it."); });
 
-                string newScanStatus = sent ? "STARTED" : "START_PENDING";
+                string newScanStatus = sent ? sentScanStatus : pendingScanStatus;
                 if (newScanStatus != scanStatus)
                 {
                     errorString = string.Empty;
@@ -120,7 +143,7 @@ namespace Worklist_SCP.Model
             }
             catch (Exception ex)
             {
-                LogWarn($"[MPPS] Sending {scanStatusStarted} for AccessionNumber={accessionNumber} failed with exception {ex.Message}");
+                LogWarn($"[MPPS] Sending {studyStatus} for AccessionNumber={accessionNumber} failed with exception {ex.Message}");
             }
             finally
             {
@@ -173,6 +196,9 @@ namespace Worklist_SCP.Model
 
             // since the procedure was stopped, we remove it from the list of pending procedures
             PendingProcedures.Remove(sopInstanceUID);
+
+            SendScanCancelled(workItem);
+
             return true;
         }
 

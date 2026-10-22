@@ -128,17 +128,6 @@ class CareApi:
     def devices_at_location(self, location_id):
         return list(self._paginate(f"{self._facility_path}/device/", {"current_location": location_id}))
 
-    def facility_tag_config(self, display):
-        """The facility-level tag whose display equals display exactly - the lookup the status
-        webhook performs (display filter is icontains, so the exact match is done here)."""
-        for tag in self._paginate("/api/v1/tag_config/", {
-            "facility": self.cfg.facility_id, "facility_only": "true", "display": display,
-            "resource": "service_request",
-        }):
-            if tag.get("display") == display:
-                return tag
-        return None
-
     def create_service_request(self, ad_slug, encounter_id, note):
         return self._json("POST", f"{self._facility_path}/service_request/apply_activity_definition/", json={
             "activity_definition": ad_slug,
