@@ -5,7 +5,7 @@ import time
 
 from pydicom import dcmwrite
 
-from checks import wait_for_linked_study
+from checks import wait_for_linked_study, wait_for_tag
 from dicom_client import SUCCESS, build_ct_image, status_name
 
 
