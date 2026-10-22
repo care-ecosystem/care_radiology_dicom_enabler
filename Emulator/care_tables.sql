@@ -62,11 +62,14 @@ CREATE TABLE IF NOT EXISTS `care_patient` (
 -- study_uid is NULL until a DICOM file with the row's accession number is picked up for upload,
 -- then holds the file's StudyInstanceUID. When files for the same accession number carry
 -- different StudyInstanceUIDs, each one is added once, separated by ','.
--- scan_status is the last status the SCU service sent to CARE for the row's service request: NULL
--- until then, START_PENDING when Scan Started could not be sent before the first upload of a file with
--- the row's accession number (it is retried every cycle), STARTED once Scan Started was sent,
--- COMPLETED once Scan Completed was sent after its last file was uploaded.
--- scan_started_at and scan_completed_at are when each was sent.
+-- scan_status is the last study_status sent to CARE for the row's service request: NULL until then,
+-- START_PENDING when IN_PROGRESS could not be sent when the modality sent MPPS IN PROGRESS (by the
+-- MWL service) or before the first upload of a file with the row's accession number (by the SCU
+-- service) - the SCU service retries it every cycle -, STARTED once IN_PROGRESS was sent, COMPLETED
+-- once COMPLETED was sent after its last file was uploaded (MPPS COMPLETED does not send it).
+-- CANCEL_PENDING when CANCELLED could not be sent when the modality sent MPPS DISCONTINUED - the SCU
+-- service retries it every cycle -, CANCELLED once it was sent; COMPLETED is never sent for a
+-- cancelled row. scan_started_at, scan_completed_at and scan_cancelled_at are when each was sent.
 CREATE TABLE IF NOT EXISTS `care_worklist` (
   `pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `accession_number` varchar(64) NOT NULL,
@@ -81,6 +84,7 @@ CREATE TABLE IF NOT EXISTS `care_worklist` (
   `scan_status` varchar(20) DEFAULT NULL,
   `scan_started_at` datetime DEFAULT NULL,
   `scan_completed_at` datetime DEFAULT NULL,
+  `scan_cancelled_at` datetime DEFAULT NULL,
   `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`pk`),
@@ -104,7 +108,8 @@ CREATE TABLE IF NOT EXISTS `care_worklist` (
 -- retry. The next retry waits upload_retry_delay_minutes * 2^retry_count after last_retry_time.
 -- After maxUploadRetries retries the file is moved to FailedSCP\<dd-MM-yyyy> (the limit is set
 -- in care_config or CARE_SCU_Service App.config). Errors that cannot succeed on a retry (HTTP
--- 400/409, no AccessionNumber, accession number not in the CARE worklist) move it right away.
+-- 400/409, no AccessionNumber, accession number not in the CARE worklist, a UID missing) move it
+-- right away; a file with a UID missing is keyed by the UIDs it has.
 -- worklist_pk links the file to the care_worklist row with its accession number; it stays NULL
 -- when the file has no accession number or it is not in care_worklist.
 CREATE TABLE IF NOT EXISTS `care_sync_upload` (
@@ -129,9 +134,11 @@ CREATE TABLE IF NOT EXISTS `care_sync_upload` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Integration settings for this enabler's facility, one row per setting, edited in the
--- Configuration tab. A blank value means the service uses its App.config value (or built-in
--- default), so values baked in at build time apply until one is entered here. facility_id must
--- be set here or baked in as App.config careFacilityId. API keys and tokens stay in App.config.
+-- Configuration tab. Start Services fills each blank setting with its default (the App.config
+-- value baked in at build time, or the built-in default) so the stored values are shown and can be
+-- changed. A value still blank means the service uses that default. facility_id has no default:
+-- the user must enter it, and the services are not started until it is set. API keys and tokens
+-- stay in App.config.
 CREATE TABLE IF NOT EXISTS `care_config` (
   `config_key` varchar(100) NOT NULL,
   `config_value` varchar(1000) DEFAULT NULL,
@@ -150,6 +157,6 @@ INSERT IGNORE INTO `care_config` (`config_key`, `config_value`, `description`) V
   ('worklist_refresh_interval_seconds', NULL, 'Seconds between worklist refreshes. Blank = App.config. Restart the MWL service to apply.'),
   ('max_upload_retries', NULL, 'Upload retries before a file is moved to the failed folder. Blank = App.config maxUploadRetries.'),
   ('upload_retry_delay_minutes', NULL, 'Minutes after a failed upload before the first retry; the wait doubles after each retry (2, 4, 8...). Blank = 2.'),
-  ('scan_completed_wait_seconds', NULL, 'Seconds after the last upload of an accession number, with none of its files left in the SCP folder, before Scan Completed is sent to CARE. Blank = App.config scanCompletedWaitSeconds, or 60.'),
+  ('scan_completed_wait_seconds', NULL, 'Seconds after the last upload of an accession number, with none of its files left in the SCP folder, before COMPLETED is sent to CARE. Blank = App.config scanCompletedWaitSeconds, or 60.'),
   ('scp_folder', NULL, 'Folder where received DICOM files are saved and picked up for upload. Blank = SCP under the install folder. Restart the services to apply.'),
   ('failed_scp_folder', NULL, 'Folder files are moved to after the upload retry limit is hit. Blank = FailedSCP under the install folder.');

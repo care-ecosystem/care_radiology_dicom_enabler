@@ -92,6 +92,7 @@
     <Compile Include="EncKey.cs" />
     <Compile Include="EnDcryption.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="ucls_CareScanStatus.cs" />
     <Compile Include="ucls_CareWorklist.cs" />
     <Compile Include="ucls_DAL.cs" />
     <Compile Include="ucls_NetworkCheck.cs" />

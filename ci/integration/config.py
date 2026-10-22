@@ -43,11 +43,11 @@ class Config:
     # Optional comma-separated activity definition slugs to restrict which imaging ADs are used.
     activity_definitions: str = field(default_factory=lambda: _env("CARE_ACTIVITY_DEFINITIONS", ""))
 
-    # study_status strings the Store SCU sends with uploads - must match the enabler App.config and
-    # the facility tag configs.
-    status_started: str = field(default_factory=lambda: _env("SCAN_STATUS_STARTED", "Scan Started"))
-    status_completed: str = field(default_factory=lambda: _env("SCAN_STATUS_COMPLETED", "Scan Completed"))
-    # Seconds the Store SCU waits after an accession number's last upload before sending Scan Completed
+    # study_status values the enabler sends to the CARE scan status API (fixed by the API)
+    status_started: str = "IN_PROGRESS"
+    status_completed: str = "COMPLETED"
+    status_cancelled: str = "CANCELLED"
+    # Seconds the Store SCU waits after an accession number's last upload before sending COMPLETED
     # (App.config scanCompletedWaitSeconds) - must match the enabler App.config.
     scan_completed_wait_s: int = field(default_factory=lambda: _int("SCAN_COMPLETED_WAIT_SECONDS", 15))
 
@@ -73,12 +73,6 @@ class Config:
     @property
     def scp_dir(self) -> Path:
         return self.enabler_dir / "SCP"
-
-    @property
-    def radiology_status_tracks_scan_status(self):
-        """care_radiology moves its own record to IN_PROGRESS only for its constant SCAN_STARTED;
-        any other study_status just adds the matching tag."""
-        return self.status_started == "SCAN_STARTED"
 
     @property
     def secrets(self):

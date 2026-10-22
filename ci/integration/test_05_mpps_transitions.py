@@ -1,9 +1,9 @@
 """MPPS status transitions: discontinued path and refused transitions
 
 Covers the other ways an MPPS can move, and that the enabler refuses messages that do not fit
-the procedure's state. MPPS no longer sends any status to CARE - the Store SCU sends Scan Started
-and Scan Completed with the upload - so none of these may reach CARE:
-  IN PROGRESS -> DISCONTINUED             accepted, no status sent
+the procedure's state. MPPS IN PROGRESS makes the MWL service send IN_PROGRESS and MPPS DISCONTINUED
+CANCELLED; MPPS COMPLETED sends nothing - the Store SCU sends COMPLETED once the study's images are uploaded:
+  IN PROGRESS -> DISCONTINUED             accepted, IN_PROGRESS then CANCELLED sent, no COMPLETED
   DISCONTINUED -> COMPLETED               refused (no procedure in progress), no status sent
   N-CREATE for an unknown procedure step  refused
   N-SET for an unknown SOP Instance       refused
@@ -13,16 +13,16 @@ import re
 
 from pydicom.uid import generate_uid
 
-from checks import tag_displays
 from conftest import need, sr
 from dicom_client import SUCCESS, status_name
+from flows import wait_for_scan_status
 
 PROCESSING_FAILURE = 0x0110
 INVALID_ATTRIBUTE_VALUE = 0x0106
 
 
 def test_in_progress_then_discontinued(cfg, api, dicom, ctx, logs, record):
-    """IN PROGRESS -> DISCONTINUED: both accepted, with no status sent to CARE"""
+    """IN PROGRESS -> DISCONTINUED: both accepted, with IN_PROGRESS then CANCELLED sent and no COMPLETED"""
     need(ctx, "worklist_ok")
     entry = sr(ctx, "discontinue")
     record["service_request_id"] = entry["id"]
@@ -33,16 +33,14 @@ def test_in_progress_then_discontinued(cfg, api, dicom, ctx, logs, record):
     record["n_create_status"] = status_name(status)
     assert status == SUCCESS, f"N-CREATE returned {status_name(status)}"
     logs.wait_for("mwl", rf"\[MPPS\] SetInProgress: matched ServiceRequestId={entry['id']}", timeout=15)
+    record["scan_started"] = wait_for_scan_status(cfg, logs, entry, cfg.status_started, timeout=60, service="mwl")
 
     status = dicom.mpps_set(mpps_uid, "DISCONTINUED")
     record["n_set_status"] = status_name(status)
     assert status == SUCCESS, f"N-SET DISCONTINUED returned {status_name(status)}"
     logs.wait_for("mwl", rf"\[MPPS\] SetDiscontinued: ServiceRequestId={entry['id']}", timeout=15)
-    logs.assert_absent("mwl", r"MPPS webhook")
-    tags = tag_displays(api, entry["id"])
-    record["sr_tags"] = sorted(t for t in tags if t)
-    assert not {cfg.status_started, cfg.status_completed} & tags, \
-        "CARE shows a scan status on the SR although no file was uploaded for it"
+    record["scan_cancelled"] = wait_for_scan_status(cfg, logs, entry, cfg.status_cancelled, timeout=60, service="mwl")
+    logs.assert_absent("scu", rf"Scan status sent to CARE: {cfg.status_completed}\b.*?service_request {re.escape(entry['id'])}")
     entry["discontinued_mpps_uid"] = mpps_uid
 
 
@@ -56,9 +54,8 @@ def test_completed_after_discontinued_is_refused(cfg, api, dicom, ctx, logs, rec
     record["n_set_status"] = status_name(status)
     assert status == PROCESSING_FAILURE, f"Expected Processing Failure, got {status_name(status)}"
     logs.wait_for("mwl", rf"\[MPPS\] SetCompleted: no procedure in progress for SOPInstanceUID={re.escape(mpps_uid)}", timeout=15)
-    logs.assert_absent("mwl", r"MPPS webhook")
-    assert cfg.status_completed not in tag_displays(api, entry["id"]), \
-        "CARE shows the SR completed although the procedure was discontinued"
+    logs.assert_absent("mwl", r"Scan status sent to CARE")
+    logs.assert_absent("scu", rf"Scan status sent to CARE: {cfg.status_completed}\b.*?service_request {re.escape(entry['id'])}")
 
 
 def test_n_create_for_unknown_procedure_step_is_refused(dicom, ctx, logs, record):
@@ -70,7 +67,7 @@ def test_n_create_for_unknown_procedure_step_is_refused(dicom, ctx, logs, record
     record["n_create_status"] = status_name(status)
     assert status == PROCESSING_FAILURE, f"Expected Processing Failure, got {status_name(status)}"
     logs.wait_for("mwl", r"\[MPPS\] SetInProgress: no worklist item matched ProcedureStepID=NOSUCHSTEP", timeout=15)
-    logs.assert_absent("mwl", r"MPPS webhook sent to CARE")
+    logs.assert_absent("mwl", r"Scan status sent to CARE")
 
 
 def test_n_set_for_unknown_instance_is_refused(dicom, ctx, logs, record):
@@ -82,7 +79,7 @@ def test_n_set_for_unknown_instance_is_refused(dicom, ctx, logs, record):
     record["n_set_status"] = status_name(status)
     assert status == PROCESSING_FAILURE, f"Expected Processing Failure, got {status_name(status)}"
     logs.wait_for("mwl", rf"\[MPPS\] SetCompleted: no procedure in progress for SOPInstanceUID={re.escape(unknown)}", timeout=15)
-    logs.assert_absent("mwl", r"MPPS webhook sent to CARE")
+    logs.assert_absent("mwl", r"Scan status sent to CARE")
 
 
 def test_n_set_with_invalid_status_is_refused(dicom, ctx, logs, record):
