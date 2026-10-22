@@ -155,6 +155,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="cls_ConfigDefaults.cs" />
     <Compile Include="Forms\frm_LoginScreen.cs">
       <SubType>Form</SubType>
     </Compile>

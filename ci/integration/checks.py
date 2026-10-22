@@ -2,30 +2,9 @@
 from care_api import poll
 
 
-def tag_displays(api, sr_id):
-    return {t.get("display") for t in api.get_service_request(sr_id).get("tags", [])}
-
-
-def wait_for_tag(api, cfg, sr_id, display, record):
-    """Poll until the SR carries the tag the scan status API sets for display."""
-    tags = poll(lambda: (lambda t: t if display in t else None)(tag_displays(api, sr_id)),
-                timeout=cfg.timeout_s, description=f"tag '{display}' on service request {sr_id}")
-    record["sr_tags"] = sorted(t for t in tags if t)
-    return tags
-
-
-def wait_for_scan_radiology_status(api, cfg, sr_id, expected, record):
-    """Radiology record status set by a scan status update - only checked when CARE drives it, i.e.
-    the plugin's own status constants are in use (see Config.radiology_status_tracks_scan_status)."""
-    if not cfg.radiology_status_tracks_scan_status:
-        record["radiology_status"] = "not driven by the scan status for these status strings - SR tag is the status"
-        return None
-    return wait_for_radiology_status(api, cfg, sr_id, expected, record)
-
-
 def wait_for_radiology_status(api, cfg, sr_id, expected, record):
     """Poll the care_radiology record status. Records, rather than fails, when the test user
-    lacks can_read_radiology_data - the tag check is then the only state read back."""
+    lacks can_read_radiology_data - the scan status log lines are then the only check."""
     if api.radiology_service_request(sr_id) is None:
         record["radiology_status"] = "not readable by the test user (needs can_read_radiology_data)"
         return None

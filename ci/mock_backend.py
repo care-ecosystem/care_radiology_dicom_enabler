@@ -46,6 +46,9 @@ WORKLIST_RESPONSE = json.dumps({
 })
 
 
+STUDY_STATUSES = ("IN_PROGRESS", "COMPLETED", "CANCELLED")
+
+
 class MockHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if "worklist" in self.path:
@@ -72,8 +75,12 @@ class MockHandler(BaseHTTPRequestHandler):
     def do_PATCH(self):
         length = int(self.headers.get("Content-Length", 0))
         payload = json.loads(self.rfile.read(length) or b"{}")
+        # The scan status API only accepts these study_status values
+        if payload.get("study_status") not in STUDY_STATUSES:
+            self._send(400, json.dumps({"study_status": [f"\"{payload.get('study_status')}\" is not a valid choice."]}))
+            return
         body = json.dumps({
-            "detail": "MPPS status tag updated successfully",
+            "detail": "MPPS status processed successfully",
             "service_request_id": payload.get("service_request_id"),
             "study_status": payload.get("study_status"),
         })

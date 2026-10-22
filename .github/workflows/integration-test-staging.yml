@@ -5,12 +5,12 @@ name: Integration Test - CARE Server
 #
 #   Environment   configured ports/AE titles honoured, C-ECHO, wrong AE / SOP class rejected,
 #                 calling AE outside the Server List rejected by MWL and Store SCP,
-#                 CARE login, facility, patient, status tags, imaging activity definitions
+#                 CARE login, facility, patient, imaging activity definitions
 #   SRs           service requests created from the facility's imaging activity definitions,
 #                 accession numbers assigned by care_radiology
 #   Worklist      C-FIND returns exactly the SRs that target the configured device
 #   MPPS          N-CREATE / N-SET: started -> completed, started -> discontinued, and refused
-#                 transitions; status read back from CARE
+#                 transitions; IN_PROGRESS / COMPLETED / CANCELLED accepted by CARE
 #   Files         small and large DICOM: C-STORE -> Store SCP -> Store SCU upload -> linked to SR;
 #                 malformed dataset, non-DICOM file and non-DICOM upload rejected
 #
@@ -36,17 +36,14 @@ name: Integration Test - CARE Server
 #     CARE_MODALITY              device registered_name the enabler serves (default CT)
 #     CARE_ACTIVITY_DEFINITIONS  comma-separated AD slugs to use (default: all active imaging ADs)
 #     CARE_SERVER_TIMEZONE       Windows time zone of the CARE server (default India Standard Time)
-#     SCAN_STATUS_STARTED / SCAN_STATUS_COMPLETED
-#                                tag displays the Store SCU sends with uploads (default Scan Started /
-#                                Scan Completed; the older MPPS_STATUS_* variables are still read)
-#     SCAN_COMPLETED_WAIT_SECONDS  seconds after a study's last upload before Scan Completed (default 15)
+#     SCAN_COMPLETED_WAIT_SECONDS  seconds after a study's last upload before COMPLETED is sent (default 15)
 #     MWL_PORT / STORE_PORT      ports to configure (default 11108 / 11107 - deliberately not the
 #                                2008 / 2007 defaults, so the test proves the config is honoured)
 #     LARGE_FILE_MB              size of the large-file test (default 40)
 #
 # The facility must already have: an imaging activity definition whose location holds a device
-# registered as CARE_MODALITY, ideally a second imaging AD without one (for the negative worklist
-# check), and service_request tag configs named as the SCAN_STATUS_* values.
+# registered as CARE_MODALITY, and ideally a second imaging AD without one (for the negative worklist
+# check).
 
 on:
   workflow_dispatch:
@@ -128,8 +125,6 @@ jobs:
       CARE_MODALITY:             ${{ inputs.care_modality || vars.CARE_MODALITY || 'CT' }}
       CARE_ACTIVITY_DEFINITIONS: ${{ inputs.care_activity_definitions || vars.CARE_ACTIVITY_DEFINITIONS }}
       CARE_SERVER_TIMEZONE:      ${{ vars.CARE_SERVER_TIMEZONE || 'India Standard Time' }}
-      SCAN_STATUS_STARTED:       ${{ vars.SCAN_STATUS_STARTED || vars.MPPS_STATUS_STARTED || 'Scan Started' }}
-      SCAN_STATUS_COMPLETED:     ${{ vars.SCAN_STATUS_COMPLETED || vars.MPPS_STATUS_COMPLETED || 'Scan Completed' }}
       SCAN_COMPLETED_WAIT_SECONDS: ${{ vars.SCAN_COMPLETED_WAIT_SECONDS || '15' }}
       MWL_PORT:                  ${{ vars.MWL_PORT || '11108' }}
       STORE_PORT:                ${{ vars.STORE_PORT || '11107' }}
@@ -162,7 +157,7 @@ jobs:
           Write-Output "Facility     : $env:CARE_FACILITY_ID"
           Write-Output "Patient      : $env:CARE_PATIENT_ID"
           Write-Output "Modality     : $env:CARE_MODALITY"
-          Write-Output "Scan statuses: $env:SCAN_STATUS_STARTED / $env:SCAN_STATUS_COMPLETED (completed after $env:SCAN_COMPLETED_WAIT_SECONDS s)"
+          Write-Output "Scan statuses: IN_PROGRESS / COMPLETED / CANCELLED (completed after $env:SCAN_COMPLETED_WAIT_SECONDS s)"
           Write-Output "Ports        : MWL $env:MWL_PORT, Store $env:STORE_PORT"
 
       # CARE compares the worklist from/to (naive timestamps the MWL service sends from the
@@ -213,8 +208,6 @@ jobs:
             careBackendURL = $env:CARE_BASE_URL
             staticAPIKey   = $env:CARE_API_TOKEN
             careFacilityId = $env:CARE_FACILITY_ID
-            scanStatusStarted        = $env:SCAN_STATUS_STARTED
-            scanStatusCompleted      = $env:SCAN_STATUS_COMPLETED
             scanCompletedWaitSeconds = $env:SCAN_COMPLETED_WAIT_SECONDS
           }
 

@@ -32,7 +32,7 @@ namespace Plexus_SCU_Service
         // retried this many minutes after its last attempt, then twice as long after each retry.
         private const int DefaultUploadRetryDelayMinutes = 2;
         // Used when scan_completed_wait_seconds is blank or invalid in care_config and App.config.
-        // Scan Completed is sent this long after the last upload of an accession number, once none of
+        // COMPLETED is sent this long after the last upload of an accession number, once none of
         // its files are left in the SCP folder, since more files of the study may still be on their way.
         private const int DefaultScanCompletedWaitSeconds = 60;
         // The CARE worklist is fetched at most once per upload cycle, however many files in the
@@ -45,7 +45,7 @@ namespace Plexus_SCU_Service
         // last_retry_time is moved to now. New files are still tried once so they get a care_sync_upload
         // row and a last_retry_time.
         private string careOutage = null;
-        // Accession numbers whose Scan Completed is held back because of failed uploads, so the reason
+        // Accession numbers whose COMPLETED is held back because of failed uploads, so the reason
         // is logged once rather than every cycle
         private readonly HashSet<string> scanCompletedHeldLogged = new HashSet<string>(StringComparer.Ordinal);
         // Whether CARE was found reachable in this upload cycle, null until checked. Checked at most once per cycle.
@@ -144,7 +144,7 @@ namespace Plexus_SCU_Service
 
                 string escapedFacilityId = Uri.EscapeDataString(facilityId.Trim());
                 string uploadURL = careBackendURL + uploadPath.Replace("{facility_id}", escapedFacilityId);
-                string statusURL = careBackendURL + statusPath.Replace("{facility_id}", escapedFacilityId);
+                string statusURL = ucls_CareScanStatus.BuildStatusURL(careBackendURL, statusPath, facilityId);
 
                 careReachableThisCycle = null;
                 // Only updates the outage status for the log and the scan status updates; failed files are
@@ -158,6 +158,7 @@ namespace Plexus_SCU_Service
                 {
                     WriteToLog($"Folder {dcmPushPath} has no files to upload.", true);
                     SendPendingScanStartedStatuses(facilityId.Trim(), statusURL, staticAPIKey);
+                    SendPendingScanCancelledStatuses(facilityId.Trim(), statusURL, staticAPIKey);
                     SendScanCompletedStatuses(facilityId.Trim(), statusURL, staticAPIKey, dcmPushPath, dcmfiles, new HashSet<string>());
                     return;
                 }
@@ -168,7 +169,7 @@ namespace Plexus_SCU_Service
                 int waitingCount = 0;
                 bool foundLogged = false;
                 // Accession numbers with a file still in the SCP folder after this cycle (waiting for its
-                // retry, or kept for retry): Scan Completed is not sent for them yet
+                // retry, or kept for retry): COMPLETED is not sent for them yet
                 var pendingAccessionNumbers = new HashSet<string>(StringComparer.Ordinal);
                 // A file the SCP may still be writing could belong to any accession number
                 bool unreadableFilePending = false;
@@ -199,7 +200,7 @@ namespace Plexus_SCU_Service
                                     continue;
                                 }
                                 WriteToLog($"Could not read the Study, Series and SOP Instance UIDs from {dcmfile}: {readError}", false);
-                                MoveToFailedSCP(dcmfile, string.Empty, string.Empty, 0, $"Could not read the Study, Series and SOP Instance UIDs: {readError}");
+                                FailUnreadableInstance(dcmfile, dataset, $"Could not read the Study, Series and SOP Instance UIDs: {readError}");
                                 continue;
                             }
 
@@ -267,6 +268,7 @@ namespace Plexus_SCU_Service
                 }
 
                 SendPendingScanStartedStatuses(facilityId.Trim(), statusURL, staticAPIKey);
+                SendPendingScanCancelledStatuses(facilityId.Trim(), statusURL, staticAPIKey);
                 if (!unreadableFilePending)
                     SendScanCompletedStatuses(facilityId.Trim(), statusURL, staticAPIKey, dcmPushPath, dcmfiles, pendingAccessionNumbers);
             }
@@ -452,6 +454,33 @@ namespace Plexus_SCU_Service
                 error = ex.Message;
                 return false;
             }
+        }
+
+        // Moves a file rejected by TryReadInstance to FailedSCP. When its dataset was read (a UID is
+        // missing), it first gets a FAILED care_sync_upload row keyed by the UIDs it has, so the file
+        // still holds back COMPLETED for its accession number once it has left the SCP folder.
+        private void FailUnreadableInstance(string dcmfile, DicomDataset dataset, string failureLog)
+        {
+            string studyUid = string.Empty;
+            string accessionNumber = string.Empty;
+            int retryCount = 0;
+            if (dataset != null)
+            {
+                try
+                {
+                    studyUid = dataset.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, string.Empty);
+                    accessionNumber = dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
+                    string instanceKey = ucls_DAL.BuildInstanceKey(studyUid,
+                        dataset.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, string.Empty),
+                        dataset.GetSingleValueOrDefault(DicomTag.SOPInstanceUID, string.Empty));
+                    SaveStudyUploadDB(instanceKey, studyUid, accessionNumber, dcmfile, "FAILED", failureLog, out retryCount);
+                }
+                catch (Exception ex)
+                {
+                    WriteToLog($"Could not record the failed upload of {dcmfile} in care_sync_upload: {ex.Message}", false);
+                }
+            }
+            MoveToFailedSCP(dcmfile, studyUid, accessionNumber, retryCount, failureLog);
         }
 
         // An instance that has not been uploaded yet is uploaded straight away, and one already uploaded
@@ -643,19 +672,14 @@ namespace Plexus_SCU_Service
             return string.Empty;
         }
 
-        // study_status values sent to the CARE scan status API. CARE adds the facility tag config whose
-        // display equals the value exactly, so they are configurable to match how a facility named its tags.
-        private static string ScanStatusStarted => ReadScanStatus("scanStatusStarted", "Scan Started");
-        private static string ScanStatusCompleted => ReadScanStatus("scanStatusCompleted", "Scan Completed");
+        private const string ScanStatusStarted = ucls_CareScanStatus.StatusInProgress;
+        private const string ScanStatusCompleted = ucls_CareScanStatus.StatusCompleted;
+        private const string ScanStatusCancelled = ucls_CareScanStatus.StatusCancelled;
 
-        private static string ReadScanStatus(string key, string defaultValue)
-        {
-            string value = ConfigurationManager.AppSettings[key];
-            return string.IsNullOrWhiteSpace(value) ? defaultValue : value.Trim();
-        }
-
-        // Sends Scan Started for the accession number's service request before the first upload of a file
-        // with it. Once sent, care_worklist.scan_status is STARTED and it is not sent again. When it cannot
+        // Sends IN_PROGRESS for the accession number's service request before the first upload of a file
+        // with it, unless the MWL service already sent it when the modality sent MPPS IN PROGRESS, or the
+        // procedure was cancelled (MPPS DISCONTINUED) - the file is still uploaded then.
+        // Once sent, care_worklist.scan_status is STARTED and it is not sent again. When it cannot
         // be sent (or CARE cannot be reached) the file is still uploaded and scan_status is set to
         // START_PENDING, so it is tried again every cycle by SendPendingScanStartedStatuses even when the
         // file was uploaded and deleted.
@@ -670,7 +694,7 @@ namespace Plexus_SCU_Service
                 WriteToLog($"Not sending {ScanStatusStarted} for AccessionNumber={accessionNumber}: {errorString}", false);
                 return;
             }
-            if (scanStatus == "STARTED" || scanStatus == "COMPLETED")
+            if (scanStatus == "STARTED" || scanStatus == "COMPLETED" || scanStatus == "CANCEL_PENDING" || scanStatus == "CANCELLED")
                 return;
             if (string.IsNullOrWhiteSpace(serviceRequestId))
             {
@@ -684,20 +708,34 @@ namespace Plexus_SCU_Service
                 SaveScanStatus(accessionNumber, "START_PENDING");
         }
 
-        // Sends Scan Started for each of the facility's accession numbers whose Scan Started could not be
-        // sent before its upload (scan_status START_PENDING). When it cannot be sent it is tried again
+        // Sends IN_PROGRESS for each of the facility's accession numbers whose IN_PROGRESS could not be
+        // sent on MPPS IN PROGRESS or before its upload (scan_status START_PENDING). When it cannot be sent it is tried again
         // next cycle, and while CARE cannot be reached it is not tried until it is reachable again.
         private void SendPendingScanStartedStatuses(string facilityId, string statusURL, string staticApiKey)
+        {
+            SendPendingScanStatuses(facilityId, statusURL, staticApiKey, "START_PENDING", ScanStatusStarted, "STARTED");
+        }
+
+        // Sends CANCELLED for each of the facility's accession numbers whose CANCELLED could not be sent
+        // when the modality sent MPPS DISCONTINUED (scan_status CANCEL_PENDING), retried like IN_PROGRESS.
+        private void SendPendingScanCancelledStatuses(string facilityId, string statusURL, string staticApiKey)
+        {
+            SendPendingScanStatuses(facilityId, statusURL, staticApiKey, "CANCEL_PENDING", ScanStatusCancelled, "CANCELLED");
+        }
+
+        // Sends studyStatus for each of the facility's care_worklist rows with scan_status pendingScanStatus,
+        // and sets scan_status to sentScanStatus for each one CARE accepts.
+        private void SendPendingScanStatuses(string facilityId, string statusURL, string staticApiKey, string pendingScanStatus, string studyStatus, string sentScanStatus)
         {
             if (careOutage != null)
                 return;
             try
             {
                 string errorString = string.Empty;
-                List<ScanInProgress> scans = objDAL.GetScansWithStatus(facilityId, "START_PENDING", ref errorString);
+                List<ScanInProgress> scans = objDAL.GetScansWithStatus(facilityId, pendingScanStatus, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
                 {
-                    WriteToLog($"Not retrying {ScanStatusStarted}: {errorString}", false);
+                    WriteToLog($"Not retrying {studyStatus}: {errorString}", false);
                     return;
                 }
 
@@ -705,28 +743,29 @@ namespace Plexus_SCU_Service
                 {
                     if (string.IsNullOrWhiteSpace(scan.ServiceRequestId))
                     {
-                        WriteToLog($"Not sending {ScanStatusStarted} for AccessionNumber={scan.AccessionNumber}: no service request id in care_worklist", false);
+                        WriteToLog($"Not sending {studyStatus} for AccessionNumber={scan.AccessionNumber}: no service request id in care_worklist", false);
                         continue;
                     }
 
-                    if (SendScanStatus(statusURL, staticApiKey, scan.ServiceRequestId, scan.AccessionNumber, ScanStatusStarted))
-                        SaveScanStatus(scan.AccessionNumber, "STARTED");
+                    if (SendScanStatus(statusURL, staticApiKey, scan.ServiceRequestId, scan.AccessionNumber, studyStatus))
+                        SaveScanStatus(scan.AccessionNumber, sentScanStatus);
                 }
             }
             catch (Exception ex)
             {
-                WriteToLog($"Retrying {ScanStatusStarted} failed with exception {ex.Message}", false);
+                WriteToLog($"Retrying {studyStatus} failed with exception {ex.Message}", false);
             }
         }
 
-        // Sends Scan Completed for each of the facility's accession numbers whose Scan Started was sent,
+        // Sends COMPLETED for each of the facility's accession numbers whose IN_PROGRESS was sent,
         // once none of its files are left in the SCP folder (pendingAccessionNumbers) and none was sent
-        // to CARE for scan_completed_wait_seconds. It is held back while any of its instances is FAILED in
-        // care_sync_upload (a file moved to FailedSCP is not a finished upload) or none uploaded; a resent
-        // copy of a failed instance that uploads updates the same row to SUCCESS and releases it. When it
+        // to CARE for scan_completed_wait_seconds; MPPS COMPLETED from the modality does not send it.
+        // It is held back while any of its instances is FAILED in care_sync_upload (a file moved
+        // to FailedSCP is not a finished upload) or none uploaded; a resent copy of a failed instance that
+        // uploads updates the same row to SUCCESS and releases it. When it
         // cannot be sent it is tried again next cycle, and while CARE cannot be reached it is not tried
         // until it is reachable again. pendingAccessionNumbers only covers cycleFiles, the files listed at
-        // the start of the cycle, so before the first Scan Completed is sent the SCP folder is checked
+        // the start of the cycle, so before the first COMPLETED is sent the SCP folder is checked
         // again for files the Store SCP saved during the cycle.
         private void SendScanCompletedStatuses(string facilityId, string statusURL, string staticApiKey, string dcmPushPath, string[] cycleFiles, HashSet<string> pendingAccessionNumbers)
         {
@@ -752,7 +791,14 @@ namespace Plexus_SCU_Service
                         continue;
                     if (scan.LastUploadTime != null && DateTime.Now < scan.LastUploadTime.Value.AddSeconds(waitSeconds))
                         continue;
-                    if (scan.FailedUploads > 0 || scan.SuccessfulUploads == 0)
+                    // IN_PROGRESS sent on MPPS IN PROGRESS, before any of the study's images arrived
+                    if (scan.FailedUploads == 0 && scan.SuccessfulUploads == 0)
+                    {
+                        if (scanCompletedHeldLogged.Add(scan.AccessionNumber))
+                            WriteToLog($"Not sending {ScanStatusCompleted} for AccessionNumber={scan.AccessionNumber}: no instance uploaded yet - waiting for its images", true);
+                        continue;
+                    }
+                    if (scan.FailedUploads > 0)
                     {
                         if (scanCompletedHeldLogged.Add(scan.AccessionNumber))
                             WriteToLog($"Not sending {ScanStatusCompleted} for AccessionNumber={scan.AccessionNumber}: " +
@@ -817,31 +863,7 @@ namespace Plexus_SCU_Service
         // PATCHes study_status for a service request to the CARE scan status API. Returns whether CARE accepted it.
         private bool SendScanStatus(string statusURL, string staticApiKey, string serviceRequestId, string accessionNumber, string studyStatus)
         {
-            try
-            {
-                string payload = JsonSerializer.Serialize(new { service_request_id = serviceRequestId, study_status = studyStatus });
-                var request = new HttpRequestMessage(new HttpMethod("PATCH"), statusURL);
-                request.Headers.Add("Authorization", staticApiKey);
-                request.Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
-
-                HttpResponseMessage response = httpClient.SendAsync(request).GetAwaiter().GetResult();
-                string responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-                if (response.IsSuccessStatusCode)
-                {
-                    WriteToLog($"Scan status sent to CARE: {studyStatus} for service_request {serviceRequestId} (AccessionNumber={accessionNumber})", true);
-                    return true;
-                }
-                WriteToLog($"Scan status failed: {studyStatus} - {(int)response.StatusCode} ({response.ReasonPhrase}) for service_request {serviceRequestId} (AccessionNumber={accessionNumber}): {responseBody}", false);
-            }
-            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
-            {
-                WriteToLog($"Scan status could not connect to CARE: {studyStatus} for service_request {serviceRequestId}: {ex.Message}. {ucls_NetworkCheck.Describe()}", false);
-            }
-            catch (Exception ex)
-            {
-                WriteToLog($"Scan status failed: {studyStatus} for service_request {serviceRequestId} with exception {ex.Message}", false);
-            }
-            return false;
+            return ucls_CareScanStatus.Send(statusURL, staticApiKey, serviceRequestId, accessionNumber, studyStatus, WriteToLog);
         }
 
         private void SaveScanStatus(string accessionNumber, string scanStatus)
