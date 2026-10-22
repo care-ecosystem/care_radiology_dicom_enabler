@@ -701,8 +701,11 @@ namespace Plexus_DICOM_Enabler
             {
                 HideControlsForServer(Global.deployType);
             }
-            // Server List is hidden for now; delete this line to show the tab again
-            mtc_Modules.TabPages.Remove(tbp_ServerList);
+            // Server List is hidden for now, unless checkserver is on: the DICOM services then reject any
+            // scanner not listed there, and the tab is the only place to list it or turn checkserver off
+            bool.TryParse(cls_PlexusConfig.ReadDetailsFromXML(Global._applicationPath, @"/configurations/checkserver"), out bool checkServer);
+            if (!checkServer)
+                mtc_Modules.TabPages.Remove(tbp_ServerList);
             uctrl_ServerManager1.EnableDisableButtons();
 
             // On small or scaled screens the window can be taller than the screen, which hides the

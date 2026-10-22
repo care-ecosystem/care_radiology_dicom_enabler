@@ -268,11 +268,12 @@ namespace Plexus_DICOM_Enabler.UserControls
             this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
             try
             {
-                if (!ApplyDefaults())
-                    return;
-
                 if (Global.deployType == 1)
                 {
+                    // Only the CARE services read care_config and need the Facility Id
+                    if (!ApplyDefaults())
+                        return;
+
                     //StartStopService("Plexus_Auth_Service", true);
 
                     StartStopService("Care MWL SCP Service", true);
@@ -306,7 +307,7 @@ namespace Plexus_DICOM_Enabler.UserControls
         }
 
         /// <summary>
-        /// Stores the default configuration in the database before the services start, so the
+        /// Stores the default configuration in the database before the CARE services start, so the
         /// Configuration tab shows it. Returns false, after telling the user why, when it cannot
         /// be stored or no Facility Id has been entered, as the services cannot work without it.
         /// </summary>
