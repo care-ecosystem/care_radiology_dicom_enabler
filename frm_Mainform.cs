@@ -849,16 +849,12 @@ namespace Plexus_DICOM_Enabler
                         loadedConfigValues[key] = row["config_value"].ToString().Trim();
                 }
 
-                // A blank setting shows the value the services use for it instead
-                filledDefaults.Clear();
+                // A blank setting (services not started yet) shows its default, which Save stores in care_config
                 foreach (var field in fields)
                 {
                     loadedConfigValues.TryGetValue(field.Key, out string value);
                     if (string.IsNullOrEmpty(value))
-                    {
-                        value = GetConfigDefault(field.Key);
-                        filledDefaults[field.Key] = value;
-                    }
+                        value = cls_ConfigDefaults.GetConfigDefault(field.Key);
                     field.Value.Text = value;
                 }
             }
@@ -878,7 +874,7 @@ namespace Plexus_DICOM_Enabler
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(mtxtb_FacilityId.Text) && string.IsNullOrWhiteSpace(GetConfigDefault("facility_id")))
+                if (string.IsNullOrWhiteSpace(mtxtb_FacilityId.Text))
                 {
                     MessageBox.Show(this, "Please enter the Facility Id. The CARE worklist is not fetched without it.",
                                      "Check Mandatory", MessageBoxButtons.OK,
@@ -886,7 +882,7 @@ namespace Plexus_DICOM_Enabler
                     return;
                 }
 
-                var values = GetConfigFields().ToDictionary(field => field.Key, field => GetValueToSave(field.Key, field.Value));
+                var values = GetConfigFields().ToDictionary(field => field.Key, field => field.Value.Text.Trim());
 
                 string fromDate = values["care_from_date"];
                 if (fromDate != string.Empty && !DateTime.TryParseExact(fromDate, ConfigDateFormat,
@@ -977,21 +973,6 @@ namespace Plexus_DICOM_Enabler
         private const string MwlServiceName = "Care MWL SCP Service";
         private const string StoreScpServiceName = "Care Store SCP Service";
         private const string StoreScuServiceName = "Care Store SCU Service";
-
-        // The default put into each box whose care_config setting was blank when the tab was loaded
-        private readonly System.Collections.Generic.Dictionary<string, string> filledDefaults = new System.Collections.Generic.Dictionary<string, string>();
-
-        /// <summary>
-        /// The value to store for a box. A default filled in for a blank setting is stored as blank again, so
-        /// saving without changing it does not pin the default in care_config or restart the services.
-        /// </summary>
-        private string GetValueToSave(string configKey, MaterialTextBox textBox)
-        {
-            string value = textBox.Text.Trim();
-            if (filledDefaults.TryGetValue(configKey, out string filledDefault) && value == filledDefault.Trim())
-                return string.Empty;
-            return value;
-        }
 
         // The care_config values shown when the Configuration tab was last loaded, to find what Save changes
         private readonly System.Collections.Generic.Dictionary<string, string> loadedConfigValues = new System.Collections.Generic.Dictionary<string, string>();
@@ -1091,7 +1072,7 @@ namespace Plexus_DICOM_Enabler
             DateTime initial = DateTime.Today;
             string current = mtxtb_CareFromDate.Text.Trim();
             if (current == string.Empty)
-                current = GetConfigDefault("care_from_date");
+                current = cls_ConfigDefaults.GetConfigDefault("care_from_date");
             if (DateTime.TryParseExact(current, new[] { ConfigDateFormat, "yyyy-MM-dd" },
                     System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime parsed))
                 initial = parsed;
@@ -1176,7 +1157,7 @@ namespace Plexus_DICOM_Enabler
 
                 string current = textBox.Text.Trim();
                 if (current == string.Empty)
-                    current = GetConfigDefault(configKey);
+                    current = cls_ConfigDefaults.GetConfigDefault(configKey);
                 if (Directory.Exists(current))
                     dialog.SelectedPath = current;
 
@@ -1239,87 +1220,6 @@ namespace Plexus_DICOM_Enabler
                 { "scp_folder", mtxtb_ScpFolder },
                 { "failed_scp_folder", mtxtb_FailedScpFolder },
             };
-        }
-
-        /// <summary>
-        /// The value the services use when a care_config setting is blank: their App.config value, or
-        /// the built-in default when App.config has none. Mirrors the fallbacks in the MWL, SCU and
-        /// Store SCP services.
-        /// </summary>
-        private string GetConfigDefault(string configKey)
-        {
-            switch (configKey)
-            {
-                case "facility_id":
-                    return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careFacilityId"), ReadServiceSetting("CARE_SCU_Service", "careFacilityId"));
-                case "care_modality":
-                    return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careModality"), ReadServiceSetting("CARE_SCU_Service", "careModality"));
-                case "care_from_date":
-                    return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careFromDate"), ReadServiceSetting("CARE_SCU_Service", "careFromDate"));
-                case "worklist_refresh_start_seconds":
-                    return WholeNumberOrDefault(ReadServiceSetting("CARE_MWL_Service", "worklistRefreshStartSeconds"), 30, 0);
-                case "worklist_refresh_interval_seconds":
-                    return WholeNumberOrDefault(ReadServiceSetting("CARE_MWL_Service", "worklistRefreshIntervalSeconds"), 30, 1);
-                case "scu_poll_interval_seconds":
-                    return "5";
-                case "scp_folder":
-                    return Path.Combine(Global._applicationPath, "SCP");
-                case "failed_scp_folder":
-                    return Path.Combine(Global._applicationPath, "FailedSCP");
-                case "max_upload_retries":
-                    return WholeNumberOrDefault(ReadServiceSetting("CARE_SCU_Service", "maxUploadRetries"), 10, 1);
-                case "upload_retry_delay_minutes":
-                    return "2";
-                default:
-                    return string.Empty;
-            }
-        }
-
-        /// <summary>
-        /// Reads an appSettings value from a service's .exe.config installed next to this application.
-        /// Returns null when the file or the key is missing.
-        /// </summary>
-        private string ReadServiceSetting(string serviceAssembly, string key)
-        {
-            try
-            {
-                string configPath = Path.Combine(Global._applicationPath, serviceAssembly + ".exe.config");
-                if (!File.Exists(configPath))
-                    return null;
-
-                var configDoc = new System.Xml.XmlDocument();
-                configDoc.Load(configPath);
-                foreach (System.Xml.XmlNode node in configDoc.SelectNodes("/configuration/appSettings/add"))
-                {
-                    if (node.Attributes?["key"]?.Value == key)
-                        return node.Attributes["value"]?.Value ?? string.Empty;
-                }
-            }
-            catch (Exception)
-            {
-                // Unreadable config - shown as not found
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// The value when the MWL and SCU services agree. Empty when they differ or App.config has none,
-        /// as no single value can be shown in the box.
-        /// </summary>
-        private static string CombineServiceDefaults(string mwlValue, string scuValue)
-        {
-            return mwlValue == scuValue ? (mwlValue ?? string.Empty).Trim() : string.Empty;
-        }
-
-        /// <summary>
-        /// The App.config value when it is a whole number >= minValue, otherwise the built-in default,
-        /// as the services do.
-        /// </summary>
-        private static string WholeNumberOrDefault(string appConfigValue, int builtInDefault, int minValue)
-        {
-            if (int.TryParse(appConfigValue, out int parsed) && parsed >= minValue)
-                return parsed.ToString();
-            return builtInDefault.ToString();
         }
     }
 }

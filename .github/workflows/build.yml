@@ -373,6 +373,18 @@ jobs:
             } else {
               Write-Warning "  authURL element absent from common.cfg - skipped"
             }
+
+            # The CARE server's host is the Host Address of the default server that Start Services
+            # adds to an empty Server List (dcm_servers). Left blank, no default server is added.
+            $defaultHost = ([Uri]$env:CARE_BASE_URL).Host
+            $node = $cfg.SelectSingleNode('/configurations/defaultServerHost')
+            if ($node) {
+              $node.InnerText = $defaultHost
+              $cfg.Save((Resolve-Path $cfgPath).Path)
+              Write-Output "  - cfg\common.cfg defaultServerHost = $defaultHost"
+            } else {
+              Write-Warning "  defaultServerHost element absent from common.cfg - skipped"
+            }
           }
 
       - name: Set short SHA and artifact name

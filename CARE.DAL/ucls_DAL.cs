@@ -140,6 +140,43 @@ namespace Plexus.Common.Database
         }
 
 
+        /// <summary>
+        /// Adds a server to dcm_servers when it has none, so the default server is listed on first
+        /// start but is not added back after the user deletes it. Returns true when it was added.
+        /// </summary>
+        public bool AddServerIfNoneListed(string serverName, string aetitle, string hostaddress, string port, string description, ref string errorString)
+        {
+            bool added = false;
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "INSERT INTO dcm_servers (name, aetitle, hostaddress, portnumber, description) " +
+                        "SELECT @name, @aetitle, @hostaddress, @portnumber, @description FROM DUAL " +
+                        "WHERE NOT EXISTS (SELECT 1 FROM dcm_servers)",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@name", serverName);
+                        cmd.Parameters.AddWithValue("@aetitle", aetitle);
+                        cmd.Parameters.AddWithValue("@hostaddress", hostaddress);
+                        cmd.Parameters.AddWithValue("@portnumber", port);
+                        cmd.Parameters.AddWithValue("@description", DbValue(description));
+                        added = cmd.ExecuteNonQuery() > 0;
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                closeDBConnection(ref errorString);
+                errorString = "Adding the default server to dcm_servers failed with exception " + ex.Message;
+                added = false;
+            }
+            return added;
+        }
+
+
         public bool DeleteServer(string primarykey, ref string errorString)
         {
             try
@@ -548,6 +585,45 @@ namespace Plexus.Common.Database
                 try { transaction?.Rollback(); } catch { }
                 closeDBConnection(ref errorString);
                 errorString = "Saving care_config failed with exception " + ex.Message;
+                return false;
+            }
+        }
+
+
+        /// <summary>
+        /// Stores a value for each care_config setting that is still blank, in one transaction.
+        /// Settings that already have a value are left as they are.
+        /// </summary>
+        public bool FillBlankConfig(Dictionary<string, string> values, ref string errorString)
+        {
+            MySqlTransaction transaction = null;
+            try
+            {
+                if (!openDBConnection(ref errorString))
+                    return false;
+
+                transaction = conConnection.BeginTransaction();
+                foreach (KeyValuePair<string, string> setting in values)
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "UPDATE care_config SET config_value = @config_value WHERE config_key = @config_key " +
+                        "AND (config_value IS NULL OR TRIM(config_value) = '')",
+                        conConnection, transaction))
+                    {
+                        cmd.Parameters.AddWithValue("@config_key", setting.Key);
+                        cmd.Parameters.AddWithValue("@config_value", DbValue(setting.Value?.Trim()));
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+                transaction.Commit();
+                closeDBConnection(ref errorString);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try { transaction?.Rollback(); } catch { }
+                closeDBConnection(ref errorString);
+                errorString = "Filling care_config defaults failed with exception " + ex.Message;
                 return false;
             }
         }

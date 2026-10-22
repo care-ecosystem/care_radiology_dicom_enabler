@@ -130,9 +130,11 @@ CREATE TABLE IF NOT EXISTS `care_sync_upload` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Integration settings for this enabler's facility, one row per setting, edited in the
--- Configuration tab. A blank value means the service uses its App.config value (or built-in
--- default), so values baked in at build time apply until one is entered here. facility_id must
--- be set here or baked in as App.config careFacilityId. API keys and tokens stay in App.config.
+-- Configuration tab. Start Services fills each blank setting with its default (the App.config
+-- value baked in at build time, or the built-in default) so the stored values are shown and can be
+-- changed. A value still blank means the service uses that default. facility_id has no default:
+-- the user must enter it, and the services are not started until it is set. API keys and tokens
+-- stay in App.config.
 CREATE TABLE IF NOT EXISTS `care_config` (
   `config_key` varchar(100) NOT NULL,
   `config_value` varchar(1000) DEFAULT NULL,

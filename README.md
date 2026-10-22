@@ -55,7 +55,7 @@ SCU Settings  : Screen where user will be able to configure Store SCU Details
 Server List  : Screen where use will be able to add/edit/delete server to which the DICOM Nodes should communicate 
 View Patient List :Screen that would display list of patient for which different DICOM inteface has happen ( MWL/SCP/Upload of images)
 View Logs : Screen where user will be able view logs of different DICOM Communication ( MWL / STORESCP / STORE SCU)
-Configuration : Screen where user will be able to set the CARE integration settings held in the care_config table - Facility ID (required), worklist modality and from date, polling intervals, SCP / FailedSCP folders and upload limits. Blank values fall back to the service App.config or defaults
+Configuration : Screen where user will be able to set the CARE integration settings held in the care_config table - Facility ID (required), worklist modality and from date, polling intervals, SCP / FailedSCP folders and upload limits. Start Services stores the defaults for any blank values (from the service App.config or built-in defaults) and adds a default server (CARE / DCM4CHEE / host of the CARE server URL set at build time / 11112) to an empty Server List. Facility ID has no default and must be entered before the services start
 About Us : Screen user will be able to view based details on Plexus
 
 # Plexus_FileDeleteApp

@@ -1,4 +1,5 @@
 ﻿
+using Plexus.Common.Database;
 using Plexus_DICOM_Enabler.Forms;
 using System;
 using System.Collections.Generic;
@@ -267,10 +268,14 @@ namespace Plexus_DICOM_Enabler.UserControls
             this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
             try
             {
+                string serverMessage = string.Empty;
+                if (!ApplyDefaults(ref serverMessage))
+                    return;
+
                 if (Global.deployType == 1)
                 {
                     //StartStopService("Plexus_Auth_Service", true);
-                    
+
                     StartStopService("Care MWL SCP Service", true);
                     StartStopService("Care Store SCU Service", true);
                     StartStopService("Care Store SCP Service", true);
@@ -286,7 +291,8 @@ namespace Plexus_DICOM_Enabler.UserControls
                     StartStopService("Plexus StoreSCU Service", true);
                 }
 
-                MessageBox.Show("Services Started Successfully !!!");
+                MessageBox.Show("Services Started Successfully !!!" +
+                    (serverMessage == string.Empty ? string.Empty : Environment.NewLine + Environment.NewLine + serverMessage));
 
             }
             catch(Exception ex)
@@ -298,7 +304,45 @@ namespace Plexus_DICOM_Enabler.UserControls
                 this.Cursor = System.Windows.Forms.Cursors.Default;
                 EnableDisableButtons();
             }
-            
+
+        }
+
+        /// <summary>
+        /// Stores the default configuration and server in the database before the services start, so the
+        /// Configuration and Server List tabs show them. Returns false, after telling the user why, when
+        /// they cannot be stored or no Facility Id has been entered, as the services cannot work without it.
+        /// </summary>
+        private bool ApplyDefaults(ref string serverMessage)
+        {
+            string errorString = string.Empty;
+            ucls_DAL objDAL = new ucls_DAL(Global._applicationPath);
+            try
+            {
+                if (!cls_ConfigDefaults.ApplyDefaults(objDAL, ref serverMessage, ref errorString))
+                {
+                    MessageBox.Show("Error storing the default configuration : " + errorString);
+                    return false;
+                }
+
+                string facilityId = objDAL.GetConfigValue("facility_id", string.Empty, ref errorString);
+                if (!string.IsNullOrEmpty(errorString))
+                {
+                    MessageBox.Show("Error reading the Facility Id : " + errorString);
+                    return false;
+                }
+                if (string.IsNullOrWhiteSpace(facilityId))
+                {
+                    MessageBox.Show("Please enter the Facility Id in the Configuration tab and save it before starting the services. " +
+                        "The default configuration has been stored there." +
+                        (serverMessage == string.Empty ? string.Empty : Environment.NewLine + Environment.NewLine + serverMessage));
+                    return false;
+                }
+            }
+            finally
+            {
+                objDAL.Dispose();
+            }
+            return true;
         }
 
         /// <summary>
