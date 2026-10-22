@@ -1,4 +1,3 @@
-using Plexus.Common.config;
 using Plexus.Common.Database;
 using System;
 using System.Collections.Generic;
@@ -7,7 +6,7 @@ using System.IO;
 namespace Plexus_DICOM_Enabler.Forms
 {
     /// <summary>
-    /// Default values for the Configuration tab settings and the Server List, stored in the database
+    /// Default values for the Configuration tab settings, stored in the database
     /// when the services are started so the user sees and can change them.
     /// </summary>
     public static class cls_ConfigDefaults
@@ -30,11 +29,9 @@ namespace Plexus_DICOM_Enabler.Forms
         };
 
         /// <summary>
-        /// Stores the default of each blank Configuration tab setting in care_config, and adds the default
-        /// server from cfg\common.cfg to dcm_servers when no server is listed. facility_id has no default.
-        /// The server is not added while common.cfg has no defaultServerHost; serverMessage then says so.
+        /// Stores the default of each blank Configuration tab setting in care_config. facility_id has no default.
         /// </summary>
-        public static bool ApplyDefaults(ucls_DAL objDAL, ref string serverMessage, ref string errorString)
+        public static bool ApplyDefaults(ucls_DAL objDAL, ref string errorString)
         {
             var configDefaults = new Dictionary<string, string>();
             foreach (string configKey in ConfigKeys)
@@ -43,23 +40,7 @@ namespace Plexus_DICOM_Enabler.Forms
                 if (!string.IsNullOrWhiteSpace(value))
                     configDefaults[configKey] = value;
             }
-            if (!objDAL.FillBlankConfig(configDefaults, ref errorString))
-                return false;
-
-            string serverName = ReadCommonSetting("defaultServerName", "CARE");
-            string aeTitle = ReadCommonSetting("defaultServerAETitle", "DCM4CHEE");
-            string host = ReadCommonSetting("defaultServerHost", string.Empty);
-            string port = ReadCommonSetting("defaultServerPort", "11112");
-            if (host == string.Empty)
-            {
-                serverMessage = "No default server added to the Server List: no CARE server URL was set when this build was made, so it has no default Host Address.";
-                return true;
-            }
-
-            errorString = string.Empty;
-            if (objDAL.AddServerIfNoneListed(serverName, aeTitle, host, port, "Default server", ref errorString))
-                serverMessage = $"Default server {serverName} ({aeTitle}, {host}:{port}) added to the Server List.";
-            return string.IsNullOrEmpty(errorString);
+            return objDAL.FillBlankConfig(configDefaults, ref errorString);
         }
 
         /// <summary>
@@ -92,15 +73,6 @@ namespace Plexus_DICOM_Enabler.Forms
                 default:
                     return string.Empty;
             }
-        }
-
-        /// <summary>
-        /// A value from cfg\common.cfg, or defaultValue when it is missing or blank
-        /// </summary>
-        private static string ReadCommonSetting(string key, string defaultValue)
-        {
-            string value = cls_PlexusConfig.ReadDetailsFromXML(Global._applicationPath, @"/configurations/" + key).Trim();
-            return value == string.Empty ? defaultValue : value;
         }
 
         /// <summary>

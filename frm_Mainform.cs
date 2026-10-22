@@ -152,31 +152,20 @@ namespace Plexus_DICOM_Enabler
         {
             try
             {
-                switch(mtc_Modules.SelectedIndex)
-                {
-                    case 0:
-                        //MessageBox.Show(mtc_Modules.SelectedIndex.ToString());
-                        break;
-                    case 1: // Get SCP Settings
-                        GetSCPSettings();
-                        break;
-                    case 2: // Server List Tab Clicked
-                        GetSCUSettings();
-                        break;
-                    case 3:
-                        GetServeListing();
-                        break;
-                    case 4: // Configuration Tab Clicked
-                        GetConfiguration();
-                        break;
-                    case 5:
-                        GetPatientDetails();
-                        break;
-                    case 6: // View Logs Clicked
-                        GetAndPopulateLogs();
-                        //MessageBox.Show(mtc_Modules.SelectedIndex.ToString());
-                        break;
-                }
+                // Matched by tab page, not index, so hiding a tab does not shift the others
+                TabPage selectedTab = mtc_Modules.SelectedTab;
+                if (selectedTab == tbp_Settings) // Get SCP Settings
+                    GetSCPSettings();
+                else if (selectedTab == tbp_SCUSettings)
+                    GetSCUSettings();
+                else if (selectedTab == tbp_ServerList) // Server List Tab Clicked
+                    GetServeListing();
+                else if (selectedTab == tbp_Configuration) // Configuration Tab Clicked
+                    GetConfiguration();
+                else if (selectedTab == tdp_ViewPatients)
+                    GetPatientDetails();
+                else if (selectedTab == tbp_ViewLog) // View Logs Clicked
+                    GetAndPopulateLogs();
             }
             catch(Exception ex)
             {
@@ -244,7 +233,7 @@ namespace Plexus_DICOM_Enabler
 
         private void logRefreshTimer_Tick(object sender, EventArgs e)
         {
-            if (mtc_Modules.SelectedIndex != 6)
+            if (mtc_Modules.SelectedTab != tbp_ViewLog)
             {
                 logRefreshTimer.Stop();
                 return;
@@ -712,6 +701,8 @@ namespace Plexus_DICOM_Enabler
             {
                 HideControlsForServer(Global.deployType);
             }
+            // Server List is hidden for now; delete this line to show the tab again
+            mtc_Modules.TabPages.Remove(tbp_ServerList);
             uctrl_ServerManager1.EnableDisableButtons();
 
             // On small or scaled screens the window can be taller than the screen, which hides the

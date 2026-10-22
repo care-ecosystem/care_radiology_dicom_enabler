@@ -140,43 +140,6 @@ namespace Plexus.Common.Database
         }
 
 
-        /// <summary>
-        /// Adds a server to dcm_servers when it has none, so the default server is listed on first
-        /// start but is not added back after the user deletes it. Returns true when it was added.
-        /// </summary>
-        public bool AddServerIfNoneListed(string serverName, string aetitle, string hostaddress, string port, string description, ref string errorString)
-        {
-            bool added = false;
-            try
-            {
-                if (openDBConnection(ref errorString))
-                {
-                    using (MySqlCommand cmd = new MySqlCommand(
-                        "INSERT INTO dcm_servers (name, aetitle, hostaddress, portnumber, description) " +
-                        "SELECT @name, @aetitle, @hostaddress, @portnumber, @description FROM DUAL " +
-                        "WHERE NOT EXISTS (SELECT 1 FROM dcm_servers)",
-                        conConnection))
-                    {
-                        cmd.Parameters.AddWithValue("@name", serverName);
-                        cmd.Parameters.AddWithValue("@aetitle", aetitle);
-                        cmd.Parameters.AddWithValue("@hostaddress", hostaddress);
-                        cmd.Parameters.AddWithValue("@portnumber", port);
-                        cmd.Parameters.AddWithValue("@description", DbValue(description));
-                        added = cmd.ExecuteNonQuery() > 0;
-                    }
-                }
-                closeDBConnection(ref errorString);
-            }
-            catch (Exception ex)
-            {
-                closeDBConnection(ref errorString);
-                errorString = "Adding the default server to dcm_servers failed with exception " + ex.Message;
-                added = false;
-            }
-            return added;
-        }
-
-
         public bool DeleteServer(string primarykey, ref string errorString)
         {
             try
