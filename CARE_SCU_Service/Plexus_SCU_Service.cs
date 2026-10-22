@@ -200,7 +200,7 @@ namespace Plexus_SCU_Service
                                     continue;
                                 }
                                 WriteToLog($"Could not read the Study, Series and SOP Instance UIDs from {dcmfile}: {readError}", false);
-                                MoveToFailedSCP(dcmfile, string.Empty, string.Empty, 0, $"Could not read the Study, Series and SOP Instance UIDs: {readError}");
+                                FailUnreadableInstance(dcmfile, dataset, $"Could not read the Study, Series and SOP Instance UIDs: {readError}");
                                 continue;
                             }
 
@@ -454,6 +454,33 @@ namespace Plexus_SCU_Service
                 error = ex.Message;
                 return false;
             }
+        }
+
+        // Moves a file rejected by TryReadInstance to FailedSCP. When its dataset was read (a UID is
+        // missing), it first gets a FAILED care_sync_upload row keyed by the UIDs it has, so the file
+        // still holds back COMPLETED for its accession number once it has left the SCP folder.
+        private void FailUnreadableInstance(string dcmfile, DicomDataset dataset, string failureLog)
+        {
+            string studyUid = string.Empty;
+            string accessionNumber = string.Empty;
+            int retryCount = 0;
+            if (dataset != null)
+            {
+                try
+                {
+                    studyUid = dataset.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, string.Empty);
+                    accessionNumber = dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
+                    string instanceKey = ucls_DAL.BuildInstanceKey(studyUid,
+                        dataset.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, string.Empty),
+                        dataset.GetSingleValueOrDefault(DicomTag.SOPInstanceUID, string.Empty));
+                    SaveStudyUploadDB(instanceKey, studyUid, accessionNumber, dcmfile, "FAILED", failureLog, out retryCount);
+                }
+                catch (Exception ex)
+                {
+                    WriteToLog($"Could not record the failed upload of {dcmfile} in care_sync_upload: {ex.Message}", false);
+                }
+            }
+            MoveToFailedSCP(dcmfile, studyUid, accessionNumber, retryCount, failureLog);
         }
 
         // An instance that has not been uploaded yet is uploaded straight away, and one already uploaded

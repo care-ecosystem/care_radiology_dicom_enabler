@@ -108,7 +108,8 @@ CREATE TABLE IF NOT EXISTS `care_worklist` (
 -- retry. The next retry waits upload_retry_delay_minutes * 2^retry_count after last_retry_time.
 -- After maxUploadRetries retries the file is moved to FailedSCP\<dd-MM-yyyy> (the limit is set
 -- in care_config or CARE_SCU_Service App.config). Errors that cannot succeed on a retry (HTTP
--- 400/409, no AccessionNumber, accession number not in the CARE worklist) move it right away.
+-- 400/409, no AccessionNumber, accession number not in the CARE worklist, a UID missing) move it
+-- right away; a file with a UID missing is keyed by the UIDs it has.
 -- worklist_pk links the file to the care_worklist row with its accession number; it stays NULL
 -- when the file has no accession number or it is not in care_worklist.
 CREATE TABLE IF NOT EXISTS `care_sync_upload` (
