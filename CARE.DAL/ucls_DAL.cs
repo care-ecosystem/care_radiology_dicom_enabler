@@ -755,8 +755,10 @@ namespace Plexus.Common.Database
         /// <summary>
         /// Returns the SCHEDULED care_worklist rows for a facility with their care_patient and
         /// care_service_request details, the worklist the MWL service shares with modalities. Only
-        /// rows for that facility are returned, and when modality is set, only service requests with
-        /// that modality; a blank modality returns every modality. A blank facilityId returns nothing.
+        /// rows whose scan has not started are returned (scan_status NULL), so a study that is in
+        /// progress, completed or cancelled is not offered to the modality again. Only rows for that
+        /// facility are returned, and when modality is set, only service requests with that
+        /// modality; a blank modality returns every modality. A blank facilityId returns nothing.
         /// </summary>
         public List<CareWorklistRecord> GetScheduledCareWorklist(string facilityId, string modality, ref string errorString)
         {
@@ -775,7 +777,7 @@ namespace Plexus.Common.Database
                         "FROM care_worklist w " +
                         "LEFT JOIN care_service_request sr ON sr.pk = w.service_request_pk " +
                         "LEFT JOIN care_patient p ON p.pk = w.patient_pk " +
-                        "WHERE w.status = 'SCHEDULED' AND w.facility_id = @facility_id " +
+                        "WHERE w.status = 'SCHEDULED' AND w.scan_status IS NULL AND w.facility_id = @facility_id " +
                         "AND (@modality = '' OR sr.modality = @modality) " +
                         "ORDER BY w.pk",
                         conConnection))
