@@ -336,7 +336,9 @@ namespace Worklist_SCP
         /// </summary>
         public async Task<DicomCStoreResponse> OnCStoreRequestAsync(DicomCStoreRequest request)
         {
-            string studyUid = request.Dataset.GetSingleValue<string>(DicomTag.StudyInstanceUID).Trim();
+            // GetSingleValue throws on a missing or empty tag, and an exception here makes fo-dicom drop the
+            // association, so the sender sees "connection closed" instead of a DICOM error status.
+            string studyUid = request.Dataset.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, string.Empty).Trim();
             string instUid = request.SOPInstanceUID.UID;
 
             fileLogger?.Warning($"[MWL][C-STORE] Image received on the worklist port from AE={Association.CallingAE} IP={Association.RemoteHost} StudyInstanceUID={studyUid} SOPInstanceUID={instUid}");
@@ -345,6 +347,12 @@ namespace Worklist_SCP
             {
                 fileLogger?.Error($"[MWL][C-STORE] Rejected AE={Association.CallingAE}");
                 return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
+            }
+
+            if (studyUid == string.Empty)
+            {
+                fileLogger?.Error($"[MWL][C-STORE] Rejected SOPInstanceUID={instUid} from AE={Association.CallingAE}: StudyInstanceUID is missing or empty");
+                return new DicomCStoreResponse(request, DicomStatus.StorageDataSetDoesNotMatchSOPClassError);
             }
 
             try

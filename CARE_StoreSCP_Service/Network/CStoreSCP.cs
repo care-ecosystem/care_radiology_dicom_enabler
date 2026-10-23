@@ -188,7 +188,9 @@ namespace Plexus_StoreSCP_Service.Network
         public async Task<DicomCStoreResponse> OnCStoreRequestAsync(DicomCStoreRequest request)
         {
             _fileLogger.Information($"C-Store Request received for Study Instance Id : ");
-            var studyUid = request.Dataset.GetSingleValue<string>(DicomTag.StudyInstanceUID).Trim();
+            // GetSingleValue throws on a missing or empty tag, and an exception here makes fo-dicom drop the
+            // association, so the sender sees "connection closed" instead of a DICOM error status.
+            var studyUid = request.Dataset.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, string.Empty).Trim();
             var instUid = request.SOPInstanceUID.UID;
 
             _fileLogger.Information($"C-Store Request received for Study Instance Id : "+studyUid+" and Image Instance ID : " + instUid);
@@ -199,17 +201,31 @@ namespace Plexus_StoreSCP_Service.Network
                 return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
             }
 
+            if (studyUid == string.Empty)
+            {
+                _fileLogger.Error($"C-Store Request rejected for Image Instance ID : {instUid} from AE {Association.CallingAE} with IP: {Association.RemoteHost} - Study Instance UID is missing or empty");
+                return new DicomCStoreResponse(request, DicomStatus.StorageDataSetDoesNotMatchSOPClassError);
+            }
+
             var path = Path.GetFullPath(Global._storagePath);
             path = Path.Combine(path, studyUid);
 
-            if (!Directory.Exists(path))
+            try
             {
-                Directory.CreateDirectory(path);
+                if (!Directory.Exists(path))
+                {
+                    Directory.CreateDirectory(path);
+                }
+
+                path = Path.Combine(path, instUid) + ".dcm";
+
+                await request.File.SaveAsync(path);
             }
-
-            path = Path.Combine(path, instUid) + ".dcm";
-
-            await request.File.SaveAsync(path);
+            catch (Exception ex)
+            {
+                _fileLogger.Error($"Saving Study Instance Id : {studyUid} and Image Instance ID : {instUid} to {path} failed with exception : " + ex.Message);
+                return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
+            }
 
             string accessionNo = "N/A";
             string patientId = "N/A";

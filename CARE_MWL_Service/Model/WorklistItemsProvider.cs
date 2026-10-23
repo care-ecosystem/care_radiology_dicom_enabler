@@ -310,7 +310,9 @@ namespace Worklist_SCP.Model
             // resolve to the first CurrentWorklistItems entry regardless of which procedure was performed.
             mwlItem.ProcedureStepID = mwlItem.AccessionNumber;
             mwlItem.ProcedureID = DeriveProcedureIdFromAccessionNumber(mwlItem.AccessionNumber);
-            mwlItem.StudyUID = string.Empty;
+            // Modalities copy this onto every image they take for the order, so it must be the same on
+            // every C-FIND - derived from the order rather than generated per query.
+            mwlItem.StudyUID = DeriveStudyUidFromAccessionNumber(mwlItem.FacilityId, mwlItem.AccessionNumber);
             mwlItem.ScheduledAET = ConfigurationManager.AppSettings["careScheduledAET"]?.ToString() ?? "OEC9800";
             // The CARE worklist API does not return who created the service request
             mwlItem.ReferringPhysician = string.Empty;
@@ -522,6 +524,37 @@ namespace Worklist_SCP.Model
                 long numeric = Math.Abs(hash % 1_000_000_000_000_000L);
                 return numeric.ToString();
             }
+        }
+
+        /// <summary>
+        /// Builds a Study Instance UID that is the same every time for a given facility and accession
+        /// number: a name-based (MD5, version 3) UUID written as a "2.25." UID, per DICOM PS3.5 B.2.
+        /// Returns an empty string when there is no accession number.
+        /// </summary>
+        private static string DeriveStudyUidFromAccessionNumber(string facilityId, string accessionNumber)
+        {
+            if (string.IsNullOrWhiteSpace(accessionNumber))
+            {
+                return string.Empty;
+            }
+
+            byte[] hash;
+            using (var md5 = System.Security.Cryptography.MD5.Create())
+            {
+                hash = md5.ComputeHash(Encoding.UTF8.GetBytes($"care-mwl|{facilityId}|{accessionNumber}"));
+            }
+
+            hash[6] = (byte)((hash[6] & 0x0F) | 0x30);  // version 3
+            hash[8] = (byte)((hash[8] & 0x3F) | 0x80);  // RFC 4122 variant
+
+            // BigInteger reads little-endian two's complement: reverse, and add a zero byte to keep it positive.
+            byte[] littleEndian = new byte[hash.Length + 1];
+            for (int i = 0; i < hash.Length; i++)
+            {
+                littleEndian[i] = hash[hash.Length - 1 - i];
+            }
+
+            return "2.25." + new System.Numerics.BigInteger(littleEndian).ToString();
         }
 
         private async Task<string> authAndGetDetailsAsync()
