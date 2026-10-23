@@ -1,7 +1,7 @@
 """Environment: configured ports, AE titles and CARE preflight
 
 Proves the enabler is listening exactly where its cfg/common.cfg says, answers on its configured
-AE titles to modalities in its Server List only, and that the CARE instance, facility, patient, tags and imaging activity definitions
+AE titles to modalities in its Server List only, and that the CARE instance, facility, patient and imaging activity definitions
 the rest of the suite relies on are reachable with the supplied credentials.
 """
 import datetime as dt
@@ -119,7 +119,7 @@ def test_store_rejects_unsupported_sop_class(cfg, dicom, record):
 
 
 def test_care_preflight(cfg, api, ctx, record):
-    """CARE instance, facility, patient, status tags and imaging activity definitions are usable
+    """CARE instance, facility, patient and imaging activity definitions are usable
     Logs in as the test user, checks the static key against the worklist API, and works out
     which imaging activity definitions target the configured device: those whose locations hold a
     device registered as the configured modality."""
@@ -132,17 +132,6 @@ def test_care_preflight(cfg, api, ctx, record):
     encounter, created = api.resolve_encounter()
     ctx["encounter_id"] = encounter["id"]
     record["encounter_id"] = f"{encounter['id']} ({'created' if created else 'existing'})"
-
-    missing = []
-    for status in (cfg.status_started, cfg.status_completed, cfg.status_discontinued):
-        tag = api.facility_tag_config(status)
-        record[f"tag_{status}"] = tag["id"] if tag else "MISSING"
-        if not tag:
-            missing.append(status)
-    assert not missing, (
-        f"Facility has no service_request tag config with display {missing}. The status webhook "
-        "rejects any study_status without one - create the tags or set MPPS_STATUS_* to match."
-    )
 
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     api.worklist(now, now)  # raises unless the static key is accepted

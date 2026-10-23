@@ -5,12 +5,12 @@ name: Integration Test - CARE Server
 #
 #   Environment   configured ports/AE titles honoured, C-ECHO, wrong AE / SOP class rejected,
 #                 calling AE outside the Server List rejected by MWL and Store SCP,
-#                 CARE login, facility, patient, status tags, imaging activity definitions
+#                 CARE login, facility, patient, imaging activity definitions
 #   SRs           service requests created from the facility's imaging activity definitions,
 #                 accession numbers assigned by care_radiology
 #   Worklist      C-FIND returns exactly the SRs that target the configured device
 #   MPPS          N-CREATE / N-SET: started -> completed, started -> discontinued, and refused
-#                 transitions; status read back from CARE
+#                 transitions; IN_PROGRESS / COMPLETED / CANCELLED accepted by CARE
 #   Files         small and large DICOM: C-STORE -> Store SCP -> Store SCU upload -> linked to SR;
 #                 malformed dataset, non-DICOM file and non-DICOM upload rejected
 #
@@ -36,15 +36,14 @@ name: Integration Test - CARE Server
 #     CARE_MODALITY              device registered_name the enabler serves (default CT)
 #     CARE_ACTIVITY_DEFINITIONS  comma-separated AD slugs to use (default: all active imaging ADs)
 #     CARE_SERVER_TIMEZONE       Windows time zone of the CARE server (default India Standard Time)
-#     MPPS_STATUS_STARTED / MPPS_STATUS_COMPLETED / MPPS_STATUS_DISCONTINUED
-#                                tag displays (default Scan Started / Scan Completed / Scan Cancelled)
+#     SCAN_COMPLETED_WAIT_SECONDS  seconds after a study's last upload before COMPLETED is sent (default 15)
 #     MWL_PORT / STORE_PORT      ports to configure (default 11108 / 11107 - deliberately not the
 #                                2008 / 2007 defaults, so the test proves the config is honoured)
 #     LARGE_FILE_MB              size of the large-file test (default 40)
 #
 # The facility must already have: an imaging activity definition whose location holds a device
-# registered as CARE_MODALITY, ideally a second imaging AD without one (for the negative worklist
-# check), and service_request tag configs named as the MPPS_STATUS_* values.
+# registered as CARE_MODALITY, and ideally a second imaging AD without one (for the negative worklist
+# check).
 
 on:
   workflow_dispatch:
@@ -126,9 +125,7 @@ jobs:
       CARE_MODALITY:             ${{ inputs.care_modality || vars.CARE_MODALITY || 'CT' }}
       CARE_ACTIVITY_DEFINITIONS: ${{ inputs.care_activity_definitions || vars.CARE_ACTIVITY_DEFINITIONS }}
       CARE_SERVER_TIMEZONE:      ${{ vars.CARE_SERVER_TIMEZONE || 'India Standard Time' }}
-      MPPS_STATUS_STARTED:       ${{ vars.MPPS_STATUS_STARTED || 'Scan Started' }}
-      MPPS_STATUS_COMPLETED:     ${{ vars.MPPS_STATUS_COMPLETED || 'Scan Completed' }}
-      MPPS_STATUS_DISCONTINUED:  ${{ vars.MPPS_STATUS_DISCONTINUED || 'Scan Cancelled' }}
+      SCAN_COMPLETED_WAIT_SECONDS: ${{ vars.SCAN_COMPLETED_WAIT_SECONDS || '15' }}
       MWL_PORT:                  ${{ vars.MWL_PORT || '11108' }}
       STORE_PORT:                ${{ vars.STORE_PORT || '11107' }}
       MWL_AET:                   MODALITYSCP
@@ -160,7 +157,7 @@ jobs:
           Write-Output "Facility     : $env:CARE_FACILITY_ID"
           Write-Output "Patient      : $env:CARE_PATIENT_ID"
           Write-Output "Modality     : $env:CARE_MODALITY"
-          Write-Output "MPPS statuses: $env:MPPS_STATUS_STARTED / $env:MPPS_STATUS_COMPLETED / $env:MPPS_STATUS_DISCONTINUED"
+          Write-Output "Scan statuses: IN_PROGRESS / COMPLETED / CANCELLED (completed after $env:SCAN_COMPLETED_WAIT_SECONDS s)"
           Write-Output "Ports        : MWL $env:MWL_PORT, Store $env:STORE_PORT"
 
       # CARE compares the worklist from/to (naive timestamps the MWL service sends from the
@@ -194,24 +191,24 @@ jobs:
             Write-Output "Patched $path ($($settings.Count) settings)"
           }
 
-          # Worklist fetch + MPPS status webhook
+          # Worklist fetch
           Set-AppSettings "CARE_MWL_Service\App.config" @{
             backend                = '2'
             eventlog               = 'false'
             careBaseUrl            = $env:CARE_BASE_URL
             careToken              = $env:CARE_API_TOKEN
+            careFacilityId         = $env:CARE_FACILITY_ID
             careModality           = $env:CARE_MODALITY
             careFromDate           = $env:CARE_FROM_DATE
             careScheduledAET       = $env:CALLING_AET
-            mppsStatusStarted      = $env:MPPS_STATUS_STARTED
-            mppsStatusCompleted    = $env:MPPS_STATUS_COMPLETED
-            mppsStatusDiscontinued = $env:MPPS_STATUS_DISCONTINUED
           }
-          # DICOM upload + study webhook
+          # DICOM upload + scan status
           Set-AppSettings "CARE_SCU_Service\App.config" @{
             eventlog       = 'false'
             careBackendURL = $env:CARE_BASE_URL
             staticAPIKey   = $env:CARE_API_TOKEN
+            careFacilityId = $env:CARE_FACILITY_ID
+            scanCompletedWaitSeconds = $env:SCAN_COMPLETED_WAIT_SECONDS
           }
 
       - name: Setup MSBuild
@@ -262,14 +259,11 @@ jobs:
           Write-Error "MySQL did not become ready"; exit 1
 
       # The full enabler schema (tables + stored procedures the services call), then the CARE
-      # tables (care_config etc.), in the same order as Initializer.ps1. schema.sql's ALTER USER
-      # line sets a root password for desktop installs; the CI root keeps an empty one.
+      # tables (care_config etc.), in the same order as Initializer.ps1.
       - name: Create database and register the calling modality
         shell: pwsh
         run: |
-          (Get-Content "Emulator\schema.sql") |
-            Where-Object { $_ -notmatch '^\s*(ALTER USER|FLUSH PRIVILEGES)' } |
-            & $env:MYSQL_EXE -u root --protocol=TCP
+          Get-Content "Emulator\schema.sql" | & $env:MYSQL_EXE -u root --protocol=TCP
           if ($LASTEXITCODE -ne 0) { Write-Error "Schema creation failed"; exit 1 }
 
           Get-Content "Emulator\care_tables.sql" | & $env:MYSQL_EXE -u root --protocol=TCP

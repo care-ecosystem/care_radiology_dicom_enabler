@@ -155,6 +155,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="cls_ConfigDefaults.cs" />
     <Compile Include="Forms\frm_LoginScreen.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -258,6 +259,29 @@
     <Content Include="logo.ico" />
     <None Include="Resources\userName.ico" />
     <None Include="Resources\password.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Setup scripts shipped with the build output. Link places them under
+         bin\<Config>\scripts\ so whoever downloads the artifact can run
+         Initializer.bat before launching the exe. Initializer.ps1 resolves
+         schema.sql / care_tables.sql via $PSScriptRoot, so all four files must
+         stay together in the same folder. -->
+    <Content Include="Emulator\Initializer.bat">
+      <Link>scripts\Initializer.bat</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Emulator\Initializer.ps1">
+      <Link>scripts\Initializer.ps1</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Emulator\schema.sql">
+      <Link>scripts\schema.sql</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Emulator\care_tables.sql">
+      <Link>scripts\care_tables.sql</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <ItemGroup>
     <BootstrapperPackage Include=".NETFramework,Version=v4.7.2">

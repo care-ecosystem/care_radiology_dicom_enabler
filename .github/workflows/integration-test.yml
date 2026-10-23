@@ -334,7 +334,7 @@ jobs:
           else              { Write-Warning "No .dcm files found in SCP folder(s)" }
 
       # -- 8b. MPPS tests -----------------------------------------------------
-      - name: "Test - Send MPPS N-CREATE (Scan Started)"
+      - name: "Test - Send MPPS N-CREATE (IN PROGRESS)"
         shell: pwsh
         run: |
           # Generate a unique SOP Instance UID for this MPPS procedure
@@ -375,7 +375,7 @@ jobs:
             Write-Error "Failed to create MPPS N-CREATE file"; exit 1
           }
 
-          Write-Output "Sending MPPS N-CREATE (Scan Started) with UID: $mppsUID"
+          Write-Output "Sending MPPS N-CREATE (IN PROGRESS) with UID: $mppsUID"
           $out = storescu -v localhost 2008 -aet GITHUBCI -aec MODALITYSCP "$env:TEMP\mpps_create.dcm" 2>&1
           Write-Output $out
 
@@ -383,7 +383,7 @@ jobs:
           # This is a limitation - in production, modalities send proper MPPS messages
           Write-Output "INFO: MPPS N-CREATE test completed (storescu limitation noted)"
 
-      - name: "Test - Send MPPS N-SET (Scan Completed)"
+      - name: "Test - Send MPPS N-SET (COMPLETED)"
         shell: pwsh
         run: |
           # Create MPPS N-SET dump file (procedure completed)
@@ -416,7 +416,7 @@ jobs:
             Write-Error "Failed to create MPPS N-SET file"; exit 1
           }
 
-          Write-Output "Sending MPPS N-SET (Scan Completed) with UID: $env:MPPS_UID"
+          Write-Output "Sending MPPS N-SET (COMPLETED) with UID: $env:MPPS_UID"
           $out = storescu -v localhost 2008 -aet GITHUBCI -aec MODALITYSCP "$env:TEMP\mpps_set.dcm" 2>&1
           Write-Output $out
 
