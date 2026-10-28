@@ -5,7 +5,11 @@ DICOM Enabler / Modality Emulator - backup and reset.
 Returns the machine to a clean state so Initializer.bat and the Modality Emulator can be run
 again from scratch. Before anything is removed it backs up, into
 C:\ProgramData\CARE DICOM Enabler\Backups\<yyyy-MM-dd_HH-mm-ss>\ :
-  plexus_mi2.sql   mysqldump of the plexus_mi2 database (tables, data, stored procedures)
+  plexus_mi2.sql   mysqldump of the plexus_mi2 database: structure of every table and the stored
+                   procedures; data of care_config and dcm_servers, care_sync_upload rows not
+                   SUCCESS, care_worklist rows with a scan_status other than COMPLETED or
+                   CANCELLED, and the
+                   care_worklist / care_service_request(_device) / care_patient rows those point to
   logs\            <install folder>\logs
   SCP\             scp_folder from care_config (blank = <install folder>\SCP)
   FailedSCP\       failed_scp_folder from care_config (blank = <install folder>\FailedSCP)
@@ -356,7 +360,7 @@ if ($script:MySqlExe) {
         Write-Ok "Connected to MySQL at ${MySqlHost}:${MySqlPort} as '$MySqlUser'."
     } elseif (-not $serverUnreachable) {
         Write-Fail "MySQL did not accept the password after $MaxPasswordAttempts attempt(s)." `
-            "Find the current password for '$MySqlUser' (after Initializer.bat it is the one in App.config's connectionstring) and re-run Reset.bat."
+            "Find the current password for '$MySqlUser' (Initializer.bat sets it to '$DefaultPwd') and re-run Reset.bat."
     }
 }
 
@@ -573,18 +577,67 @@ if (-not $dbExists) {
     Add-Result 'Dump MySQL' 'SKIPPED' 'database does not exist'
 } else {
     $dumpFile = Join-Path $BackupDir "$DbName.sql"
-    # --databases adds CREATE DATABASE / USE so the dump restores after the database is dropped;
-    # --result-file avoids PowerShell 5.1's '>' redirect, which writes UTF-16 that mysql cannot import.
-    $dumpArgs = (Get-MySqlArgs) + @('--routines', '--triggers', '--single-transaction', '--databases', $DbName, "--result-file=$dumpFile")
-    $dumpOutput = & $mysqlDumpExe @dumpArgs 2>&1 | ForEach-Object { "$_" }
-    $dumpCode = $LASTEXITCODE
-    $tail = if (Test-Path $dumpFile) { (Get-Content -LiteralPath $dumpFile -Tail 3 -ErrorAction SilentlyContinue) -join ' ' } else { '' }
-    if ($dumpCode -eq 0 -and $tail -match 'Dump completed') {
+    # Only the data still needed is kept: care_config and dcm_servers in full, uploads not yet SUCCESS,
+    # worklist rows whose scan was started but not COMPLETED or CANCELLED, and every row those point to.
+    $uploadWhere = "status <> 'SUCCESS'"
+    $worklistWhere = "(scan_status IS NOT NULL AND scan_status NOT IN ('COMPLETED', 'CANCELLED')) OR pk IN (SELECT worklist_pk FROM care_sync_upload WHERE $uploadWhere)"
+    $serviceRequestPks = "SELECT service_request_pk FROM care_worklist WHERE $worklistWhere"
+    # --where applies to every table in a run, so each filter is its own run and the parts are joined
+    # into one file. The first part has the structure of every table plus the routines and triggers;
+    # its CREATE DATABASE / USE makes the joined file restore after the database is dropped.
+    $dataOnly = @('--no-create-info', '--skip-triggers')
+    $dumpParts = @(
+        @{ Name = 'structure';                   Args = @('--no-data', '--routines', '--triggers', '--databases', $DbName) },
+        @{ Name = 'care_config, dcm_servers';    Args = $dataOnly + @($DbName, 'care_config', 'dcm_servers') },
+        @{ Name = 'care_service_request';        Args = $dataOnly + @("--where=pk IN ($serviceRequestPks)", $DbName, 'care_service_request') },
+        @{ Name = 'care_service_request_device'; Args = $dataOnly + @("--where=service_request_pk IN ($serviceRequestPks)", $DbName, 'care_service_request_device') },
+        @{ Name = 'care_patient';                Args = $dataOnly + @("--where=pk IN (SELECT patient_pk FROM care_worklist WHERE $worklistWhere)", $DbName, 'care_patient') },
+        @{ Name = 'care_worklist';               Args = $dataOnly + @("--where=$worklistWhere", $DbName, 'care_worklist') },
+        @{ Name = 'care_sync_upload';            Args = $dataOnly + @("--where=$uploadWhere", $DbName, 'care_sync_upload') }
+    )
+    $partFiles = @()
+    $failedPart = $null
+    for ($i = 0; $i -lt $dumpParts.Count; $i++) {
+        $partFile = Join-Path $BackupDir ("$DbName.part{0}.sql" -f ($i + 1))
+        $partFiles += $partFile
+        # --result-file avoids PowerShell 5.1's '>' redirect, which writes UTF-16 that mysql cannot import;
+        # --set-gtid-purged=OFF leaves out SET @@GLOBAL.GTID_PURGED, which fails the restore on a server that already has GTIDs;
+        # --skip-lock-tables lets a --where subquery read tables outside the run (the services are already stopped).
+        $dumpArgs = (Get-MySqlArgs) + @('--single-transaction', '--skip-lock-tables', '--set-gtid-purged=OFF', "--result-file=$partFile") + $dumpParts[$i].Args
+        $dumpOutput = & $mysqlDumpExe @dumpArgs 2>&1 | ForEach-Object { "$_" }
+        $dumpCode = $LASTEXITCODE
+        $tail = if (Test-Path $partFile) { (Get-Content -LiteralPath $partFile -Tail 3 -ErrorAction SilentlyContinue) -join ' ' } else { '' }
+        if ($dumpCode -ne 0 -or $tail -notmatch 'Dump completed') {
+            $failedPart = $dumpParts[$i].Name
+            break
+        }
+    }
+    if (-not $failedPart) {
+        # Joined as .partial and renamed once complete: Initializer.bat offers every backup with a
+        # plexus_mi2.sql for restore, so a half-written one must never have that name.
+        $joinedFile = "$dumpFile.partial"
+        try {
+            $out = [System.IO.File]::Create($joinedFile)
+            try {
+                foreach ($partFile in $partFiles) {
+                    $in = [System.IO.File]::OpenRead($partFile)
+                    try { $in.CopyTo($out) } finally { $in.Dispose() }
+                }
+            } finally { $out.Dispose() }
+            Move-Item -LiteralPath $joinedFile -Destination $dumpFile -ErrorAction Stop
+        } catch {
+            $failedPart = 'joining the parts'
+            $dumpCode = 0
+            $dumpOutput = @("$($_.Exception.Message)")
+        }
+    }
+    if (-not $failedPart) {
+        Remove-Item -LiteralPath $partFiles -Force -ErrorAction SilentlyContinue
         $dumpOk = $true
         Write-Ok "Saved $DbName.sql ($(Format-Size (Get-Item -LiteralPath $dumpFile).Length))"
         Add-Result 'Dump MySQL' 'OK' "$DbName.sql"
     } else {
-        Write-Fail "mysqldump failed (exit code $dumpCode) or the dump is incomplete." `
+        Write-Fail "mysqldump failed on $failedPart (exit code $dumpCode) or the dump is incomplete." `
             "Check the message below, fix it and re-run Reset.bat. The database will not be dropped."
         $dumpOutput | Select-Object -First 10 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkYellow }
         Add-Result 'Dump MySQL' 'FAIL' 'database will not be dropped'
@@ -657,7 +710,7 @@ if ($script:HadFailure) {
     Write-Host "======================================================" -ForegroundColor Yellow
     Exit-Reset 1
 } else {
-    Write-Host "  Next: run Initializer.bat, then start the services from the DICOM Enabler app."
+    Write-Host "  Next: run Initializer.bat (it offers to restore this backup), then start the services from the DICOM Enabler app."
     Write-Host ""
     Write-Host "========================" -ForegroundColor Green
     Write-Host " Reset complete!" -ForegroundColor Green

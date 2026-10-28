@@ -265,7 +265,8 @@
          bin\<Config>\scripts\ so whoever downloads the artifact can run
          Initializer.bat before launching the exe. Initializer.ps1 resolves
          schema.sql / care_tables.sql via $PSScriptRoot, so all four files must
-         stay together in the same folder. -->
+         stay together in the same folder. Reset.bat / Reset.ps1 ship alongside
+         to return the machine to a clean state before re-running Initializer. -->
     <Content Include="Emulator\Initializer.bat">
       <Link>scripts\Initializer.bat</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -280,6 +281,14 @@
     </Content>
     <Content Include="Emulator\care_tables.sql">
       <Link>scripts\care_tables.sql</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Emulator\Reset.bat">
+      <Link>scripts\Reset.bat</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Emulator\Reset.ps1">
+      <Link>scripts\Reset.ps1</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
