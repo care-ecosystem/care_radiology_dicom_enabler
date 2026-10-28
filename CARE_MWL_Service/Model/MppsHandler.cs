@@ -4,19 +4,19 @@
 using System;
 using System.Collections.Generic;
 using System.Configuration;
+using System.IO;
 using System.Linq;
-using System.Net.Http;
-using System.Text;
-using System.Threading.Tasks;
+using System.Reflection;
 using FellowOakDicom.Log;
-using Newtonsoft.Json;
 using Plexus.Common.Database;
 
 namespace Worklist_SCP.Model
 {
 
     /// <summary>
-    /// An implementation of IMppsSource, that does only logging but does not store the MPPS messages
+    /// An implementation of IMppsSource. For the CARE backend it sends IN_PROGRESS to CARE when the
+    /// modality starts a procedure and CANCELLED when it discontinues it; COMPLETED is sent by the SCU
+    /// service once the study's images are uploaded. It does not store the MPPS messages
     /// </summary>
     class MppsHandler : IMppsSource
     {
@@ -37,21 +37,6 @@ namespace Worklist_SCP.Model
         }
 
 
-        /// <summary>
-        /// study_status values sent to the CARE status webhook. CARE adds the facility tag config whose
-        /// display equals the value exactly, so they are configurable to match how a facility named
-        /// its tags. Defaults are the values the enabler has always sent.
-        /// </summary>
-        private static string StatusStarted => ReadStatus("mppsStatusStarted", "Scan Started");
-        private static string StatusCompleted => ReadStatus("mppsStatusCompleted", "Scan Completed");
-        private static string StatusDiscontinued => ReadStatus("mppsStatusDiscontinued", "Scan Cancelled");
-
-        private static string ReadStatus(string key, string defaultValue)
-        {
-            string value = ConfigurationManager.AppSettings[key];
-            return string.IsNullOrWhiteSpace(value) ? defaultValue : value.Trim();
-        }
-
         private void LogInfo(string message)
         {
             _logger.Info("{message}", message);
@@ -64,91 +49,105 @@ namespace Worklist_SCP.Model
             _fileLogger?.Warning("{Message:l}", message);
         }
 
-        private void LogError(string message)
-        {
-            _logger.Error("{message}", message);
-            _fileLogger?.Error("{Message:l}", message);
-        }
+
+        // Only the CARE backend (backend 2) has care_worklist and the CARE scan status API
+        private static bool IsCareBackend => (ConfigurationManager.AppSettings["backend"] ?? "2").Trim() == "2";
+
+        // Opens its own DAL each call because C-FIND, C-STORE, MPPS and the refresh timer run
+        // concurrently and a ucls_DAL holds a single connection.
+        private static ucls_DAL OpenDal() => new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
 
 
         /// <summary>
-        /// Sends MPPS status update to CARE server webhook
+        /// Sends IN_PROGRESS for the work item's service request when the modality starts the procedure.
+        /// Once sent, care_worklist.scan_status is STARTED and the SCU service does not send it again
+        /// before the upload. When it cannot be sent scan_status is set to START_PENDING, so the SCU
+        /// service sends it like one that could not be sent before an upload. Not sent for a procedure
+        /// already started, completed or cancelled.
         /// </summary>
-        private async Task SendStatusToCareServerAsync(string serviceRequestId, string facilityId, string studyStatus)
+        private void SendScanStarted(WorklistItem workItem)
         {
+            SendStudyStatus(workItem, ucls_CareScanStatus.StatusInProgress, "STARTED", "START_PENDING",
+                new[] { "STARTED", "COMPLETED", "CANCEL_PENDING", "CANCELLED" });
+        }
+
+        /// <summary>
+        /// Sends CANCELLED for the work item's service request when the modality discontinues the procedure.
+        /// Once sent, care_worklist.scan_status is CANCELLED and the SCU service never sends COMPLETED for it.
+        /// When it cannot be sent scan_status is set to CANCEL_PENDING and the SCU service retries it every
+        /// cycle. Not sent once COMPLETED was sent, as CARE leaves a completed imaging study unchanged.
+        /// </summary>
+        private void SendScanCancelled(WorklistItem workItem)
+        {
+            SendStudyStatus(workItem, ucls_CareScanStatus.StatusCancelled, "CANCELLED", "CANCEL_PENDING",
+                new[] { "COMPLETED", "CANCELLED" });
+        }
+
+        /// <summary>
+        /// Sends studyStatus for the work item's service request and sets care_worklist.scan_status to
+        /// sentScanStatus, or to pendingScanStatus when it cannot be sent so the SCU service retries it.
+        /// Nothing is sent while scan_status is one of skipScanStatuses.
+        /// </summary>
+        private void SendStudyStatus(WorklistItem workItem, string studyStatus, string sentScanStatus, string pendingScanStatus, string[] skipScanStatuses)
+        {
+            if (!IsCareBackend)
+                return;
+            string accessionNumber = workItem.AccessionNumber;
+            ucls_DAL dal = null;
             try
             {
-                // Only send webhook if backend is set to CARE Server (mode 2)
-                int backend = Convert.ToInt32(ConfigurationManager.AppSettings["backend"] ?? "2");
-                if (backend != 2)
+                dal = OpenDal();
+                string errorString = string.Empty;
+                string serviceRequestId = null;
+                string scanStatus = null;
+                bool found = dal.GetScanState(accessionNumber, ref serviceRequestId, ref scanStatus, ref errorString);
+                if (!string.IsNullOrEmpty(errorString) || !found)
                 {
+                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: {(found ? errorString : "not in care_worklist")}");
                     return;
                 }
-
+                if (skipScanStatuses.Contains(scanStatus))
+                {
+                    LogInfo($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: scan_status is already {scanStatus}");
+                    return;
+                }
                 if (string.IsNullOrWhiteSpace(serviceRequestId))
                 {
-                    LogWarn($"[MPPS] MPPS webhook skipped: {studyStatus} - worklist item has no service_request id");
+                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: no service request id in care_worklist");
                     return;
                 }
 
+                string resolvedFrom = string.Empty;
+                string facilityId = dal.GetFacilityId(string.Empty, ref resolvedFrom, ref errorString);
                 string baseUrl = ConfigurationManager.AppSettings["careBaseUrl"];
-                string token = ConfigurationManager.AppSettings["careToken"]?.ToString();
+                string token = ConfigurationManager.AppSettings["careToken"];
+                string statusPath = ConfigurationManager.AppSettings["statusURL"];
 
-                if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token))
+                bool sent = false;
+                if (!string.IsNullOrEmpty(errorString) || string.IsNullOrWhiteSpace(facilityId))
+                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: no Facility ID - {(string.IsNullOrEmpty(errorString) ? resolvedFrom : errorString)}. The SCU service will send it.");
+                else if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(statusPath))
+                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: careBaseUrl, careToken or statusURL is not set in App.config. The SCU service will send it.");
+                else
+                    sent = ucls_CareScanStatus.Send(ucls_CareScanStatus.BuildStatusURL(baseUrl, statusPath, facilityId), token, serviceRequestId, accessionNumber, studyStatus,
+                        (message, isInfo) => { if (isInfo) LogInfo("[MPPS] " + message); else LogWarn("[MPPS] " + message + ". The SCU service will send it."); });
+
+                string newScanStatus = sent ? sentScanStatus : pendingScanStatus;
+                if (newScanStatus != scanStatus)
                 {
-                    LogWarn("[MPPS] MPPS webhook skipped: CARE server URL or token not configured");
-                    return;
+                    errorString = string.Empty;
+                    dal.SetScanStatus(accessionNumber, newScanStatus, ref errorString);
+                    if (!string.IsNullOrEmpty(errorString))
+                        LogWarn($"[MPPS] care_worklist scan_status update failed for AccessionNumber={accessionNumber}: {errorString}");
                 }
-
-                if (string.IsNullOrWhiteSpace(facilityId))
-                {
-                    LogWarn($"[MPPS] facility_id missing for service_request {serviceRequestId} - sending webhook without it");
-                }
-
-                string webhookUrl = $"{baseUrl}/api/care_radiology/webhooks/status/";
-
-                var payload = new
-                {
-                    service_request_id = serviceRequestId,
-                    facility_id = facilityId,
-                    study_status = studyStatus
-                };
-
-                string jsonPayload = JsonConvert.SerializeObject(payload);
-
-                using (HttpClient client = new HttpClient())
-                {
-                    client.DefaultRequestHeaders.Clear();
-                    client.DefaultRequestHeaders.Add("Authorization", token);
-
-                    var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
-                    HttpResponseMessage response = await client.PostAsync(webhookUrl, content);
-
-                    if (response.IsSuccessStatusCode)
-                    {
-                        LogInfo($"[MPPS] MPPS webhook sent to CARE: {studyStatus} for service_request {serviceRequestId} facility {facilityId}");
-                    }
-                    else
-                    {
-                        // Include the server's own explanation - the status alone cannot tell a
-                        // rejected token apart from a payload CARE would not accept.
-                        string errorBody = await response.Content.ReadAsStringAsync();
-                        if (!string.IsNullOrWhiteSpace(errorBody) && errorBody.Length > 1000)
-                        {
-                            errorBody = errorBody.Substring(0, 1000) + "... (truncated)";
-                        }
-
-                        LogWarn($"[MPPS] MPPS webhook failed: {studyStatus} - {(int)response.StatusCode} ({response.ReasonPhrase}) for service_request {serviceRequestId} facility {facilityId}. Response body: {(string.IsNullOrWhiteSpace(errorBody) ? "(empty)" : errorBody.Trim())}");
-                    }
-                }
-            }
-            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
-            {
-                _logger.Error($"MPPS webhook could not connect to the CARE server: {ex.Message}. {ucls_NetworkCheck.Describe()}");
             }
             catch (Exception ex)
             {
-                LogError($"[MPPS] MPPS webhook failed: {studyStatus} for service_request {serviceRequestId} with exception {ex.Message}");
+                LogWarn($"[MPPS] Sending {studyStatus} for AccessionNumber={accessionNumber} failed with exception {ex.Message}");
+            }
+            finally
+            {
+                dal?.Dispose();
             }
         }
 
@@ -175,8 +174,7 @@ namespace Worklist_SCP.Model
             // You should do this more permanent like in database or in file
             PendingProcedures.Add(sopInstanceUID, workItem);
 
-            // Send status update to CARE server
-            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, workItem.FacilityId, StatusStarted));
+            SendScanStarted(workItem);
 
             return true;
         }
@@ -196,11 +194,11 @@ namespace Worklist_SCP.Model
             LogInfo($"Procedure with id {workItem.ProcedureStepID} is discontinued for reason {reason}");
             LogInfo($"[MPPS] SetDiscontinued: ServiceRequestId={workItem.ServiceRequestId} AccessionNumber={workItem.AccessionNumber} for SOPInstanceUID={sopInstanceUID}");
 
-            // Send status update to CARE server
-            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, workItem.FacilityId, StatusDiscontinued));
-
             // since the procedure was stopped, we remove it from the list of pending procedures
             PendingProcedures.Remove(sopInstanceUID);
+
+            SendScanCancelled(workItem);
+
             return true;
         }
 
@@ -222,9 +220,6 @@ namespace Worklist_SCP.Model
             // the MPPS completed message contains some additional informations about the performed procedure.
             // this informations are very vendor depending, so read the DICOM Conformance Statement or read
             // the DICOM logfiles to see which informations the vendor sends
-
-            // Send status update to CARE server
-            Task.Run(() => SendStatusToCareServerAsync(workItem.ServiceRequestId, workItem.FacilityId, StatusCompleted));
 
             // since the procedure was completed, we remove it from the list of pending procedures
             PendingProcedures.Remove(sopInstanceUID);

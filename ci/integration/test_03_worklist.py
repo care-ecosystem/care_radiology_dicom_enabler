@@ -98,7 +98,7 @@ def test_device_worklist_returns_only_relevant_service_requests(cfg, dicom, ctx,
     logs.wait_for("mwl", rf"C-FIND completed successfully: returned {len(returned)} worklist items", timeout=15)
     # The CARE call comes from this C-FIND when care_worklist had no match, otherwise from the
     # periodic refresh, so allow one refresh interval for it.
-    logs.wait_for("mwl", rf"CARE Worklist URL: .*modality={cfg.modality}&.*&facility={cfg.facility_id}", timeout=45)
+    logs.wait_for("mwl", rf"CARE Worklist URL: .*/facility/{cfg.facility_id}/external/worklist/\?.*&modality={cfg.modality}&", timeout=45)
     logs.wait_for("mwl", r"care_worklist synced: \d+ new row\(s\) inserted", timeout=45)
     logs.assert_absent("mwl", r"CARE worklist API did not report success|"
                               r"Refreshing care_worklist from the CARE worklist API failed")

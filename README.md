@@ -52,10 +52,10 @@ This is a WinForm project which acts as UI which will be accessed by the end use
 Server Manager : Screen where the user will be able to Install/Uninstall , Start and Stop Backend Services
 SCP Settings : Screen where user will be able to configure Modality SCP Settings and Store SCP Settings 
 SCU Settings  : Screen where user will be able to configure Store SCU Details 
-Server List  : Screen where use will be able to add/edit/delete server to which the DICOM Nodes should communicate 
+Server List  : Screen where use will be able to add/edit/delete server to which the DICOM Nodes should communicate (hidden while checkserver in cfg/common.cfg is False; shown when it is True so allowed scanners can still be managed - see frm_Mainform_Load)
 View Patient List :Screen that would display list of patient for which different DICOM inteface has happen ( MWL/SCP/Upload of images)
 View Logs : Screen where user will be able view logs of different DICOM Communication ( MWL / STORESCP / STORE SCU)
-Configuration : Screen where user will be able to set the CARE integration settings held in the care_config table - Facility ID (required), worklist modality and from date, polling intervals, SCP / FailedSCP folders and upload limits. Blank values fall back to the service App.config or defaults
+Configuration : Screen where user will be able to set the CARE integration settings held in the care_config table - Facility ID (required), worklist modality and from date, polling intervals, SCP / FailedSCP folders and upload limits. Start Services stores the defaults for any blank values (from the service App.config or built-in defaults). Facility ID has no default and must be entered before the services start
 About Us : Screen user will be able to view based details on Plexus
 
 # Plexus_FileDeleteApp

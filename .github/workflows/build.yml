@@ -143,13 +143,13 @@ jobs:
         uses: actions/checkout@v4
 
       # Two services talk to CARE, through DIFFERENTLY NAMED keys in separate
-      # config files. Patching only the MWL service leaves image upload and the
-      # study webhook pointing at whatever is committed, which is the shared
+      # config files. Patching only the MWL service leaves image upload
+      # pointing at whatever is committed, which is the shared
       # staging server:
       #
-      #   CARE_MWL_Service  careBaseUrl    -> worklist C-FIND, MPPS webhook
+      #   CARE_MWL_Service  careBaseUrl    -> worklist C-FIND, IN_PROGRESS / CANCELLED on MPPS
       #                     careToken
-      #   CARE_SCU_Service  careBackendURL -> DICOM upload, study webhook
+      #   CARE_SCU_Service  careBackendURL -> DICOM upload, scan status
       #                     staticAPIKey
       #
       # The root App.config (CARE_DICOM_Enabler.exe.config) carries a stale
@@ -226,7 +226,7 @@ jobs:
             }
           }
 
-          # Worklist + MPPS webhook
+          # Worklist
           Update-ConfigFile "CARE_MWL_Service\App.config" @{
             backend      = $backend
             careBaseUrl  = $serverUrl
@@ -237,7 +237,7 @@ jobs:
             worklistRefreshIntervalSeconds = $refreshInterval
           }
 
-          # DICOM upload + study webhook, and the worklist refresh done when an uploaded file's
+          # DICOM upload, and the worklist refresh done when an uploaded file's
           # accession number is not in care_worklist (same modality / from date as the MWL service)
           Update-ConfigFile "CARE_SCU_Service\App.config" @{
             careBackendURL    = $serverUrl
