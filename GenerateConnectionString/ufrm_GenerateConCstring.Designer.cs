@@ -53,7 +53,7 @@ namespace GenerateConnectionString
             this.mtxt_ConnectionString.Name = "mtxt_ConnectionString";
             this.mtxt_ConnectionString.Size = new System.Drawing.Size(763, 50);
             this.mtxt_ConnectionString.TabIndex = 0;
-            this.mtxt_ConnectionString.Text = "Server=localhost;Database=plexus_mi2;Uid=root;Pwd=inzin@123;";
+            this.mtxt_ConnectionString.Text = "Server=localhost;Database=plexus_mi2;Uid=root;Pwd=care;";
             this.mtxt_ConnectionString.TrailingIcon = null;
             // 
             // materialLabel1
