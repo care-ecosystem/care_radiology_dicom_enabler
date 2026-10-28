@@ -188,6 +188,7 @@
     <Compile Include="Model\WorklistItem.cs" />
     <Compile Include="Logging\ucls_ReadWriteLog.cs" />
     <Compile Include="Logging\DailyFolderSink.cs" />
+    <Compile Include="Logging\RemoteDeviceInfo.cs" />
     <Compile Include="Logging\ZipOnDeleteHooks.cs" />
     <Compile Include="Model\WorklistItemsProvider.cs" />
     <Compile Include="PlexusMWLService.cs">

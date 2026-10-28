@@ -131,6 +131,9 @@
     <Compile Include="..\CARE_MWL_Service\Logging\ZipOnDeleteHooks.cs">
       <Link>Logging\ZipOnDeleteHooks.cs</Link>
     </Compile>
+    <Compile Include="..\CARE_MWL_Service\Logging\RemoteDeviceInfo.cs">
+      <Link>Logging\RemoteDeviceInfo.cs</Link>
+    </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="PlexusStoreSCU_Installer.cs">
       <SubType>Component</SubType>

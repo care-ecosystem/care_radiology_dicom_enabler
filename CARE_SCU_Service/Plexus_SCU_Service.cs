@@ -178,6 +178,7 @@ namespace Plexus_SCU_Service
                 {
                     if (string.IsNullOrWhiteSpace(dcmfile)) continue;
                     DicomDataset dataset = null;
+                    DicomFileMetaInformation fileMeta = null;
                     try
                     {
                         string extension = Path.GetExtension(dcmfile);
@@ -191,7 +192,7 @@ namespace Plexus_SCU_Service
                         {
                             // The file is matched to its care_sync_upload row by its Study, Series and SOP Instance
                             // UIDs (encrypted as instance_key), not by its file name
-                            if (!TryReadInstance(dcmfile, out dataset, out instanceKey, out string readError))
+                            if (!TryReadInstance(dcmfile, out dataset, out fileMeta, out instanceKey, out string readError))
                             {
                                 // The SCP may still be writing the file: it is only given up on once it has not changed for a while
                                 if (File.GetLastWriteTime(dcmfile) > DateTime.Now.AddSeconds(-UnreadableFileGraceSeconds))
@@ -200,6 +201,10 @@ namespace Plexus_SCU_Service
                                     continue;
                                 }
                                 WriteToLog($"Could not read the Study, Series and SOP Instance UIDs from {dcmfile}: {readError}", false);
+                                // dataset is set when the file was read but a UID is missing; a file that could not be read at all names no device
+                                WriteToLog(dataset != null
+                                    ? $"{dcmfile} was sent by modality device: {RemoteDeviceInfo.Describe(dataset, fileMeta)}"
+                                    : $"{dcmfile} could not be read as DICOM, so the modality device that sent it is not known", false);
                                 FailUnreadableInstance(dcmfile, dataset, $"Could not read the Study, Series and SOP Instance UIDs: {readError}");
                                 continue;
                             }
@@ -208,7 +213,7 @@ namespace Plexus_SCU_Service
                             if (state == UploadState.AlreadyUploaded)
                             {
                                 string duplicateLog = "Not uploaded: the same instance was already uploaded to CARE";
-                                WriteToLog($"{dcmfile}: {duplicateLog}", false);
+                                WriteToLog($"{dcmfile}: {duplicateLog} - sent again by modality device: {RemoteDeviceInfo.Describe(dataset, fileMeta)}", false);
                                 MoveToFailedSCP(dcmfile, dataset.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, string.Empty),
                                     dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty), 0, duplicateLog);
                                 continue;
@@ -249,7 +254,7 @@ namespace Plexus_SCU_Service
                             continue;
                         }
 
-                        UploadDicomFileViaHttp(dcmfile, dataset, instanceKey, uploadURL, statusURL, staticAPIKey, retryDelayMinutes, failedRetryCount);
+                        UploadDicomFileViaHttp(dcmfile, dataset, fileMeta, instanceKey, uploadURL, statusURL, staticAPIKey, retryDelayMinutes, failedRetryCount);
                     }
                     finally
                     {
@@ -282,15 +287,17 @@ namespace Plexus_SCU_Service
             }
         }
 
-        // dataset and instanceKey come from TryReadInstance. failedRetryCount is the file's retry_count
+        // dataset, fileMeta and instanceKey come from TryReadInstance. failedRetryCount is the file's retry_count
         // when this upload is a retry, null for a new file
-        private void UploadDicomFileViaHttp(string dcmfile, DicomDataset dataset, string instanceKey, string uploadURL, string statusURL, string staticApiKey, int retryDelayMinutes, int? failedRetryCount)
+        private void UploadDicomFileViaHttp(string dcmfile, DicomDataset dataset, DicomFileMetaInformation fileMeta, string instanceKey, string uploadURL, string statusURL, string staticApiKey, int retryDelayMinutes, int? failedRetryCount)
         {
             string studyInstanceId = string.Empty;
             string accessionNumber = string.Empty;
             try
             {
                 WriteToLog($"Preparing upload for: {dcmfile}", true);
+                // The Store SCP saves each image with the calling modality's AE title in its file meta header
+                WriteToLog($"Image sent by modality device: {RemoteDeviceInfo.Describe(dataset, fileMeta)}", true);
 
                 studyInstanceId = dataset.GetString(DicomTag.StudyInstanceUID);
                 string patientId = dataset.GetSingleValueOrDefault(DicomTag.PatientID, string.Empty);
@@ -430,14 +437,17 @@ namespace Plexus_SCU_Service
 
         // Reads the file and builds its care_sync_upload instance_key from its Study, Series and SOP
         // Instance UIDs. Returns false, with the reason, when the file cannot be read or a UID is missing.
-        private bool TryReadInstance(string dcmfile, out DicomDataset dataset, out string instanceKey, out string error)
+        private bool TryReadInstance(string dcmfile, out DicomDataset dataset, out DicomFileMetaInformation fileMeta, out string instanceKey, out string error)
         {
             dataset = null;
+            fileMeta = null;
             instanceKey = null;
             error = null;
             try
             {
-                dataset = DicomFile.Open(dcmfile).Dataset;
+                DicomFile file = DicomFile.Open(dcmfile);
+                dataset = file.Dataset;
+                fileMeta = file.FileMetaInfo;
                 string studyUid = dataset.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, string.Empty);
                 string seriesUid = dataset.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, string.Empty);
                 string sopInstanceUid = dataset.GetSingleValueOrDefault(DicomTag.SOPInstanceUID, string.Empty);
