@@ -153,7 +153,6 @@ namespace Plexus_StoreSCP_Service.Network
         {
             string errorString = string.Empty;
             string applicationPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
-            _fileLogger.Information($"Application Path :  " + applicationPath);
             string retVal = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/checkserver");
             if (retVal != string.Empty && (Convert.ToBoolean(retVal) == true))
             {
@@ -212,7 +211,6 @@ namespace Plexus_StoreSCP_Service.Network
         /// <returns></returns>
         public async Task<DicomCStoreResponse> OnCStoreRequestAsync(DicomCStoreRequest request)
         {
-            _fileLogger.Information($"C-Store Request received for Study Instance Id : ");
             // GetSingleValue throws on a missing or empty tag, and an exception here makes fo-dicom drop the
             // association, so the sender sees "connection closed" instead of a DICOM error status.
             var studyUid = request.Dataset.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, string.Empty).Trim();
@@ -267,8 +265,8 @@ namespace Plexus_StoreSCP_Service.Network
             }
 
             _fileLogger.Information(dbUpdated
-                ? $" DICOM Upload Successful: File saved and database updated"
-                : $" DICOM file saved, but the database was not updated - see the error above");
+                ? $" Saved to SCP folder for upload by the SCU service, database updated"
+                : $" Saved to SCP folder for upload by the SCU service, but the database was not updated - see the error above");
             _fileLogger.Information($"  - Study UID: {studyUid}");
             _fileLogger.Information($"  - Instance UID: {instUid}");
             _fileLogger.Information($"  - Accession Number: {accessionNo}");
