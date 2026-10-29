@@ -48,10 +48,20 @@ namespace Worklist_SCP
         }
 
 
+        // The connecting device's IP and port, known before the association is requested
+        private readonly string _remoteHost;
+        private readonly int _remotePort;
+
+        // The connecting device, for error logs: AE title once the association is requested, IP and port always
+        private string Device => RemoteDeviceInfo.DescribeConnection(Association, _remoteHost, _remotePort);
+
+
         public WorklistService(INetworkStream stream, Encoding fallbackEncoding, FellowOakDicom.Log.ILogger log, DicomServiceDependencies dependencies)
             : base(stream, fallbackEncoding, log, dependencies)
         {
             fileLogger = GetFileLogger();
+            RemoteDeviceInfo.GetRemoteEndpoint(stream, out _remoteHost, out _remotePort);
+            fileLogger.Information($"[CONN] Connection opened from IP={_remoteHost} Port={_remotePort}");
         }
 
         private Serilog.ILogger GetFileLogger()
@@ -64,7 +74,7 @@ namespace Worklist_SCP
         public Task<DicomCEchoResponse> OnCEchoRequestAsync(DicomCEchoRequest request)
         {
             // The calling AE was checked against the Server List when the association was accepted.
-            fileLogger?.Information($"[C-ECHO] Request from AE={Association.CallingAE} IP={Association.RemoteHost}");
+            fileLogger?.Information($"[C-ECHO] Request from device: {RemoteDeviceInfo.Describe(Association)}");
             return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.Success));
         }
 
@@ -74,7 +84,53 @@ namespace Worklist_SCP
 
             // The calling AE was checked against the Server List when the association was accepted.
             fileLogger.Information($"Received C-FIND request from AE {Association.CallingAE} with IP: {Association.RemoteHost}");
+            fileLogger.Information($"[C-FIND] Worklist requested by device: {RemoteDeviceInfo.Describe(Association)}");
+            fileLogger.Information($"[C-FIND] Query keys: {RemoteDeviceInfo.DescribeQuery(request.Dataset)}");
             List<string> accessionNos = new List<string>();
+
+            // An exception here would make fo-dicom drop the association, so the device would only see
+            // "connection closed": log it with the device and answer with a DICOM failure status instead
+            List<DicomDataset> results;
+            try
+            {
+                results = FindWorklistItems(request);
+            }
+            catch (Exception ex)
+            {
+                fileLogger.Error($"[C-FIND] Fetching the worklist for device {Device} failed with exception : {ex.Message} - returning a C-FIND failure");
+                results = null;
+            }
+            if (results == null)
+            {
+                yield return new DicomCFindResponse(request, DicomStatus.ProcessingFailure);
+                yield break;
+            }
+
+            int returnedItemsCount = 0;
+            foreach (DicomDataset result in results)
+            {
+                // Insert Into Database
+                if (result.GetString(DicomTag.AccessionNumber) != null)
+                    accessionNos.Add(result.GetString(DicomTag.AccessionNumber));
+                yield return new DicomCFindResponse(request, DicomStatus.Pending) { Dataset = result };
+                returnedItemsCount++;
+            }
+            UpdateStatusinDB(accessionNos);
+            if (returnedItemsCount == 0)
+                // The query keys logged above show which of the device's filters matched nothing
+                fileLogger.Warning($" C-FIND completed with no worklist items for AE {Association.CallingAE} with IP: {Association.RemoteHost} - check the order is scheduled in CARE and the query keys are correct");
+            else
+                fileLogger.Information($" C-FIND completed successfully: returned {returnedItemsCount} worklist items to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
+            yield return new DicomCFindResponse(request, DicomStatus.Success);
+            //}
+        }
+
+
+        /// <summary>
+        /// The worklist items that match a C-FIND query, from the backend set in App.config
+        /// </summary>
+        private List<DicomDataset> FindWorklistItems(DicomCFindRequest request)
+        {
             List<DicomDataset> results = null;
 
             switch (Convert.ToInt32(ConfigurationManager.AppSettings["backend"] ?? "2"))
@@ -126,19 +182,7 @@ namespace Worklist_SCP
 
             }
 
-            int returnedItemsCount = 0;
-            foreach (DicomDataset result in results ?? WorklistHandler.FilterWorklistItems(request.Dataset, WorklistServer.CurrentWorklistItems))
-            {
-                // Insert Into Database
-                if (result.GetString(DicomTag.AccessionNumber) != null)
-                    accessionNos.Add(result.GetString(DicomTag.AccessionNumber));
-                yield return new DicomCFindResponse(request, DicomStatus.Pending) { Dataset = result };
-                returnedItemsCount++;
-            }
-            UpdateStatusinDB(accessionNos);
-            fileLogger.Information($" C-FIND completed successfully: returned {returnedItemsCount} worklist items to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
-            yield return new DicomCFindResponse(request, DicomStatus.Success);
-            //}
+            return results ?? WorklistHandler.FilterWorklistItems(request.Dataset, WorklistServer.CurrentWorklistItems).ToList();
         }
 
 
@@ -228,13 +272,13 @@ namespace Worklist_SCP
 
                     if (errorString != string.Empty)
                     {
-                        fileLogger.Information($"Updating DB with MWL Status failed for Accession No {accessionNo} with exception" + errorString);
+                        fileLogger.Error($"Updating DB with MWL Status failed for Accession No {accessionNo} with exception" + errorString);
                     }
                 }
             }
             catch (Exception ex)
             {
-                fileLogger.Information($"Update Status in Database Failed for MWL with exception" + ex.Message);
+                fileLogger.Error($"Update Status in Database Failed for MWL with exception" + ex.Message);
             }
             finally
             {
@@ -252,7 +296,13 @@ namespace Worklist_SCP
             Clean();
             if (exception != null)
             {
-                fileLogger.Information($"Error Generating data for C-Find Response with Exception " + exception.Message);
+                // A network error, a timeout or a malformed message from the device ended the connection
+                fileLogger?.Error($"[CONN] Connection with device {Device} ended with an error: {exception.GetType().Name}: {exception.Message}" +
+                    (exception.InnerException != null ? $" ({exception.InnerException.Message})" : string.Empty));
+            }
+            else
+            {
+                fileLogger?.Information($"[CONN] Connection closed with device {Device}");
             }
         }
 
@@ -261,24 +311,25 @@ namespace Worklist_SCP
         {
             //log the abort reason
             //Logger.Error($"Received abort from {source}, reason is {reason}");
-            fileLogger.Error($"Received abort from {source}, reason is {reason}");
+            fileLogger.Error($"Received abort from {source}, reason is {reason} - device {Device}");
         }
 
 
         public Task OnReceiveAssociationReleaseRequestAsync()
         {
             Clean();
+            fileLogger?.Information($"[ASSOC] Release request from device {Device}");
             return SendAssociationReleaseResponseAsync();
         }
 
 
         public Task OnReceiveAssociationRequestAsync(DicomAssociation association)
         {
-            fileLogger?.Information($"[ASSOC] Request from AE={association.CallingAE} IP={association.RemoteHost} CalledAE={association.CalledAE}");
+            fileLogger?.Information($"[ASSOC] Request from device: {RemoteDeviceInfo.Describe(association)}");
 
             if (WorklistServer.AETitle != association.CalledAE)
             {
-                fileLogger?.Error($"[ASSOC] Rejected: called AE={association.CalledAE} unknown (expected {WorklistServer.AETitle})");
+                fileLogger?.Error($"[ASSOC] Rejected device {RemoteDeviceInfo.Describe(association)}: called AE={association.CalledAE} unknown (expected {WorklistServer.AETitle})");
                 return SendAssociationRejectAsync(DicomRejectResult.Permanent, DicomRejectSource.ServiceUser, DicomRejectReason.CalledAENotRecognized);
             }
 
@@ -286,7 +337,7 @@ namespace Worklist_SCP
             // N-CREATE / N-SET that update CARE - is limited to modalities in the Server List.
             if (!validateServer(association.CallingAE, association.RemoteHost))
             {
-                fileLogger?.Error($"[ASSOC] Rejected: calling AE={association.CallingAE} IP={association.RemoteHost} is not in the Server List");
+                fileLogger?.Error($"[ASSOC] Rejected device {RemoteDeviceInfo.Describe(association)}: calling AE={association.CallingAE} IP={association.RemoteHost} is not in the Server List");
                 return SendAssociationRejectAsync(DicomRejectResult.Permanent, DicomRejectSource.ServiceUser, DicomRejectReason.CallingAENotRecognized);
             }
 
@@ -298,7 +349,11 @@ namespace Worklist_SCP
                     || pc.AbstractSyntax == DicomUID.ModalityPerformedProcedureStepNotification)
                 {
                     pc.AcceptTransferSyntaxes(_acceptedTransferSyntaxes);
-                    fileLogger?.Information($"[ASSOC] PC accepted: {pc.AbstractSyntax.Name} (ID={pc.ID})");
+                    if (pc.Result == DicomPresentationContextResult.Accept)
+                        fileLogger?.Information($"[ASSOC] PC accepted: {pc.AbstractSyntax.Name} (ID={pc.ID})");
+                    else
+                        fileLogger?.Warning($"[ASSOC] PC not accepted ({pc.Result}): {pc.AbstractSyntax.Name} (ID={pc.ID}) - none of the transfer syntaxes " +
+                            $"{string.Join(", ", pc.GetTransferSyntaxes().Select(ts => ts.UID.Name))} proposed by AE={association.CallingAE} IP={association.RemoteHost} is supported");
                 }
                 else if (pc.AbstractSyntax.StorageCategory != DicomStorageCategory.None)
                 {
@@ -312,7 +367,7 @@ namespace Worklist_SCP
                 }
                 else
                 {
-                    fileLogger?.Warning($"[ASSOC] PC rejected: {pc.AbstractSyntax} not supported");
+                    fileLogger?.Warning($"[ASSOC] PC rejected: {pc.AbstractSyntax} not supported - proposed by AE={association.CallingAE} IP={association.RemoteHost}");
                     pc.SetResult(DicomPresentationContextResult.RejectAbstractSyntaxNotSupported);
                 }
             }
@@ -342,10 +397,12 @@ namespace Worklist_SCP
             string instUid = request.SOPInstanceUID.UID;
 
             fileLogger?.Warning($"[MWL][C-STORE] Image received on the worklist port from AE={Association.CallingAE} IP={Association.RemoteHost} StudyInstanceUID={studyUid} SOPInstanceUID={instUid}");
+            fileLogger?.Information($"[MWL][C-STORE] Sending device: {RemoteDeviceInfo.Describe(Association)}");
+            fileLogger?.Information($"[MWL][C-STORE] Device details in the image: {RemoteDeviceInfo.Describe(request.Dataset)}");
 
             if (!validateServer(Association.CallingAE, Association.RemoteHost))
             {
-                fileLogger?.Error($"[MWL][C-STORE] Rejected AE={Association.CallingAE}");
+                fileLogger?.Error($"[MWL][C-STORE] Rejected device {Device}: not in the Server List");
                 return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
             }
 
@@ -383,7 +440,7 @@ namespace Worklist_SCP
             }
             catch (Exception ex)
             {
-                fileLogger?.Error($"[MWL][C-STORE] Writing StudyInstanceUID={studyUid} SOPInstanceUID={instUid} to the SCP folder failed with exception : " + ex.Message);
+                fileLogger?.Error($"[MWL][C-STORE] Writing StudyInstanceUID={studyUid} SOPInstanceUID={instUid} from device {Device} to the SCP folder failed with exception : " + ex.Message);
                 return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
             }
 
@@ -393,20 +450,40 @@ namespace Worklist_SCP
 
         public Task OnCStoreRequestExceptionAsync(string tempFileName, Exception e)
         {
-            // let library handle logging and error response
+            // fo-dicom sends the error response; this only records which device's image failed
+            fileLogger?.Error($"[MWL][C-STORE] Receiving an image from device {Device} failed with exception : {e?.Message} (temp file {tempFileName})");
             return Task.CompletedTask;
         }
 
 
         public async Task<DicomNCreateResponse> OnNCreateRequestAsync(DicomNCreateRequest request)
         {
+            // An exception here would make fo-dicom drop the association, so the device would only see
+            // "connection closed": log it with the device and answer with a DICOM failure status instead
+            try
+            {
+                return ProcessNCreate(request);
+            }
+            catch (Exception ex)
+            {
+                fileLogger?.Error($"[MPPS][N-CREATE] Processing the N-CREATE from device {Device} failed with exception : {ex.Message} - returning a failure status");
+                return new DicomNCreateResponse(request, DicomStatus.ProcessingFailure);
+            }
+        }
+
+
+        private DicomNCreateResponse ProcessNCreate(DicomNCreateRequest request)
+        {
             if (request.SOPClassUID != DicomUID.ModalityPerformedProcedureStep)
             {
+                fileLogger?.Warning($"[MPPS][N-CREATE] Rejected SOP class {request.SOPClassUID} from device {Device} - only MPPS is supported");
                 return new DicomNCreateResponse(request, DicomStatus.SOPClassNotSupported);
             }
             // on N-Create the UID is stored in AffectedSopInstanceUID, in N-Set the UID is stored in RequestedSopInstanceUID
             var affectedSopInstanceUID = request.Command.GetSingleValue<string>(DicomTag.AffectedSOPInstanceUID);
             fileLogger.Information($"[MPPS][N-CREATE] Received from AE={Association.CallingAE} SOPInstanceUID={affectedSopInstanceUID}");
+            fileLogger.Information($"[MPPS][N-CREATE] Sending device: {RemoteDeviceInfo.Describe(Association)}");
+            fileLogger.Information($"[MPPS][N-CREATE] Device details in the MPPS: {RemoteDeviceInfo.Describe(request.Dataset)}");
 
             // get the procedureStepIds from the request
             var scheduledStepItem = request.Dataset
@@ -430,6 +507,8 @@ namespace Worklist_SCP
 
             var ok = MppsSource.SetInProgress(affectedSopInstanceUID, procedureStepId);
             fileLogger.Information($"[MPPS][N-CREATE] SetInProgress result={ok} for SOPInstanceUID={affectedSopInstanceUID}");
+            if (!ok)
+                fileLogger.Error($"[MPPS][N-CREATE] Returning a failure status to device {Device} for SOPInstanceUID={affectedSopInstanceUID}");
 
             return new DicomNCreateResponse(request, ok ? DicomStatus.Success : DicomStatus.ProcessingFailure);
         }
@@ -437,14 +516,32 @@ namespace Worklist_SCP
 
         public async Task<DicomNSetResponse> OnNSetRequestAsync(DicomNSetRequest request)
         {
+            // An exception here would make fo-dicom drop the association, so the device would only see
+            // "connection closed": log it with the device and answer with a DICOM failure status instead
+            try
+            {
+                return ProcessNSet(request);
+            }
+            catch (Exception ex)
+            {
+                fileLogger?.Error($"[MPPS][N-SET] Processing the N-SET from device {Device} failed with exception : {ex.Message} - returning a failure status");
+                return new DicomNSetResponse(request, DicomStatus.ProcessingFailure);
+            }
+        }
+
+
+        private DicomNSetResponse ProcessNSet(DicomNSetRequest request)
+        {
             if (request.SOPClassUID != DicomUID.ModalityPerformedProcedureStep)
             {
+                fileLogger?.Warning($"[MPPS][N-SET] Rejected SOP class {request.SOPClassUID} from device {Device} - only MPPS is supported");
                 return new DicomNSetResponse(request, DicomStatus.SOPClassNotSupported);
             }
             // on N-Create the UID is stored in AffectedSopInstanceUID, in N-Set the UID is stored in RequestedSopInstanceUID
             var requestedSopInstanceUID = request.Command.GetSingleValue<string>(DicomTag.RequestedSOPInstanceUID);
             //Logger.Log(LogLevel.Info, $"receiving N-Set with SOPUID {requestedSopInstanceUID}");.I
             fileLogger.Information($"receiving N-Set with SOPUID {requestedSopInstanceUID}");
+            fileLogger.Information($"[MPPS][N-SET] Sending device: {RemoteDeviceInfo.Describe(Association)}");
 
             var status = request.Dataset.GetSingleValueOrDefault(DicomTag.PerformedProcedureStepStatus, string.Empty);
             if (status == "COMPLETED")
@@ -475,6 +572,8 @@ namespace Worklist_SCP
                 }
                 var ok = MppsSource.SetCompleted(requestedSopInstanceUID, doseDescription, listOfInstanceUIDs);
                 fileLogger.Information($"[MPPS][N-SET] COMPLETED result={ok} for SOPInstanceUID={requestedSopInstanceUID} ({listOfInstanceUIDs.Count} referenced instances)");
+                if (!ok)
+                    fileLogger.Error($"[MPPS][N-SET] Returning a failure status to device {Device} for COMPLETED SOPInstanceUID={requestedSopInstanceUID}");
 
                 return new DicomNSetResponse(request, ok ? DicomStatus.Success : DicomStatus.ProcessingFailure);
             }
@@ -484,12 +583,14 @@ namespace Worklist_SCP
                 // var reason = request.Dataset.Get(DicomTag.PerformedProcedureStepDiscontinuationReasonCodeSequence);
                 var ok = MppsSource.SetDiscontinued(requestedSopInstanceUID, string.Empty);
                 fileLogger.Information($"[MPPS][N-SET] DISCONTINUED result={ok} for SOPInstanceUID={requestedSopInstanceUID}");
+                if (!ok)
+                    fileLogger.Error($"[MPPS][N-SET] Returning a failure status to device {Device} for DISCONTINUED SOPInstanceUID={requestedSopInstanceUID}");
 
                 return new DicomNSetResponse(request, ok ? DicomStatus.Success : DicomStatus.ProcessingFailure);
             }
             else
             {
-                fileLogger.Warning($"[MPPS][N-SET] Rejected status '{status}' for SOPInstanceUID={requestedSopInstanceUID} - only COMPLETED or DISCONTINUED are accepted");
+                fileLogger.Warning($"[MPPS][N-SET] Rejected status '{status}' for SOPInstanceUID={requestedSopInstanceUID} from device {Device} - only COMPLETED or DISCONTINUED are accepted");
                 return new DicomNSetResponse(request, DicomStatus.InvalidAttributeValue);
             }
         }
@@ -500,28 +601,28 @@ namespace Worklist_SCP
         public async Task<DicomNDeleteResponse> OnNDeleteRequestAsync(DicomNDeleteRequest request)
         {
             //Logger.Log(LogLevel.Info, "receiving N-Delete, not supported");
-            fileLogger.Information("receiving N-Delete, not supported");
+            fileLogger.Warning($"receiving N-Delete, not supported - from device {Device}");
             return new DicomNDeleteResponse(request, DicomStatus.UnrecognizedOperation);
         }
 
         public async Task<DicomNEventReportResponse> OnNEventReportRequestAsync(DicomNEventReportRequest request)
         {
             //Logger.Log(LogLevel.Info, "receiving N-Event, not supported");
-            fileLogger.Information("receiving N-Event, not supported");
+            fileLogger.Warning($"receiving N-Event, not supported - from device {Device}");
             return new DicomNEventReportResponse(request, DicomStatus.UnrecognizedOperation);
         }
 
         public async Task<DicomNGetResponse> OnNGetRequestAsync(DicomNGetRequest request)
         {
             //Logger.Log(LogLevel.Info, "receiving N-Get, not supported");
-            fileLogger.Information("receiving N-Get, not supported");
+            fileLogger.Warning($"receiving N-Get, not supported - from device {Device}");
             return new DicomNGetResponse(request, DicomStatus.UnrecognizedOperation);
         }
 
         public async Task<DicomNActionResponse> OnNActionRequestAsync(DicomNActionRequest request)
         {
             //Logger.Log(LogLevel.Info, "receiving N-Action, not supported");
-            fileLogger.Information("receiving N-Action, not supported");
+            fileLogger.Warning($"receiving N-Action, not supported - from device {Device}");
             return new DicomNActionResponse(request, DicomStatus.UnrecognizedOperation);
         }
 

@@ -66,7 +66,16 @@ namespace Plexus_StoreSCP_Service.Network
             {
                 objDAL = new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
             }
+            RemoteDeviceInfo.GetRemoteEndpoint(stream, out _remoteHost, out _remotePort);
+            _fileLogger.Information($"Connection opened from IP: {_remoteHost} and port {_remotePort}");
         }
+
+        // The connecting device's IP and port, known before the association is requested
+        private readonly string _remoteHost;
+        private readonly int _remotePort;
+
+        // The connecting device, for error logs: AE title once the association is requested, IP and port always
+        private string Device => RemoteDeviceInfo.DescribeConnection(Association, _remoteHost, _remotePort);
 
 
         
@@ -90,9 +99,19 @@ namespace Plexus_StoreSCP_Service.Network
         public Task OnReceiveAssociationRequestAsync(DicomAssociation association)
         {
             _fileLogger.Information($"Received Association request from AE {association.CallingAE} with IP: {association.RemoteHost}");
+            _fileLogger.Information($"Sending device: {RemoteDeviceInfo.Describe(association)}");
+            if (Global._aeTitle != association.CalledAE)
+            {
+                _fileLogger.Error($"Association Rejected: called AE {association.CalledAE} unknown (expected {Global._aeTitle}) - device {RemoteDeviceInfo.Describe(association)}");
+                return SendAssociationRejectAsync(
+                    DicomRejectResult.Permanent,
+                    DicomRejectSource.ServiceUser,
+                    DicomRejectReason.CalledAENotRecognized);
+            }
+
             if (!validateServer(association.CallingAE, association.RemoteHost))
             {
-                _fileLogger.Error($"Association Rejected: calling AE {association.CallingAE} with IP: {association.RemoteHost} is not in the Server List");
+                _fileLogger.Error($"Association Rejected: calling AE {association.CallingAE} with IP: {association.RemoteHost} is not in the Server List - device {RemoteDeviceInfo.Describe(association)}");
                 return SendAssociationRejectAsync(
                     DicomRejectResult.Permanent,
                     DicomRejectSource.ServiceUser,
@@ -108,6 +127,12 @@ namespace Plexus_StoreSCP_Service.Network
                 else if (pc.AbstractSyntax.StorageCategory != DicomStorageCategory.None)
                 {
                     pc.AcceptTransferSyntaxes(_acceptedImageTransferSyntaxes);
+                }
+                // A device whose images are refused shows this, not an error from the C-STORE
+                if (pc.Result != DicomPresentationContextResult.Accept)
+                {
+                    _fileLogger.Warning($"Presentation context not accepted ({pc.Result}): {pc.AbstractSyntax.Name} with transfer syntaxes " +
+                        $"{string.Join(", ", pc.GetTransferSyntaxes().Select(ts => ts.UID.Name))} - proposed by AE {association.CallingAE} with IP: {association.RemoteHost}");
                 }
             }
 
@@ -137,7 +162,6 @@ namespace Plexus_StoreSCP_Service.Network
         {
             string errorString = string.Empty;
             string applicationPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
-            _fileLogger.Information($"Application Path :  " + applicationPath);
             string retVal = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/checkserver");
             if (retVal != string.Empty && (Convert.ToBoolean(retVal) == true))
             {
@@ -170,13 +194,22 @@ namespace Plexus_StoreSCP_Service.Network
         /// <param name="reason"></param>
         public void OnReceiveAbort(DicomAbortSource source, DicomAbortReason reason)
         {
-            /* nothing to do here */
+            _fileLogger?.Error($"Received abort from {source}, reason is {reason} - device {Device}");
         }
 
 
         public void OnConnectionClosed(Exception exception)
         {
-            /* nothing to do here */
+            if (exception != null)
+            {
+                // A network error, a timeout or a malformed message from the device ended the connection
+                _fileLogger?.Error($"Connection with device {Device} ended with an error: {exception.GetType().Name}: {exception.Message}" +
+                    (exception.InnerException != null ? $" ({exception.InnerException.Message})" : string.Empty));
+            }
+            else
+            {
+                _fileLogger?.Information($"Connection closed with device {Device}");
+            }
         }
 
 
@@ -187,17 +220,19 @@ namespace Plexus_StoreSCP_Service.Network
         /// <returns></returns>
         public async Task<DicomCStoreResponse> OnCStoreRequestAsync(DicomCStoreRequest request)
         {
-            _fileLogger.Information($"C-Store Request received for Study Instance Id : ");
             // GetSingleValue throws on a missing or empty tag, and an exception here makes fo-dicom drop the
             // association, so the sender sees "connection closed" instead of a DICOM error status.
             var studyUid = request.Dataset.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, string.Empty).Trim();
             var instUid = request.SOPInstanceUID.UID;
 
             _fileLogger.Information($"C-Store Request received for Study Instance Id : "+studyUid+" and Image Instance ID : " + instUid);
+            _fileLogger.Information($"  - Sending device: {RemoteDeviceInfo.Describe(Association)}");
+            _fileLogger.Information($"  - Device details in the image: {RemoteDeviceInfo.Describe(request.Dataset)}");
 
 
             if (!validateServer(Association.CallingAE, Association.RemoteHost))
             {
+                _fileLogger.Error($"C-Store Request rejected for Image Instance ID : {instUid} from device {Device} - not in the Server List");
                 return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
             }
 
@@ -207,11 +242,12 @@ namespace Plexus_StoreSCP_Service.Network
                 return new DicomCStoreResponse(request, DicomStatus.StorageDataSetDoesNotMatchSOPClassError);
             }
 
-            var path = Path.GetFullPath(Global._storagePath);
-            path = Path.Combine(path, studyUid);
+            var path = Global._storagePath;
 
             try
             {
+                // Inside the try: an invalid SCP folder setting throws here, and must fail only this image
+                path = Path.Combine(Path.GetFullPath(path), studyUid);
                 if (!Directory.Exists(path))
                 {
                     Directory.CreateDirectory(path);
@@ -223,7 +259,7 @@ namespace Plexus_StoreSCP_Service.Network
             }
             catch (Exception ex)
             {
-                _fileLogger.Error($"Saving Study Instance Id : {studyUid} and Image Instance ID : {instUid} to {path} failed with exception : " + ex.Message);
+                _fileLogger.Error($"Saving Study Instance Id : {studyUid} and Image Instance ID : {instUid} from device {Device} to {path} failed with exception : " + ex.Message);
                 return new DicomCStoreResponse(request, DicomStatus.ProcessingFailure);
             }
 
@@ -237,9 +273,10 @@ namespace Plexus_StoreSCP_Service.Network
                 dbUpdated = ReadDICOMPushDB(path, studyUid, instUid);
             }
 
-            _fileLogger.Information(dbUpdated
-                ? $" DICOM Upload Successful: File saved and database updated"
-                : $" DICOM file saved, but the database was not updated - see the error above");
+            if (dbUpdated)
+                _fileLogger.Information($" Saved to SCP folder for upload by the SCU service, database updated");
+            else
+                _fileLogger.Warning($" Saved to SCP folder for upload by the SCU service, but the database was not updated - see the error above");
             _fileLogger.Information($"  - Study UID: {studyUid}");
             _fileLogger.Information($"  - Instance UID: {instUid}");
             _fileLogger.Information($"  - Accession Number: {accessionNo}");
@@ -313,14 +350,15 @@ namespace Plexus_StoreSCP_Service.Network
 
         public Task OnCStoreRequestExceptionAsync(string tempFileName, Exception e)
         {
-            // let library handle logging and error response
+            // fo-dicom sends the error response; this only records which device's image failed
+            _fileLogger?.Error($"Receiving an image from device {Device} failed with exception : {e?.Message} (temp file {tempFileName})");
             return Task.CompletedTask;
         }
 
 
         public Task<DicomCEchoResponse> OnCEchoRequestAsync(DicomCEchoRequest request)
         {
-            _fileLogger.Information($"Received verification request from AE {Association.CallingAE} with IP: {Association.RemoteHost}");
+            _fileLogger.Information($"Received verification request from device: {RemoteDeviceInfo.Describe(Association)}");
             return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.Success));
         }
 

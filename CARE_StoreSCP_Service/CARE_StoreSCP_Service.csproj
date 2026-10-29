@@ -125,6 +125,9 @@
     <Compile Include="..\CARE_MWL_Service\Logging\ZipOnDeleteHooks.cs">
       <Link>Logging\ZipOnDeleteHooks.cs</Link>
     </Compile>
+    <Compile Include="..\CARE_MWL_Service\Logging\RemoteDeviceInfo.cs">
+      <Link>Logging\RemoteDeviceInfo.cs</Link>
+    </Compile>
     <Compile Include="Global.cs" />
     <Compile Include="Network\CStoreSCP.cs" />
     <Compile Include="PlexusStoreSCPService.cs">

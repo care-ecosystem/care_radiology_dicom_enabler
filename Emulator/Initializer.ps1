@@ -200,8 +200,14 @@ function Restore-Database {
     param([System.IO.DirectoryInfo]$Backup)
     $dumpFile = Join-Path $Backup.FullName "$DbName.sql"
     # mysql reads the file itself with source, so nothing is re-encoded by PowerShell on the way.
-    # Forward slashes and single quotes: source treats '\' as an escape and stops at a space.
-    $restoreArgs = $mysqlArgs + @('-e', "source '$($dumpFile.Replace('\', '/'))'")
+    # Forward slashes: '\' would start a client command (e.g. \P). No quotes: source takes the rest
+    # of the line as the file name, spaces included, and keeps quotes as part of the name.
+    $restoreArgs = $mysqlArgs + @('-e', "source $($dumpFile.Replace('\', '/'))")
+    # From MySQL 9.4 the client's --commands option, which allows client commands such as source, is
+    # off by default, and source is then sent to the server as SQL (ERROR 1064). Older clients do not
+    # know the option and refuse to start with it, so it is only passed when the client lists it.
+    $helpText = (& $mysqlExe --help 2>$null) -join "`n"
+    if ($helpText -match '--commands\b') { $restoreArgs = @('--commands') + $restoreArgs }
     $restoreOutput = @(& $mysqlExe @restoreArgs 2>&1 | ForEach-Object { "$_" })
     $restoreCode = $LASTEXITCODE
     $errors = @($restoreOutput | Where-Object { $_ -match '^ERROR' })
