@@ -29,8 +29,9 @@ Env vars (all optional):
                        accepted the password is prompted for, masked with *)
   DICOM_MYSQL_BIN     Full path to mysql.exe  (default: auto-detected; mysqldump.exe is
                        expected in the same folder)
-  DICOM_INSTALL_DIR   DICOM Enabler install folder (default: the folder of the installed
-                       Care MWL SCP / Store SCP / Store SCU service)
+
+The install folder is the parent of this script's folder: the build ships Reset.bat and
+Reset.ps1 in <install folder>\scripts\.
 #>
 
 $MySqlHost  = if ($env:DICOM_MYSQL_HOST) { $env:DICOM_MYSQL_HOST } else { 'localhost' }
@@ -147,10 +148,11 @@ function Get-MySqlArgs {
     return @("--defaults-extra-file=$script:OptionFile", '-h', $MySqlHost, '-P', $MySqlPort, '-u', $MySqlUser)
 }
 
-# Runs one SQL statement; returns @{ ExitCode; Output } with tab-separated rows and no header.
+# Runs one SQL statement; returns @{ ExitCode; Output } with tab-separated, unescaped rows and no header.
 function Invoke-MySql {
     param([string]$Sql)
-    $allArgs = (Get-MySqlArgs) + @('-N', '-B', '-e', $Sql)
+    # -r: batch mode otherwise escapes '\' in values, returning C:\x as C:\\x
+    $allArgs = (Get-MySqlArgs) + @('-N', '-B', '-r', '-e', $Sql)
     $output = & $script:MySqlExe @allArgs 2>&1 | ForEach-Object { "$_" }
     return @{ ExitCode = $LASTEXITCODE; Output = @($output) }
 }
@@ -391,25 +393,12 @@ if ($passwordOk) {
     }
 }
 
-# Install folder: from the installed services, unless set explicitly
-$script:InstallDir = $null
-if ($env:DICOM_INSTALL_DIR) {
-    $script:InstallDir = $env:DICOM_INSTALL_DIR
-} else {
-    foreach ($name in $ServiceNames) {
-        $svcInfo = Get-CimInstance -ClassName Win32_Service -Filter "Name='$name'" -ErrorAction SilentlyContinue
-        if ($svcInfo -and $svcInfo.PathName) {
-            $exePath = if ($svcInfo.PathName -match '^"([^"]+)"') { $Matches[1] } else { ($svcInfo.PathName -split ' ')[0] }
-            $script:InstallDir = Split-Path $exePath -Parent
-            break
-        }
-    }
-}
-if (-not $script:InstallDir) {
-    Write-Fail "Could not find the DICOM Enabler install folder - none of the services ($($ServiceNames -join ', ')) is installed." `
-        "Set DICOM_INSTALL_DIR to the folder containing CARE_DICOM_Enabler.exe, then re-run Reset.bat."
-} elseif (-not (Test-Path -LiteralPath $script:InstallDir -PathType Container)) {
-    Write-Fail "Install folder $script:InstallDir does not exist." "Set DICOM_INSTALL_DIR to the folder containing CARE_DICOM_Enabler.exe."
+# Install folder: the build ships this script in <install folder>\scripts\
+$script:InstallDir = Split-Path $PSScriptRoot -Parent
+$appExeFound = $AppProcessNames | Where-Object { Test-Path -LiteralPath (Join-Path $script:InstallDir "$_.exe") -PathType Leaf }
+if (-not $appExeFound) {
+    Write-Fail "Could not find CARE_DICOM_Enabler.exe in $script:InstallDir." `
+        "Run Reset.bat from the scripts folder of the DICOM Enabler build, then re-run it."
     $script:InstallDir = $null
 } else {
     Write-Ok "Install folder: $script:InstallDir"
@@ -418,17 +407,24 @@ if (-not $script:InstallDir) {
 # Folders to back up and clear
 $folders = @()
 if ($script:InstallDir) {
-    $scpFolder = if ($configuredFolders['scp_folder']) { $configuredFolders['scp_folder'] } else { Join-Path $script:InstallDir 'SCP' }
-    $failedFolder = if ($configuredFolders['failed_scp_folder']) { $configuredFolders['failed_scp_folder'] } else { Join-Path $script:InstallDir 'FailedSCP' }
     $folders = @(
         @{ Name = 'logs';      Path = (Join-Path $script:InstallDir 'logs') },
-        @{ Name = 'SCP';       Path = $scpFolder },
-        @{ Name = 'FailedSCP'; Path = $failedFolder }
+        @{ Name = 'SCP';       Path = $configuredFolders['scp_folder'] },
+        @{ Name = 'FailedSCP'; Path = $configuredFolders['failed_scp_folder'] }
     )
     foreach ($f in $folders) {
-        if (-not [IO.Path]::IsPathRooted($f.Path)) { $f.Path = Join-Path $script:InstallDir $f.Path }
-        # No trailing '\' - robocopy would read "C:\x\" as an escaped quote
-        $f.Path = Get-NormalizedPath $f.Path
+        $default = Join-Path $script:InstallDir $f.Name
+        if (-not $f.Path) { $f.Path = $default }
+        # A malformed care_config value (e.g. a ':' after the drive letter) makes the path calls throw:
+        # use the default folder under the install folder instead, as for a blank setting
+        try {
+            if (-not [IO.Path]::IsPathRooted($f.Path)) { $f.Path = Join-Path $script:InstallDir $f.Path }
+            # No trailing '\' - robocopy would read "C:\x\" as an escaped quote
+            $f.Path = Get-NormalizedPath $f.Path
+        } catch {
+            Write-Info "$($f.Name) folder is set to '$($f.Path)', which is not a valid folder path - using $default instead."
+            $f.Path = Get-NormalizedPath $default
+        }
         $reason = Get-UnsafeFolderReason $f.Path
         if ($reason) {
             Write-Fail "$($f.Name) folder is set to $($f.Path), which will not be cleared because $reason." `
