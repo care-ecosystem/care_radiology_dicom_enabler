@@ -273,7 +273,7 @@ namespace Worklist_SCP
                 }
                 if (string.IsNullOrWhiteSpace(facilityId))
                 {
-                    RefreshLogger.Information($"[FACILITY][REFRESH] No Facility ID - {resolvedFrom}");
+                    RefreshLogger.Warning($"[FACILITY][REFRESH] No Facility ID - {resolvedFrom}");
                     return string.Empty;
                 }
                 return facilityId;

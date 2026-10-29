@@ -116,7 +116,11 @@ namespace Worklist_SCP
                 returnedItemsCount++;
             }
             UpdateStatusinDB(accessionNos);
-            fileLogger.Information($" C-FIND completed successfully: returned {returnedItemsCount} worklist items to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
+            if (returnedItemsCount == 0)
+                // The query keys logged above show which of the device's filters matched nothing
+                fileLogger.Warning($" C-FIND completed with no worklist items for AE {Association.CallingAE} with IP: {Association.RemoteHost} - check the order is scheduled in CARE and the query keys are correct");
+            else
+                fileLogger.Information($" C-FIND completed successfully: returned {returnedItemsCount} worklist items to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
             yield return new DicomCFindResponse(request, DicomStatus.Success);
             //}
         }
@@ -268,13 +272,13 @@ namespace Worklist_SCP
 
                     if (errorString != string.Empty)
                     {
-                        fileLogger.Information($"Updating DB with MWL Status failed for Accession No {accessionNo} with exception" + errorString);
+                        fileLogger.Error($"Updating DB with MWL Status failed for Accession No {accessionNo} with exception" + errorString);
                     }
                 }
             }
             catch (Exception ex)
             {
-                fileLogger.Information($"Update Status in Database Failed for MWL with exception" + ex.Message);
+                fileLogger.Error($"Update Status in Database Failed for MWL with exception" + ex.Message);
             }
             finally
             {

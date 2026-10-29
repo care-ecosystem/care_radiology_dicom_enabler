@@ -100,6 +100,15 @@ namespace Plexus_StoreSCP_Service.Network
         {
             _fileLogger.Information($"Received Association request from AE {association.CallingAE} with IP: {association.RemoteHost}");
             _fileLogger.Information($"Sending device: {RemoteDeviceInfo.Describe(association)}");
+            if (Global._aeTitle != association.CalledAE)
+            {
+                _fileLogger.Error($"Association Rejected: called AE {association.CalledAE} unknown (expected {Global._aeTitle}) - device {RemoteDeviceInfo.Describe(association)}");
+                return SendAssociationRejectAsync(
+                    DicomRejectResult.Permanent,
+                    DicomRejectSource.ServiceUser,
+                    DicomRejectReason.CalledAENotRecognized);
+            }
+
             if (!validateServer(association.CallingAE, association.RemoteHost))
             {
                 _fileLogger.Error($"Association Rejected: calling AE {association.CallingAE} with IP: {association.RemoteHost} is not in the Server List - device {RemoteDeviceInfo.Describe(association)}");
@@ -264,9 +273,10 @@ namespace Plexus_StoreSCP_Service.Network
                 dbUpdated = ReadDICOMPushDB(path, studyUid, instUid);
             }
 
-            _fileLogger.Information(dbUpdated
-                ? $" Saved to SCP folder for upload by the SCU service, database updated"
-                : $" Saved to SCP folder for upload by the SCU service, but the database was not updated - see the error above");
+            if (dbUpdated)
+                _fileLogger.Information($" Saved to SCP folder for upload by the SCU service, database updated");
+            else
+                _fileLogger.Warning($" Saved to SCP folder for upload by the SCU service, but the database was not updated - see the error above");
             _fileLogger.Information($"  - Study UID: {studyUid}");
             _fileLogger.Information($"  - Instance UID: {instUid}");
             _fileLogger.Information($"  - Accession Number: {accessionNo}");
