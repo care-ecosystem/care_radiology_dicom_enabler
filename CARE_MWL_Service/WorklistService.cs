@@ -97,7 +97,7 @@ namespace Worklist_SCP
             }
             catch (Exception ex)
             {
-                fileLogger.Error($"[C-FIND] Fetching the worklist for device {Device} failed with exception : {ex.Message} - returning a C-FIND failure");
+                fileLogger.Error($"[C-FIND] Fetching the worklist for device {Device} failed with exception : {ex.Message} - returning a C-FIND failure. Query keys: {RemoteDeviceInfo.DescribeQuery(request.Dataset)}");
                 results = null;
             }
             if (results == null)
@@ -117,8 +117,8 @@ namespace Worklist_SCP
             }
             UpdateStatusinDB(accessionNos);
             if (returnedItemsCount == 0)
-                // The query keys logged above show which of the device's filters matched nothing
-                fileLogger.Warning($" C-FIND completed with no worklist items for AE {Association.CallingAE} with IP: {Association.RemoteHost} - check the order is scheduled in CARE and the query keys are correct");
+                // The query keys show which of the device's filters matched nothing
+                fileLogger.Warning($" C-FIND completed with no worklist items for AE {Association.CallingAE} with IP: {Association.RemoteHost} - check the order is scheduled in CARE and the query keys are correct. Query keys: {RemoteDeviceInfo.DescribeQuery(request.Dataset)}");
             else
                 fileLogger.Information($" C-FIND completed successfully: returned {returnedItemsCount} worklist items to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
             yield return new DicomCFindResponse(request, DicomStatus.Success);
@@ -159,16 +159,20 @@ namespace Worklist_SCP
                     }
                     // The worklist is served from care_worklist. The CARE API is called only when no
                     // row there matches this query, then care_worklist is read again.
+                    // A modality in the query (0008,0060) replaces the Configuration tab modality for
+                    // both the care_worklist read and the CARE API refresh.
                     var itemsSource = CreateItemsSourceService;
-                    fileLogger.Information($"Fetching Records from care_worklist for Facility ID {facilityId}");
-                    var careWorklistItems = itemsSource.GetCareWorklistItemsFromDB(facilityId);
+                    string requestedModality = GetRequestedModality(request.Dataset);
+                    fileLogger.Information($"Fetching Records from care_worklist for Facility ID {facilityId}" +
+                        (requestedModality == null ? string.Empty : $", Modality {requestedModality} (from the C-FIND)"));
+                    var careWorklistItems = itemsSource.GetCareWorklistItemsFromDB(facilityId, requestedModality);
                     results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems).ToList();
                     if (results.Count == 0)
                     {
                         fileLogger.Information($"No care_worklist item matches the C-FIND from AE {Association.CallingAE} ({careWorklistItems.Count} scheduled) - refreshing care_worklist from the CARE worklist API");
-                        if (itemsSource.RefreshCareWorklistFromApi(facilityId))
+                        if (itemsSource.RefreshCareWorklistFromApi(facilityId, requestedModality))
                         {
-                            careWorklistItems = itemsSource.GetCareWorklistItemsFromDB(facilityId);
+                            careWorklistItems = itemsSource.GetCareWorklistItemsFromDB(facilityId, requestedModality);
                             results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems).ToList();
                         }
                         else
@@ -183,6 +187,26 @@ namespace Worklist_SCP
             }
 
             return results ?? WorklistHandler.FilterWorklistItems(request.Dataset, WorklistServer.CurrentWorklistItems).ToList();
+        }
+
+
+        /// <summary>
+        /// The Modality (0008,0060) the device asked for in the Scheduled Procedure Step Sequence, or
+        /// null when it sent none, an empty value or a wildcard.
+        /// </summary>
+        private static string GetRequestedModality(DicomDataset query)
+        {
+            if (query == null || !query.Contains(DicomTag.ScheduledProcedureStepSequence))
+                return null;
+
+            var procedureStep = query.GetSequence(DicomTag.ScheduledProcedureStepSequence).FirstOrDefault();
+            if (procedureStep == null || !procedureStep.TryGetString(DicomTag.Modality, out string modality))
+                return null;
+
+            modality = modality?.Trim();
+            if (string.IsNullOrEmpty(modality) || modality.Contains("*") || modality.Contains("?"))
+                return null;
+            return modality;
         }
 
 

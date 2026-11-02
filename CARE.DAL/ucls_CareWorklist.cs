@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
@@ -76,9 +77,10 @@ namespace Plexus.Common.Database
         }
 
         /// <summary>
-        /// Maps a worklist result to a care_worklist record. The facility ID and modality are the
-        /// Configuration tab values the worklist was fetched with (facility_id, and care_modality or
-        /// App.config careModality), not values from the response.
+        /// Maps a worklist result to a care_worklist record. The facility ID is the Configuration tab
+        /// value the worklist was fetched with, not a value from the response. The modality is the
+        /// name of the first location in the response, or the modality the worklist was fetched with
+        /// when the response has no location name.
         /// </summary>
         public static CareWorklistRecord ToCareWorklistRecord(CareWorklistResult item, string accessionNumber, string facilityId, string modality)
         {
@@ -91,7 +93,7 @@ namespace Plexus.Common.Database
                 ServiceRequestDate = sr?.date?.ToLocalTime(),
                 ServiceRequestBodySite = sr?.body_site,
                 ServiceRequestDescription = sr?.description,
-                ServiceRequestModality = NullIfBlank(modality),
+                ServiceRequestModality = NullIfBlank(item.locations?.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l?.name))?.name) ?? NullIfBlank(modality),
                 ServiceRequestProcedureId = sr?.procedure_id,
                 ServiceRequestPriority = sr?.priority,
                 ServiceRequestTechnicianInstruction = sr?.technician_instruction,

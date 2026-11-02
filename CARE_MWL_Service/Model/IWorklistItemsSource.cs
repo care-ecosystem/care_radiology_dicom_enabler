@@ -20,15 +20,17 @@ namespace Worklist_SCP.Model
 
         /// <summary>
         /// Reads the scheduled worklist for a single facility from care_worklist. Does not call the
-        /// CARE API.
+        /// CARE API. A modality given (the one the device queried with) replaces the Configuration
+        /// tab modality.
         /// </summary>
-        List<WorklistItem> GetCareWorklistItemsFromDB(string facilityId);
+        List<WorklistItem> GetCareWorklistItemsFromDB(string facilityId, string modality = null);
 
         /// <summary>
         /// Calls the CARE worklist API for a single facility and saves the response to care_worklist.
         /// The Facility ID is mandatory - with none given nothing is fetched and false is returned.
+        /// A modality given (the one the device queried with) replaces the Configuration tab modality.
         /// </summary>
-        bool RefreshCareWorklistFromApi(string facilityId);
+        bool RefreshCareWorklistFromApi(string facilityId, string modality = null);
 
     }
 }

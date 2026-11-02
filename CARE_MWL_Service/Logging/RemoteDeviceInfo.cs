@@ -94,7 +94,7 @@ namespace Plexus_MWL_Service.logs
 
         /// <summary>
         /// The keys a C-FIND query was sent with that have a value, including those inside sequences
-        /// (e.g. ScheduledProcedureStepSequence.ScheduledStationAETitle), to show what the device asked for.
+        /// (e.g. ScheduledProcedureStepSequence(0040,0100).ScheduledStationAETitle(0040,0001)), to show what the device asked for.
         /// </summary>
         public static string DescribeQuery(DicomDataset query)
         {
@@ -109,7 +109,8 @@ namespace Plexus_MWL_Service.logs
             foreach (DicomItem item in dataset)
             {
                 string keyword = item.Tag.DictionaryEntry.Keyword;
-                string name = prefix + (string.IsNullOrEmpty(keyword) ? item.Tag.ToString() : keyword);
+                // Keyword and tag number, e.g. ScheduledProcedureStepSequence(0040,0100).Modality(0008,0060)
+                string name = prefix + (string.IsNullOrEmpty(keyword) ? item.Tag.ToString() : keyword + item.Tag);
                 if (item is DicomSequence sequence)
                 {
                     foreach (DicomDataset sequenceItem in sequence.Items)

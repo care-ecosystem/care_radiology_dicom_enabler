@@ -4,6 +4,7 @@
 using FellowOakDicom;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 
@@ -60,6 +61,12 @@ namespace Worklist_SCP.Model
                     exams = AddDateCondition(exams, scheduledProcedureStepStartDateTime);
                 }
 
+                // Scheduled Procedure Step Start Date (0040,0002) and Time (0040,0003) are matched against
+                // the CARE service request date. When both are given they form one combined date-time range.
+                procedureStep.TryGetString(DicomTag.ScheduledProcedureStepStartDate, out string scheduledStartDate);
+                procedureStep.TryGetString(DicomTag.ScheduledProcedureStepStartTime, out string scheduledStartTime);
+                exams = AddScheduledStartCondition(exams, scheduledStartDate, scheduledStartTime);
+
                 // Optional (but commonly used) matching keys.
                 var procedureStepLocation = procedureStep.GetSingleValueOrDefault(DicomTag.ScheduledProcedureStepLocation, string.Empty);
                 if (!string.IsNullOrEmpty(procedureStepLocation))
@@ -76,8 +83,6 @@ namespace Worklist_SCP.Model
 
             var results = exams.ToList();
 
-            var scheduledDateTime = DateTime.Now;
-
             //  Parsing result
             foreach (var result in results)
             {
@@ -85,10 +90,10 @@ namespace Worklist_SCP.Model
                 var resultDataset = new DicomDataset();
                 var resultingSPSSequence = new DicomSequence(DicomTag.ScheduledProcedureStepSequence, resultingSPS);
 
-                resultDataset.Add(resultingSPSSequence);
-
-                resultingSPS.AddOrUpdate(DicomTag.ScheduledProcedureStepStartDate, scheduledDateTime); // (0040,0002) T1
-                resultingSPS.AddOrUpdate(DicomTag.ScheduledProcedureStepStartTime, scheduledDateTime); // (0040,0003) T1
+                if (procedureStep != null)
+                {
+                    resultDataset.Add(resultingSPSSequence);
+                }
 
                 // add results to "main" dataset
                 AddIfExistsInRequest(resultDataset, request, DicomTag.AccessionNumber, result.AccessionNumber);    // T2
@@ -127,6 +132,12 @@ namespace Worklist_SCP.Model
                 if (procedureStep != null)
                 {
                     AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledStationAETitle, result.ScheduledAET); // T1
+
+                    // Taken from the CARE service request date. Return key type 1 needs a value, so an
+                    // item without one is reported as scheduled now.
+                    var scheduledDateTime = result.ExamDateAndTime != default ? result.ExamDateAndTime : DateTime.Now;
+                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepStartDate, scheduledDateTime); // (0040,0002) T1
+                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepStartTime, scheduledDateTime); // (0040,0003) T1
                     AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.Modality, result.Modality); // T1
 
                     AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledPerformingPhysicianName, result.PerformingPhysician); //T2
@@ -186,6 +197,172 @@ namespace Worklist_SCP.Model
                 exams = exams.Where(x => range.Contains(x.ExamDateAndTime));
             }
             return exams;
+        }
+
+
+        // Applies DICOM range matching for the scheduled start date and time query keys:
+        // a single value matches its whole day (or hour/minute/second for a partial time),
+        // "A-B", "A-" and "-B" are inclusive ranges, and an empty value or "*" matches everything.
+        internal static IQueryable<WorklistItem> AddScheduledStartCondition(IQueryable<WorklistItem> exams, string dateCondition, string timeCondition)
+        {
+            var hasDate = TryParseDateRange(dateCondition, out DateTime? firstDate, out DateTime? lastDate);
+            var hasTime = TryParseTimeRange(timeCondition, out TimeSpan? fromTime, out TimeSpan? toTimeExclusive);
+
+            if (hasDate)
+            {
+                // Combined match: the time range bounds the first and last day of the date range.
+                DateTime? startAt = firstDate?.Add(hasTime ? fromTime ?? TimeSpan.Zero : TimeSpan.Zero);
+                DateTime? endBefore = lastDate?.Add(hasTime ? toTimeExclusive ?? TimeSpan.FromDays(1) : TimeSpan.FromDays(1));
+
+                exams = exams.Where(x => (!startAt.HasValue || x.ExamDateAndTime >= startAt.Value)
+                                      && (!endBefore.HasValue || x.ExamDateAndTime < endBefore.Value));
+            }
+            else if (hasTime)
+            {
+                exams = exams.Where(x => (!fromTime.HasValue || x.ExamDateAndTime.TimeOfDay >= fromTime.Value)
+                                      && (!toTimeExclusive.HasValue || x.ExamDateAndTime.TimeOfDay < toTimeExclusive.Value));
+            }
+
+            return exams;
+        }
+
+
+        // Returns false (no condition) for an empty, universal ("*") or unreadable value.
+        private static bool TryParseDateRange(string value, out DateTime? first, out DateTime? last)
+        {
+            first = null;
+            last = null;
+            if (string.IsNullOrWhiteSpace(value) || value.Trim() == "*")
+            {
+                return false;
+            }
+
+            var parts = value.Trim().Split('-');
+            if (parts.Length > 2)
+            {
+                return false;
+            }
+
+            if (!TryParseDicomDate(parts[0], out first))
+            {
+                return false;
+            }
+
+            if (parts.Length == 1)
+            {
+                last = first;
+            }
+            else if (!TryParseDicomDate(parts[1], out last))
+            {
+                return false;
+            }
+
+            return first.HasValue || last.HasValue;
+        }
+
+
+        // An empty part is an open end of a range and parses to null.
+        private static bool TryParseDicomDate(string value, out DateTime? date)
+        {
+            date = null;
+            value = value.Trim().Replace(".", string.Empty); // older devices send YYYY.MM.DD
+            if (value.Length == 0)
+            {
+                return true;
+            }
+
+            if (DateTime.TryParseExact(value, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsed))
+            {
+                date = parsed;
+                return true;
+            }
+            return false;
+        }
+
+
+        // Returns false (no condition) for an empty, universal ("*") or unreadable value.
+        // The upper bound is exclusive: "10" covers 10:00:00 up to (not including) 11:00:00.
+        private static bool TryParseTimeRange(string value, out TimeSpan? fromTime, out TimeSpan? toTimeExclusive)
+        {
+            fromTime = null;
+            toTimeExclusive = null;
+            if (string.IsNullOrWhiteSpace(value) || value.Trim() == "*")
+            {
+                return false;
+            }
+
+            var parts = value.Trim().Split('-');
+            if (parts.Length > 2)
+            {
+                return false;
+            }
+
+            if (!TryParseDicomTime(parts[0], out fromTime, out TimeSpan fromPrecision))
+            {
+                return false;
+            }
+
+            if (parts.Length == 1)
+            {
+                toTimeExclusive = fromTime + fromPrecision;
+            }
+            else
+            {
+                if (!TryParseDicomTime(parts[1], out TimeSpan? toTime, out TimeSpan toPrecision))
+                {
+                    return false;
+                }
+                toTimeExclusive = toTime + toPrecision;
+            }
+
+            return fromTime.HasValue || toTimeExclusive.HasValue;
+        }
+
+
+        // Reads HH, HHMM, HHMMSS or HHMMSS.FFFFFF; precision is the span the given digits cover.
+        // An empty part is an open end of a range and parses to null.
+        private static bool TryParseDicomTime(string value, out TimeSpan? time, out TimeSpan precision)
+        {
+            time = null;
+            precision = TimeSpan.Zero;
+            value = value.Trim().Replace(":", string.Empty); // older devices send HH:MM:SS
+            if (value.Length == 0)
+            {
+                return true;
+            }
+
+            var parts = value.Split('.');
+            var hms = parts[0];
+            if ((hms.Length != 2 && hms.Length != 4 && hms.Length != 6) || !hms.All(char.IsDigit) || parts.Length > 2)
+            {
+                return false;
+            }
+
+            int hours = int.Parse(hms.Substring(0, 2));
+            int minutes = hms.Length >= 4 ? int.Parse(hms.Substring(2, 2)) : 0;
+            int seconds = hms.Length == 6 ? int.Parse(hms.Substring(4, 2)) : 0;
+            if (hours > 23 || minutes > 59 || seconds > 59)
+            {
+                return false;
+            }
+
+            var parsed = new TimeSpan(hours, minutes, seconds);
+            precision = hms.Length == 2 ? TimeSpan.FromHours(1) : hms.Length == 4 ? TimeSpan.FromMinutes(1) : TimeSpan.FromSeconds(1);
+
+            if (parts.Length == 2)
+            {
+                var fraction = parts[1];
+                if (hms.Length != 6 || fraction.Length == 0 || fraction.Length > 6 || !fraction.All(char.IsDigit))
+                {
+                    return false;
+                }
+                // 7 fractional digits = ticks (100 ns)
+                parsed += TimeSpan.FromTicks(long.Parse(fraction.PadRight(7, '0')));
+                precision = TimeSpan.FromTicks((long)Math.Pow(10, 7 - fraction.Length));
+            }
+
+            time = parsed;
+            return true;
         }
 
 
