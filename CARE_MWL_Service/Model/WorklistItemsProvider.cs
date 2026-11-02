@@ -183,11 +183,11 @@ namespace Worklist_SCP.Model
 
         /// <summary>
         /// Builds the worklist shared with modalities from the SCHEDULED care_worklist rows for a
-        /// facility, limited to the given modality (the one the device queried with) or, when none is
-        /// given, the modality set in the Configuration tab (care_modality, or App.config
-        /// careModality when blank; blank in both returns every modality). Both are read on every call,
-        /// so a change in the Configuration tab applies to the next C-FIND. Reads only the local
-        /// table - the CARE API is called by RefreshCareWorklistFromApi.
+        /// facility, limited to the given modality (the one the device queried with); with none given,
+        /// every modality is returned (C-FIND does not call this without one, the periodic refresh
+        /// does to cache every scheduled item). The Configuration tab modality is not used here - it only
+        /// applies to the CARE API call. Reads only the local table - the CARE API is called by
+        /// RefreshCareWorklistFromApi.
         /// </summary>
         public List<WorklistItem> GetCareWorklistItemsFromDB(string facilityId, string modality = null)
         {
@@ -198,7 +198,7 @@ namespace Worklist_SCP.Model
             {
                 string errorString = string.Empty;
                 objDal = new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
-                modality = ResolveModality(modality);
+                modality = modality?.Trim() ?? string.Empty;
                 List<CareWorklistRecord> records = objDal.GetScheduledCareWorklist(facilityId, modality, ref errorString);
                 if (errorString != string.Empty)
                 {
@@ -224,10 +224,12 @@ namespace Worklist_SCP.Model
 
         /// <summary>
         /// Calls the CARE worklist API for a facility and saves the response to care_worklist with
-        /// SyncCareWorklist. Returns false when no Facility ID is given, the call fails, CARE does not
-        /// report success, or saving fails; the reason is logged.
+        /// SyncCareWorklist, limited to the modality set in the Configuration tab (care_modality, or
+        /// App.config careModality when blank; blank in both fetches every modality). Returns false
+        /// when no Facility ID is given, the call fails, CARE does not report success, or saving
+        /// fails; the reason is logged.
         /// </summary>
-        public bool RefreshCareWorklistFromApi(string facilityId, string modality = null)
+        public bool RefreshCareWorklistFromApi(string facilityId)
         {
             ucls_ReadWriteLog objReadWriteLog = new ucls_ReadWriteLog();
 
@@ -245,7 +247,7 @@ namespace Worklist_SCP.Model
                     objDal,
                     ConfigurationManager.AppSettings["careBaseUrl"] ?? string.Empty,
                     ConfigurationManager.AppSettings["careToken"] ?? string.Empty,
-                    ResolveModality(modality),
+                    WorklistServer.GetConfigSetting("care_modality", "careModality"),
                     WorklistServer.GetConfigSetting("care_from_date", "careFromDate"),
                     facilityId,
                     objReadWriteLog.WriteToLog);
@@ -259,17 +261,6 @@ namespace Worklist_SCP.Model
             {
                 objDal?.Dispose();
             }
-        }
-
-
-        /// <summary>
-        /// The modality the device queried with, or the Configuration tab modality when it gave none.
-        /// </summary>
-        private static string ResolveModality(string modality)
-        {
-            return !string.IsNullOrWhiteSpace(modality)
-                ? modality.Trim()
-                : WorklistServer.GetConfigSetting("care_modality", "careModality");
         }
 
 

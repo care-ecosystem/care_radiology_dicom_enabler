@@ -159,18 +159,24 @@ namespace Worklist_SCP
                     }
                     // The worklist is served from care_worklist. The CARE API is called only when no
                     // row there matches this query, then care_worklist is read again.
-                    // A modality in the query (0008,0060) replaces the Configuration tab modality for
-                    // both the care_worklist read and the CARE API refresh.
-                    var itemsSource = CreateItemsSourceService;
+                    // The care_worklist read is limited to the modality in the query (0008,0060); a
+                    // C-FIND without one gets no worklist. The CARE API refresh always uses the
+                    // Configuration tab modality.
                     string requestedModality = GetRequestedModality(request.Dataset);
-                    fileLogger.Information($"Fetching Records from care_worklist for Facility ID {facilityId}" +
-                        (requestedModality == null ? string.Empty : $", Modality {requestedModality} (from the C-FIND)"));
+                    if (requestedModality == null)
+                    {
+                        fileLogger.Warning($"C-FIND from AE {Association.CallingAE} has no Modality (0008,0060) query key - returning no worklist items. Set the modality on the device so it is sent in the worklist query");
+                        results = new List<DicomDataset>();
+                        break;
+                    }
+                    var itemsSource = CreateItemsSourceService;
+                    fileLogger.Information($"Fetching Records from care_worklist for Facility ID {facilityId}, Modality {requestedModality} (from the C-FIND)");
                     var careWorklistItems = itemsSource.GetCareWorklistItemsFromDB(facilityId, requestedModality);
                     results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems).ToList();
                     if (results.Count == 0)
                     {
                         fileLogger.Information($"No care_worklist item matches the C-FIND from AE {Association.CallingAE} ({careWorklistItems.Count} scheduled) - refreshing care_worklist from the CARE worklist API");
-                        if (itemsSource.RefreshCareWorklistFromApi(facilityId, requestedModality))
+                        if (itemsSource.RefreshCareWorklistFromApi(facilityId))
                         {
                             careWorklistItems = itemsSource.GetCareWorklistItemsFromDB(facilityId, requestedModality);
                             results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems).ToList();
