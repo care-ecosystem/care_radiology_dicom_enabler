@@ -2,6 +2,7 @@
 // Licensed under the Microsoft Public License (MS-PL).
 
 using FellowOakDicom;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -75,17 +76,19 @@ namespace Worklist_SCP.Model
 
             var results = exams.ToList();
 
-            //  Parsing result 
+            var scheduledDateTime = DateTime.Now;
+
+            //  Parsing result
             foreach (var result in results)
             {
                 var resultingSPS = new DicomDataset();
                 var resultDataset = new DicomDataset();
                 var resultingSPSSequence = new DicomSequence(DicomTag.ScheduledProcedureStepSequence, resultingSPS);
 
-                if (procedureStep != null)
-                {
-                    resultDataset.Add(resultingSPSSequence);
-                }
+                resultDataset.Add(resultingSPSSequence);
+
+                resultingSPS.AddOrUpdate(DicomTag.ScheduledProcedureStepStartDate, scheduledDateTime); // (0040,0002) T1
+                resultingSPS.AddOrUpdate(DicomTag.ScheduledProcedureStepStartTime, scheduledDateTime); // (0040,0003) T1
 
                 // add results to "main" dataset
                 AddIfExistsInRequest(resultDataset, request, DicomTag.AccessionNumber, result.AccessionNumber);    // T2
@@ -124,8 +127,6 @@ namespace Worklist_SCP.Model
                 if (procedureStep != null)
                 {
                     AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledStationAETitle, result.ScheduledAET); // T1
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepStartDate, result.ExamDateAndTime); //T1
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepStartTime, result.ExamDateAndTime); //T1
                     AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.Modality, result.Modality); // T1
 
                     AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledPerformingPhysicianName, result.PerformingPhysician); //T2
