@@ -50,7 +50,7 @@ namespace Worklist_SCP.Model
                 var modality = procedureStep.GetSingleValueOrDefault(DicomTag.Modality, string.Empty);
                 if (!string.IsNullOrEmpty(modality))
                 {
-                    exams = exams.Where(x => x.Modality == modality);
+                    exams = exams.Where(x => string.Equals(x.Modality, modality.Trim(), StringComparison.OrdinalIgnoreCase));
                 }
 
                 // if only date is specified, then using standard matching
@@ -138,7 +138,9 @@ namespace Worklist_SCP.Model
                     var scheduledDateTime = result.ExamDateAndTime != default ? result.ExamDateAndTime : DateTime.Now;
                     AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepStartDate, scheduledDateTime); // (0040,0002) T1
                     AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepStartTime, scheduledDateTime); // (0040,0003) T1
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.Modality, result.Modality); // T1
+                    // A modality that is not a valid CS value (over 16 characters, or characters such as
+                    // "-") would throw and fail the whole C-FIND, so it is sent empty instead.
+                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.Modality, IsValidCodeString(result.Modality) ? result.Modality : string.Empty); // T1
 
                     AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledPerformingPhysicianName, result.PerformingPhysician); //T2
                     AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepDescription, result.ExamDescription); // T1C
@@ -363,6 +365,14 @@ namespace Worklist_SCP.Model
 
             time = parsed;
             return true;
+        }
+
+
+        // CS VR: at most 16 characters, only uppercase letters, digits, space and underscore.
+        private static bool IsValidCodeString(string value)
+        {
+            return value != null && value.Length <= 16
+                && value.All(c => (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ' || c == '_');
         }
 
 

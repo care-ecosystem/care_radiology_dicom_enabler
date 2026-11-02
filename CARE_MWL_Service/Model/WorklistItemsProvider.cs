@@ -311,7 +311,9 @@ namespace Worklist_SCP.Model
             else
                 mwlItem.DateOfBirth = DateTime.Now;
 
-            mwlItem.Modality = record.ServiceRequestModality ?? string.Empty;
+            // CARE sends the location name (e.g. "CT Scan"); Modality (0008,0060) is a CS value,
+            // which allows only uppercase letters, digits, space and underscore.
+            mwlItem.Modality = (record.ServiceRequestModality ?? string.Empty).Trim().ToUpperInvariant();
             mwlItem.ExamDescription = record.ServiceRequestName ?? string.Empty;
             mwlItem.HospitalName = record.FacilityName ?? "CARE";
             mwlItem.FacilityId = record.FacilityId ?? string.Empty;
