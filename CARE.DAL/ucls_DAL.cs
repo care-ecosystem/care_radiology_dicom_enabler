@@ -595,8 +595,9 @@ namespace Plexus.Common.Database
         /// <summary>
         /// Brings the local CARE tables in line with one CARE worklist response. Each item's patient
         /// and service request are inserted into care_patient and care_service_request, or refreshed
-        /// with the latest values if already there. Accession numbers not yet in care_worklist are
-        /// inserted, linked to that patient and service request; worklist rows already there are left
+        /// with the latest values if already there (a blank modality keeps the one already saved).
+        /// Accession numbers not yet in care_worklist are inserted, linked to that patient and service
+        /// request; worklist rows already there are left
         /// untouched. Rows still SCHEDULED whose accession number is not in this response are marked
         /// COMPLETED, but only rows for the facilityId and modality the response was fetched with
         /// (a blank modality covers every modality), so changing either in the Configuration tab leaves
@@ -627,7 +628,7 @@ namespace Plexus.Common.Database
                     "(@service_request_id, @name, @date, @body_site, @description, @modality, @procedure_id, @priority, " +
                     "@technician_instruction, @patient_instruction) " +
                     "ON DUPLICATE KEY UPDATE name = VALUES(name), date = VALUES(date), body_site = VALUES(body_site), description = VALUES(description), " +
-                    "modality = VALUES(modality), procedure_id = VALUES(procedure_id), priority = VALUES(priority), " +
+                    "modality = COALESCE(VALUES(modality), modality), procedure_id = VALUES(procedure_id), priority = VALUES(priority), " +
                     "technician_instruction = VALUES(technician_instruction), patient_instruction = VALUES(patient_instruction)";
 
                 const string deleteDevicesQuery =
