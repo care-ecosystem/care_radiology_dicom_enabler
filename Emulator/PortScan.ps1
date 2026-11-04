@@ -66,8 +66,8 @@ Live listening
 #>
 [CmdletBinding()]
 param(
-    # Reports stay next to the script so whoever is checking an issue finds them in the install folder
-    [string]$ReportDir = (Join-Path $PSScriptRoot 'results'),
+    # Default (set below): the results folder next to this script
+    [string]$ReportDir,
     [string]$ConfigPath,
     [string[]]$CandidateAETitles = @('STORESCP', 'STORAGESCP', 'STORE_SCP', 'MODALITYSCP', 'MWLSCP',
                                      'MWL_SCP', 'WORKLIST', 'MWL', 'PACS', 'ORTHANC', 'DCM4CHEE',
@@ -86,6 +86,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+
+# Reports stay next to the script so whoever is checking an issue finds them in the install folder
+if (-not $ReportDir) { $ReportDir = Join-Path $ScriptDir 'results' }
 
 $AnyAETitle     = 'ANY-SCP'
 $VerificationUid = '1.2.840.10008.1.1'
@@ -1037,7 +1042,7 @@ if ($SearchConfig) {
 # --- configured AE titles ---
 Write-Step 'Reading DICOM Enabler configuration'
 # The build ships this script in <install folder>\scripts\utilities, so the install folder is two levels up
-if (-not $ConfigPath) { $ConfigPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'cfg\common.cfg' }
+if (-not $ConfigPath) { $ConfigPath = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) 'cfg\common.cfg' }
 $ConfiguredPorts = @{}   # port -> @{ AE; For }
 $ConfiguredAEs = @()
 if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) {
