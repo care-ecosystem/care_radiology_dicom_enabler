@@ -75,7 +75,7 @@ namespace Plexus_SCU_Service
             }
 
             string tokenError = string.Empty;
-            if (string.IsNullOrEmpty(ucls_CareAuth.RequireServiceToken(ConfigurationManager.AppSettings["careServiceToken"], ref tokenError)))
+            if (string.IsNullOrEmpty(ucls_CareAuth.RequireServiceToken(WriteToLog, ref tokenError)))
             {
                 WriteToLog("Store SCU Service not started: " + tokenError, false);
                 ExitCode = 1;
