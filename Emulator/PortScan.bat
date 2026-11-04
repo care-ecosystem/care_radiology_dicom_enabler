@@ -5,7 +5,7 @@ echo ========================================
 
 REM Lists the open TCP ports on this machine, finds the DICOM AE title on each
 REM port that runs a DICOM service, and writes a report to
-REM C:\ProgramData\CARE DICOM Enabler\PortReports\PortReport_<date-time>.csv
+REM the results folder next to this script (scripts\utilities\results\PortReport_<date-time>.csv)
 REM On a rerun it compares with the previous report and shows the new ports.
 REM Run as Administrator so every process and service name can be read.
 REM Options are passed on to PortScan.ps1, e.g.  PortScan.bat -IncludeUdp

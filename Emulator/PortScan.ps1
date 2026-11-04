@@ -28,9 +28,10 @@ Report
   The newest earlier PortReport_*.csv in the same folder is the one compared against.
 
 Parameters (all optional)
-  -ReportDir          Folder for reports  (default: C:\ProgramData\CARE DICOM Enabler\PortReports)
+  -ReportDir          Folder for reports  (default: the results folder next to this script,
+                      <install folder>\scripts\utilities\results)
   -ConfigPath         common.cfg to read   (default: <install folder>\cfg\common.cfg, where the
-                      install folder is the parent of this script's folder)
+                      install folder is two levels above this script: <install folder>\scripts\utilities)
   -CandidateAETitles  Extra AE titles to try on SCPs that enforce their called AE title
   -CallingAETitle     Calling AE title used by the probe (default: PORTSCAN)
   -SkipProbePorts     Ports listed but never probed
@@ -65,7 +66,8 @@ Live listening
 #>
 [CmdletBinding()]
 param(
-    [string]$ReportDir = (Join-Path $env:ProgramData 'CARE DICOM Enabler\PortReports'),
+    # Reports stay next to the script so whoever is checking an issue finds them in the install folder
+    [string]$ReportDir = (Join-Path $PSScriptRoot 'results'),
     [string]$ConfigPath,
     [string[]]$CandidateAETitles = @('STORESCP', 'STORAGESCP', 'STORE_SCP', 'MODALITYSCP', 'MWLSCP',
                                      'MWL_SCP', 'WORKLIST', 'MWL', 'PACS', 'ORTHANC', 'DCM4CHEE',
@@ -1034,7 +1036,8 @@ if ($SearchConfig) {
 
 # --- configured AE titles ---
 Write-Step 'Reading DICOM Enabler configuration'
-if (-not $ConfigPath) { $ConfigPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'cfg\common.cfg' }
+# The build ships this script in <install folder>\scripts\utilities, so the install folder is two levels up
+if (-not $ConfigPath) { $ConfigPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'cfg\common.cfg' }
 $ConfiguredPorts = @{}   # port -> @{ AE; For }
 $ConfiguredAEs = @()
 if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) {

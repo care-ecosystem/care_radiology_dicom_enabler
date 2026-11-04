@@ -291,13 +291,12 @@
       <Link>scripts\Reset.ps1</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <!-- PortScan.ps1 finds cfg\common.cfg in the parent of its own folder. -->
     <Content Include="Emulator\PortScan.bat">
-      <Link>scripts\PortScan.bat</Link>
+      <Link>scripts\utilities\PortScan.bat</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Emulator\PortScan.ps1">
-      <Link>scripts\PortScan.ps1</Link>
+      <Link>scripts\utilities\PortScan.ps1</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
