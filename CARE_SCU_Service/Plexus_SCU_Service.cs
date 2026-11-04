@@ -69,12 +69,21 @@ namespace Plexus_SCU_Service
 
         protected override void OnStart(string[] args)
         {
+            if (fileLogger == null)
+            {
+                fileLogger = GetFileLogger();
+            }
+
+            string tokenError = string.Empty;
+            if (string.IsNullOrEmpty(ucls_CareAuth.RequireServiceToken(WriteToLog, ref tokenError)))
+            {
+                WriteToLog("Store SCU Service not started: " + tokenError, false);
+                ExitCode = 1;
+                throw new InvalidOperationException(tokenError);
+            }
+
             try
             {
-                if (fileLogger == null)
-                {
-                    fileLogger = GetFileLogger();
-                }
                 if (objDAL == null)
                 {
                     string applicationPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);

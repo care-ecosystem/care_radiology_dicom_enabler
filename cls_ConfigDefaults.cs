@@ -79,7 +79,7 @@ namespace Plexus_DICOM_Enabler.Forms
         /// Reads an appSettings value from a service's .exe.config installed next to this application.
         /// Returns null when the file or the key is missing.
         /// </summary>
-        private static string ReadServiceSetting(string serviceAssembly, string key)
+        public static string ReadServiceSetting(string serviceAssembly, string key)
         {
             try
             {
