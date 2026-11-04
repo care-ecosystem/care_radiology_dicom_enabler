@@ -9,6 +9,7 @@ name: Build CARE DICOM Enabler
 #   CARE Server Settings (baked into EXE):
 #     - CARE Server URL
 #     - CARE API Token
+#     - CARE Service Account Token (stored AES-encrypted)
 #     - DICOM Modality Filter
 #     - Scheduled Station AE Title
 #     - Worklist From Date
@@ -28,6 +29,10 @@ name: Build CARE DICOM Enabler
 #   Secrets tab (masked in logs):
 #     CARE_BASE_URL    e.g. https://care.example.org
 #     CARE_API_TOKEN   the radiology plugin API token
+#     CARE_SERVICE_TOKEN  REQUIRED, the token generated for a CARE service account. Baked in
+#                      The Configuration tab lists the facilities
+#                      it can access, and the Store SCU service will not start without it. The build
+#                      fails when neither this secret nor the care_service_token input is set
 #
 #   Variables tab (appear in the artifact filename, so not secrets):
 #     CARE_MODALITY    optional, e.g. CT   (leave unset for all modalities)
@@ -84,6 +89,11 @@ on:
         required: false
         default: ''
         type: string
+      care_service_token:
+        description: 'CARE Service Account Token (encrypted, then baked into EXE; required unless the CARE_SERVICE_TOKEN secret is set)'
+        required: false
+        default: ''
+        type: string
       care_modality:
         description: 'DICOM Modality Filter (baked into EXE)'
         required: false
@@ -136,6 +146,7 @@ jobs:
       # Sensitive -> Secrets (masked in logs)
       CARE_BASE_URL:  ${{ inputs.care_server_url != '' && inputs.care_server_url || secrets.CARE_BASE_URL }}
       CARE_API_TOKEN: ${{ inputs.care_api_token  != '' && inputs.care_api_token  || secrets.CARE_API_TOKEN }}
+      CARE_SERVICE_TOKEN: ${{ inputs.care_service_token != '' && inputs.care_service_token || secrets.CARE_SERVICE_TOKEN }}
       # Non-sensitive -> Variables. These end up in the artifact filename, and a
       # masked secret would render there as "***", so they must not be secrets.
       CARE_MODALITY:  ${{ inputs.care_modality   != '' && inputs.care_modality   || vars.CARE_MODALITY }}
@@ -168,6 +179,7 @@ jobs:
         run: |
           $serverUrl = "$env:CARE_BASE_URL"
           $apiToken  = "$env:CARE_API_TOKEN"
+          $serviceToken = "$env:CARE_SERVICE_TOKEN".Trim()
           $modality  = "$env:CARE_MODALITY"
           $scheduledAet = "$env:CARE_SCHEDULED_AET".Trim()
           $fromDate  = "$env:CARE_FROM_DATE"
@@ -194,13 +206,16 @@ jobs:
             exit 1
           }
 
-          if (-not ($serverUrl -or $apiToken -or $modality -or $scheduledAet -or $fromDate -or $backend -or $maxRetries -or $refreshStart -or $refreshInterval)) {
-            Write-Output "No CARE settings supplied - keeping App.config defaults."
-            exit 0
+          # The service account token is mandatory: a build without it would ship services that
+          # cannot authenticate to CARE. (The input is not marked required: true because the
+          # repository secret is the normal source and push / PR builds have no inputs.)
+          if (-not $serviceToken) {
+            Write-Error "CARE Service Account Token is required. Set the CARE_SERVICE_TOKEN repository secret (Settings > Secrets and variables > Actions) or pass the care_service_token input."
+            exit 1
           }
 
           # Keys whose values are credentials: log a length, never the value.
-          $secretKeys = @('careToken', 'staticAPIKey', 'jwtToken')
+          $secretKeys = @('careToken', 'careServiceToken', 'staticAPIKey', 'jwtToken')
 
           function Update-ConfigFile([string]$path, [hashtable]$settings) {
             if (-not (Test-Path $path)) {
@@ -241,8 +256,23 @@ jobs:
             }
           }
 
+          # Encrypt the service account token exactly as CARE.Common ucls_EnDcryption does (AES, key from
+          # EncKey.cs as UTF-8, zero IV, CBC/PKCS7, base64) so the services and the Configuration tab can
+          # decrypt it, and so the plain token is never written to a config file.
+          $encServiceToken = ''
+          if ($serviceToken) {
+            $keyText = (Select-String -Path 'CARE.DAL\EncKey.cs' -Pattern 'encdeKey\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+            $aes = [System.Security.Cryptography.Aes]::Create()
+            $aes.Key = [Text.Encoding]::UTF8.GetBytes($keyText)
+            $aes.IV  = New-Object byte[] 16
+            $plain = [Text.Encoding]::UTF8.GetBytes($serviceToken)
+            $encServiceToken = [Convert]::ToBase64String($aes.CreateEncryptor().TransformFinalBlock($plain, 0, $plain.Length))
+            $aes.Dispose()
+          }
+
           # Worklist
           Update-ConfigFile "CARE_MWL_Service\App.config" @{
+            careServiceToken = $encServiceToken
             backend      = $backend
             careBaseUrl  = $serverUrl
             careToken    = $apiToken
@@ -256,6 +286,7 @@ jobs:
           # DICOM upload, and the worklist refresh done when an uploaded file's
           # accession number is not in care_worklist (same modality / from date as the MWL service)
           Update-ConfigFile "CARE_SCU_Service\App.config" @{
+            careServiceToken  = $encServiceToken
             careBackendURL    = $serverUrl
             staticAPIKey      = $apiToken
             maxUploadRetries  = $maxRetries
@@ -282,6 +313,9 @@ jobs:
           # error. Print a fingerprint so the operator can compare it against the
           # server's CARE_RADIOLOGY_WEBHOOK_SECRET without either side echoing the
           # secret:  echo -n "$SECRET" | sha256sum
+          if ($serviceToken) {
+            Write-Output "Service account token baked in encrypted ($($serviceToken.Length) chars)."
+          }
           if ($apiToken) {
             $sha = [System.Security.Cryptography.SHA256]::Create()
             $hash = [BitConverter]::ToString(

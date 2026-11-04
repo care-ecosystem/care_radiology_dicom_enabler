@@ -854,6 +854,8 @@ namespace Plexus_DICOM_Enabler
                         value = cls_ConfigDefaults.GetConfigDefault(field.Key);
                     field.Value.Text = value;
                 }
+
+                LoadFacilities();
             }
             catch (Exception ex)
             {
@@ -867,13 +869,128 @@ namespace Plexus_DICOM_Enabler
             }
         }
 
+        private System.Collections.Generic.List<CareFacilityInfo> careFacilities = new System.Collections.Generic.List<CareFacilityInfo>();
+        private bool loadingFacilities;
+
+        // Typing in the search box filters the dropdown through CARE's ?name= filter once typing pauses
+        private readonly System.Windows.Forms.Timer facilitySearchTimer = new System.Windows.Forms.Timer { Interval = 500 };
+        private bool facilitySearchTimerHooked;
+
+        /// <summary>
+        /// Fills the Facility dropdown from CARE using the service account token baked into the build. Without
+        /// a valid token the dropdown is empty.
+        /// </summary>
+        private void LoadFacilities()
+        {
+            if (!facilitySearchTimerHooked)
+            {
+                facilitySearchTimer.Tick += (s, e) =>
+                {
+                    facilitySearchTimer.Stop();
+                    SearchFacilities(mtxtb_FacilitySearch.Text, false);
+                };
+                facilitySearchTimerHooked = true;
+            }
+
+            loadingFacilities = true;
+            facilitySearchTimer.Stop();
+            mtxtb_FacilitySearch.Text = string.Empty;
+            loadingFacilities = false;
+
+            SearchFacilities(string.Empty, true);
+        }
+
+        /// <summary>
+        /// Lists the facilities whose name contains the text (all when blank) in the dropdown, keeping the
+        /// current facility selected when it is in the list. On the initial load, no token, a failed call or no
+        /// facilities leaves the dropdown empty; a failed search leaves the dropdown as it was.
+        /// </summary>
+        private void SearchFacilities(string name, bool initialLoad)
+        {
+            loadingFacilities = true;
+            try
+            {
+                string errorString = string.Empty;
+                string serviceToken = ucls_CareAuth.DecryptToken(cls_ConfigDefaults.ReadServiceSetting("CARE_MWL_Service", "careServiceToken"), ref errorString);
+                System.Collections.Generic.List<CareFacilityInfo> facilities = null;
+                if (!string.IsNullOrEmpty(serviceToken))
+                {
+                    string baseUrl = cls_ConfigDefaults.ReadServiceSetting("CARE_MWL_Service", "careBaseUrl");
+                    this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
+                    facilities = ucls_CareAuth.FetchFacilities(baseUrl, serviceToken, name, ref errorString);
+                }
+
+                if (facilities == null || (initialLoad && facilities.Count == 0))
+                {
+                    if (initialLoad)
+                        ShowFacilityDropdown(false);
+                    return;
+                }
+
+                careFacilities = facilities;
+                string currentId = mtxtb_FacilityId.Text.Trim();
+                int selectedIndex = -1;
+                mcb_Facility.Items.Clear();
+                for (int i = 0; i < facilities.Count; i++)
+                {
+                    mcb_Facility.Items.Add(facilities[i].name);
+                    if (string.Equals(facilities[i].id, currentId, StringComparison.OrdinalIgnoreCase))
+                        selectedIndex = i;
+                }
+                mcb_Facility.SelectedIndex = selectedIndex;
+                if (initialLoad)
+                    ShowFacilityDropdown(true);
+            }
+            catch (Exception)
+            {
+                if (initialLoad)
+                    ShowFacilityDropdown(false);
+            }
+            finally
+            {
+                this.Cursor = System.Windows.Forms.Cursors.Default;
+                loadingFacilities = false;
+            }
+        }
+
+        /// <summary>
+        /// </summary>
+        private void ShowFacilityDropdown(bool hasFacilities)
+        {
+            mcb_Facility.Visible = true;
+            lbl_FacilitySearch.Visible = true;
+            mtxtb_FacilitySearch.Visible = true;
+            mtxtb_FacilityId.Visible = false;
+            lbl_FacilityId.Text = "Facility *";
+            if (!hasFacilities)
+            {
+                mcb_Facility.Items.Clear();
+                careFacilities = new System.Collections.Generic.List<CareFacilityInfo>();
+            }
+        }
+
+        private void mtxtb_FacilitySearch_TextChanged(object sender, EventArgs e)
+        {
+            if (loadingFacilities)
+                return;
+            facilitySearchTimer.Stop();
+            facilitySearchTimer.Start();
+        }
+
+        private void mcb_Facility_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (loadingFacilities || mcb_Facility.SelectedIndex < 0 || mcb_Facility.SelectedIndex >= careFacilities.Count)
+                return;
+            mtxtb_FacilityId.Text = careFacilities[mcb_Facility.SelectedIndex].id;
+        }
+
         private void mbtn_SaveConfig_Click(object sender, EventArgs e)
         {
             try
             {
                 if (string.IsNullOrWhiteSpace(mtxtb_FacilityId.Text))
                 {
-                    MessageBox.Show(this, "Please enter the Facility Id. The CARE worklist is not fetched without it.",
+                    MessageBox.Show(this, "Please select the Facility. The CARE worklist is not fetched without it.",
                                      "Check Mandatory", MessageBoxButtons.OK,
                                      MessageBoxIcon.Error);
                     return;
