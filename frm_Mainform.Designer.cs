@@ -108,9 +108,8 @@ namespace Plexus_DICOM_Enabler
             this.grpb_UploadSettings = new System.Windows.Forms.GroupBox();
             this.lbl_FacilityId = new MaterialSkin.Controls.MaterialLabel();
             this.mtxtb_FacilityId = new MaterialSkin.Controls.MaterialTextBox();
-            this.mcb_Facility = new MaterialSkin.Controls.MaterialComboBox();
-            this.lbl_FacilitySearch = new MaterialSkin.Controls.MaterialLabel();
-            this.mtxtb_FacilitySearch = new MaterialSkin.Controls.MaterialTextBox();
+            this.mtxtb_Facility = new MaterialSkin.Controls.MaterialTextBox();
+            this.lst_Facility = new System.Windows.Forms.ListBox();
             this.lbl_CareModality = new MaterialSkin.Controls.MaterialLabel();
             this.mtxtb_CareModality = new MaterialSkin.Controls.MaterialTextBox();
             this.lbl_CareFromDate = new MaterialSkin.Controls.MaterialLabel();
@@ -1102,6 +1101,7 @@ namespace Plexus_DICOM_Enabler
             //
             this.tbp_Configuration.AutoScroll = true;
             this.tbp_Configuration.Controls.Add(this.mbtn_SaveConfig);
+            this.tbp_Configuration.Controls.Add(this.lst_Facility);
             this.tbp_Configuration.Controls.Add(this.grpb_CareSettings);
             this.tbp_Configuration.Controls.Add(this.grpb_UploadSettings);
             this.tbp_Configuration.ImageKey = "configuration.png";
@@ -1137,9 +1137,7 @@ namespace Plexus_DICOM_Enabler
             //
             this.grpb_CareSettings.Controls.Add(this.lbl_FacilityId);
             this.grpb_CareSettings.Controls.Add(this.mtxtb_FacilityId);
-            this.grpb_CareSettings.Controls.Add(this.mcb_Facility);
-            this.grpb_CareSettings.Controls.Add(this.lbl_FacilitySearch);
-            this.grpb_CareSettings.Controls.Add(this.mtxtb_FacilitySearch);
+            this.grpb_CareSettings.Controls.Add(this.mtxtb_Facility);
             this.grpb_CareSettings.Controls.Add(this.lbl_CareModality);
             this.grpb_CareSettings.Controls.Add(this.mtxtb_CareModality);
             this.grpb_CareSettings.Controls.Add(this.lbl_CareFromDate);
@@ -1184,70 +1182,51 @@ namespace Plexus_DICOM_Enabler
             this.mtxtb_FacilityId.TrailingIcon = null;
             this.mtxtb_FacilityId.Visible = false;
             //
-            // mcb_Facility
+            // mtxtb_Facility
             //
-            this.mcb_Facility.AutoResize = false;
-            this.mcb_Facility.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
-            this.mcb_Facility.Depth = 0;
-            this.mcb_Facility.DrawMode = System.Windows.Forms.DrawMode.OwnerDrawVariable;
-            this.mcb_Facility.DropDownHeight = 174;
-            this.mcb_Facility.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.mcb_Facility.DropDownWidth = 300;
-            this.mcb_Facility.Font = new System.Drawing.Font("Microsoft Sans Serif", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.mcb_Facility.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
-            this.mcb_Facility.FormattingEnabled = true;
-            this.mcb_Facility.IntegralHeight = false;
-            this.mcb_Facility.ItemHeight = 43;
-            this.mcb_Facility.Location = new System.Drawing.Point(230, 36);
-            this.mcb_Facility.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.mcb_Facility.MaxDropDownItems = 4;
-            this.mcb_Facility.MouseState = MaterialSkin.MouseState.OUT;
-            this.mcb_Facility.Name = "mcb_Facility";
-            this.mcb_Facility.Size = new System.Drawing.Size(200, 49);
-            this.mcb_Facility.StartIndex = 0;
-            this.mcb_Facility.TabIndex = 1;
-            this.mcb_Facility.Visible = true;
-            this.mcb_Facility.SelectedIndexChanged += new System.EventHandler(this.mcb_Facility_SelectedIndexChanged);
+            this.mtxtb_Facility.AnimateReadOnly = false;
+            this.mtxtb_Facility.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.mtxtb_Facility.Depth = 0;
+            this.mtxtb_Facility.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
+            this.mtxtb_Facility.Hint = "Click to choose a facility, or type to search";
+            this.mtxtb_Facility.LeadingIcon = null;
+            this.mtxtb_Facility.Location = new System.Drawing.Point(230, 36);
+            this.mtxtb_Facility.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
+            this.mtxtb_Facility.MaxLength = 100;
+            this.mtxtb_Facility.MouseState = MaterialSkin.MouseState.OUT;
+            this.mtxtb_Facility.Multiline = false;
+            this.mtxtb_Facility.Name = "mtxtb_Facility";
+            this.mtxtb_Facility.Size = new System.Drawing.Size(630, 50);
+            this.mtxtb_Facility.TabIndex = 1;
+            this.mtxtb_Facility.Text = "";
+            this.mtxtb_Facility.TrailingIcon = null;
+            this.mtxtb_Facility.TextChanged += new System.EventHandler(this.mtxtb_Facility_TextChanged);
+            this.mtxtb_Facility.Click += new System.EventHandler(this.mtxtb_Facility_Click);
+            this.mtxtb_Facility.KeyDown += new System.Windows.Forms.KeyEventHandler(this.mtxtb_Facility_KeyDown);
+            this.mtxtb_Facility.Leave += new System.EventHandler(this.mtxtb_Facility_Leave);
             //
-            // lbl_FacilitySearch
+            // lst_Facility
             //
-            this.lbl_FacilitySearch.AutoSize = true;
-            this.lbl_FacilitySearch.Depth = 0;
-            this.lbl_FacilitySearch.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_FacilitySearch.Location = new System.Drawing.Point(460, 130);
-            this.lbl_FacilitySearch.MouseState = MaterialSkin.MouseState.HOVER;
-            this.lbl_FacilitySearch.Name = "lbl_FacilitySearch";
-            this.lbl_FacilitySearch.TabIndex = 20;
-            this.lbl_FacilitySearch.Text = "Search Facility";
-            this.lbl_FacilitySearch.Visible = true;
-            //
-            // mtxtb_FacilitySearch
-            //
-            this.mtxtb_FacilitySearch.AnimateReadOnly = false;
-            this.mtxtb_FacilitySearch.BorderStyle = System.Windows.Forms.BorderStyle.None;
-            this.mtxtb_FacilitySearch.Depth = 0;
-            this.mtxtb_FacilitySearch.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
-            this.mtxtb_FacilitySearch.Hint = "Type a facility name";
-            this.mtxtb_FacilitySearch.LeadingIcon = null;
-            this.mtxtb_FacilitySearch.Location = new System.Drawing.Point(660, 116);
-            this.mtxtb_FacilitySearch.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.mtxtb_FacilitySearch.MaxLength = 100;
-            this.mtxtb_FacilitySearch.MouseState = MaterialSkin.MouseState.OUT;
-            this.mtxtb_FacilitySearch.Multiline = false;
-            this.mtxtb_FacilitySearch.Name = "mtxtb_FacilitySearch";
-            this.mtxtb_FacilitySearch.Size = new System.Drawing.Size(200, 50);
-            this.mtxtb_FacilitySearch.TabIndex = 21;
-            this.mtxtb_FacilitySearch.Text = "";
-            this.mtxtb_FacilitySearch.TrailingIcon = null;
-            this.mtxtb_FacilitySearch.Visible = true;
-            this.mtxtb_FacilitySearch.TextChanged += new System.EventHandler(this.mtxtb_FacilitySearch_TextChanged);
+            this.lst_Facility.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.lst_Facility.Font = new System.Drawing.Font("Segoe UI", 10F);
+            this.lst_Facility.FormattingEnabled = true;
+            this.lst_Facility.IntegralHeight = false;
+            this.lst_Facility.Location = new System.Drawing.Point(310, 100);
+            this.lst_Facility.Name = "lst_Facility";
+            this.lst_Facility.Size = new System.Drawing.Size(630, 150);
+            this.lst_Facility.TabIndex = 30;
+            this.lst_Facility.TabStop = false;
+            this.lst_Facility.Visible = false;
+            this.lst_Facility.MouseClick += new System.Windows.Forms.MouseEventHandler(this.lst_Facility_MouseClick);
+            this.lst_Facility.KeyDown += new System.Windows.Forms.KeyEventHandler(this.lst_Facility_KeyDown);
+            this.lst_Facility.Leave += new System.EventHandler(this.lst_Facility_Leave);
             //
             // lbl_CareModality
             //
             this.lbl_CareModality.AutoSize = true;
             this.lbl_CareModality.Depth = 0;
             this.lbl_CareModality.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_CareModality.Location = new System.Drawing.Point(460, 50);
+            this.lbl_CareModality.Location = new System.Drawing.Point(510, 130);
             this.lbl_CareModality.MouseState = MaterialSkin.MouseState.HOVER;
             this.lbl_CareModality.Name = "lbl_CareModality";
             this.lbl_CareModality.TabIndex = 2;
@@ -1260,7 +1239,7 @@ namespace Plexus_DICOM_Enabler
             this.mtxtb_CareModality.Depth = 0;
             this.mtxtb_CareModality.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
             this.mtxtb_CareModality.LeadingIcon = null;
-            this.mtxtb_CareModality.Location = new System.Drawing.Point(660, 36);
+            this.mtxtb_CareModality.Location = new System.Drawing.Point(660, 116);
             this.mtxtb_CareModality.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.mtxtb_CareModality.MaxLength = 50;
             this.mtxtb_CareModality.MouseState = MaterialSkin.MouseState.OUT;
@@ -1770,9 +1749,8 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.GroupBox grpb_UploadSettings;
         private MaterialSkin.Controls.MaterialLabel lbl_FacilityId;
         private MaterialSkin.Controls.MaterialTextBox mtxtb_FacilityId;
-        private MaterialSkin.Controls.MaterialComboBox mcb_Facility;
-        private MaterialSkin.Controls.MaterialLabel lbl_FacilitySearch;
-        private MaterialSkin.Controls.MaterialTextBox mtxtb_FacilitySearch;
+        private MaterialSkin.Controls.MaterialTextBox mtxtb_Facility;
+        private System.Windows.Forms.ListBox lst_Facility;
         private MaterialSkin.Controls.MaterialLabel lbl_CareModality;
         private MaterialSkin.Controls.MaterialTextBox mtxtb_CareModality;
         private MaterialSkin.Controls.MaterialLabel lbl_CareFromDate;

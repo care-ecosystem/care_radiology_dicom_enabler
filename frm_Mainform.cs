@@ -842,7 +842,7 @@ namespace Plexus_DICOM_Enabler
                 foreach (DataRow row in dsResult.Tables[0].Rows)
                 {
                     string key = row["config_key"].ToString();
-                    if (fields.ContainsKey(key))
+                    if (fields.ContainsKey(key) || key == FacilityNameConfigKey)
                         loadedConfigValues[key] = row["config_value"].ToString().Trim();
                 }
 
@@ -869,16 +869,19 @@ namespace Plexus_DICOM_Enabler
             }
         }
 
-        private System.Collections.Generic.List<CareFacilityInfo> careFacilities = new System.Collections.Generic.List<CareFacilityInfo>();
+        private System.Collections.Generic.List<CareFacilityInfo> allFacilities = new System.Collections.Generic.List<CareFacilityInfo>();
+        private System.Collections.Generic.List<CareFacilityInfo> listedFacilities = new System.Collections.Generic.List<CareFacilityInfo>();
+        private string facilityListMessage = string.Empty;   // shown in the list when it has no facilities
+        private string selectedFacilityName = string.Empty;   // blank when the saved facility's name is not known
+        private const string FacilityNameConfigKey = "facility_name";
         private bool loadingFacilities;
 
-        // Typing in the search box filters the dropdown through CARE's ?name= filter once typing pauses
         private readonly System.Windows.Forms.Timer facilitySearchTimer = new System.Windows.Forms.Timer { Interval = 500 };
         private bool facilitySearchTimerHooked;
 
+        private const int FacilityListMaxRows = 8;
+
         /// <summary>
-        /// Fills the Facility dropdown from CARE using the service account token baked into the build. Without
-        /// a valid token the dropdown is empty.
         /// </summary>
         private void LoadFacilities()
         {
@@ -887,89 +890,147 @@ namespace Plexus_DICOM_Enabler
                 facilitySearchTimer.Tick += (s, e) =>
                 {
                     facilitySearchTimer.Stop();
-                    SearchFacilities(mtxtb_FacilitySearch.Text, false);
+                    FilterFacilityList(mtxtb_Facility.Text);
                 };
                 facilitySearchTimerHooked = true;
             }
 
-            loadingFacilities = true;
             facilitySearchTimer.Stop();
-            mtxtb_FacilitySearch.Text = string.Empty;
-            loadingFacilities = false;
+            lst_Facility.Visible = false;
 
-            SearchFacilities(string.Empty, true);
+            allFacilities = FetchFacilities(string.Empty);
+            listedFacilities = allFacilities;
+
+            string currentId = mtxtb_FacilityId.Text.Trim();
+            CareFacilityInfo current = allFacilities.Find(f => string.Equals(f.id, currentId, StringComparison.OrdinalIgnoreCase));
+            loadedConfigValues.TryGetValue(FacilityNameConfigKey, out string savedName);
+            selectedFacilityName = current?.name ?? savedName ?? string.Empty;
+            SetFacilityText(FacilityDisplayText());
         }
 
         /// <summary>
-        /// Lists the facilities whose name contains the text (all when blank) in the dropdown, keeping the
-        /// current facility selected when it is in the list. On the initial load, no token, a failed call or no
-        /// facilities leaves the dropdown empty; a failed search leaves the dropdown as it was.
+        /// The facilities whose name contains the text (all when blank). Returns an empty list when there are none or
+        /// they cannot be fetched, with the reason in facilityListMessage.
         /// </summary>
-        private void SearchFacilities(string name, bool initialLoad)
+        private System.Collections.Generic.List<CareFacilityInfo> FetchFacilities(string name)
         {
-            loadingFacilities = true;
+            var noFacilities = new System.Collections.Generic.List<CareFacilityInfo>();
             try
             {
                 string errorString = string.Empty;
-                string serviceToken = ucls_CareAuth.DecryptToken(cls_ConfigDefaults.ReadServiceSetting("CARE_MWL_Service", "careServiceToken"), ref errorString);
-                System.Collections.Generic.List<CareFacilityInfo> facilities = null;
-                if (!string.IsNullOrEmpty(serviceToken))
+                string serviceToken = ucls_CareAuth.LoadServiceToken(null, ref errorString);
+                if (string.IsNullOrEmpty(serviceToken))
                 {
-                    string baseUrl = cls_ConfigDefaults.ReadServiceSetting("CARE_MWL_Service", "careBaseUrl");
-                    this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
-                    facilities = ucls_CareAuth.FetchFacilities(baseUrl, serviceToken, name, ref errorString);
+                    facilityListMessage = string.IsNullOrEmpty(errorString) ? "No CARE service account token is configured" : errorString;
+                    return noFacilities;
                 }
 
-                if (facilities == null || (initialLoad && facilities.Count == 0))
+                this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
+                string baseUrl = cls_ConfigDefaults.ReadServiceSetting("CARE_MWL_Service", "careBaseUrl");
+                var facilities = ucls_CareAuth.FetchFacilities(baseUrl, serviceToken, name, ref errorString);
+                if (facilities == null)
                 {
-                    if (initialLoad)
-                        ShowFacilityDropdown(false);
-                    return;
+                    facilityListMessage = errorString;
+                    return noFacilities;
                 }
 
-                careFacilities = facilities;
-                string currentId = mtxtb_FacilityId.Text.Trim();
-                int selectedIndex = -1;
-                mcb_Facility.Items.Clear();
-                for (int i = 0; i < facilities.Count; i++)
-                {
-                    mcb_Facility.Items.Add(facilities[i].name);
-                    if (string.Equals(facilities[i].id, currentId, StringComparison.OrdinalIgnoreCase))
-                        selectedIndex = i;
-                }
-                mcb_Facility.SelectedIndex = selectedIndex;
-                if (initialLoad)
-                    ShowFacilityDropdown(true);
+                facilityListMessage = facilities.Count > 0 ? string.Empty
+                    : string.IsNullOrWhiteSpace(name) ? "The service account has access to no facilities"
+                    : "No facility name contains \"" + name.Trim() + "\"";
+                return facilities;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                if (initialLoad)
-                    ShowFacilityDropdown(false);
+                facilityListMessage = "Could not get the facilities from CARE: " + ex.Message;
+                return noFacilities;
             }
             finally
             {
                 this.Cursor = System.Windows.Forms.Cursors.Default;
-                loadingFacilities = false;
             }
         }
 
-        /// <summary>
-        /// </summary>
-        private void ShowFacilityDropdown(bool hasFacilities)
+        /// <summary>Lists the facilities matching the typed text (all when blank) under the field.</summary>
+        private void FilterFacilityList(string name)
         {
-            mcb_Facility.Visible = true;
-            lbl_FacilitySearch.Visible = true;
-            mtxtb_FacilitySearch.Visible = true;
-            mtxtb_FacilityId.Visible = false;
-            lbl_FacilityId.Text = "Facility *";
-            if (!hasFacilities)
+            if (string.IsNullOrWhiteSpace(name) || name == FacilityDisplayText())
             {
-                mcb_Facility.Items.Clear();
-                careFacilities = new System.Collections.Generic.List<CareFacilityInfo>();
+                // Nothing typed yet: the full list, fetched again when it is empty (no token or CARE down at load)
+                if (allFacilities.Count == 0)
+                    allFacilities = FetchFacilities(string.Empty);
+                listedFacilities = allFacilities;
+            }
+            else
+            {
+                listedFacilities = FetchFacilities(name);
+            }
+            ShowFacilityList();
+        }
+
+        /// <summary>Opens the list under the field, highlighting the selected facility.</summary>
+        private void ShowFacilityList()
+        {
+            lst_Facility.BeginUpdate();
+            lst_Facility.Items.Clear();
+            if (listedFacilities.Count == 0)
+                lst_Facility.Items.Add(facilityListMessage);
+            else
+                foreach (CareFacilityInfo facility in listedFacilities)
+                    lst_Facility.Items.Add(facility.name);
+            lst_Facility.EndUpdate();
+
+            string currentId = mtxtb_FacilityId.Text.Trim();
+            lst_Facility.SelectedIndex = listedFacilities.FindIndex(f => string.Equals(f.id, currentId, StringComparison.OrdinalIgnoreCase));
+
+            int rows = Math.Max(1, Math.Min(lst_Facility.Items.Count, FacilityListMaxRows));
+            Point location = lst_Facility.Parent.PointToClient(mtxtb_Facility.Parent.PointToScreen(new Point(mtxtb_Facility.Left, mtxtb_Facility.Bottom)));
+            lst_Facility.SetBounds(location.X, location.Y, mtxtb_Facility.Width, rows * lst_Facility.ItemHeight + 4);
+            lst_Facility.Visible = true;
+            lst_Facility.BringToFront();
+        }
+
+        private void SelectFacility(int index)
+        {
+            if (index < 0 || index >= listedFacilities.Count)
+                return;   // the "no facilities" message line is not selectable
+
+            CareFacilityInfo facility = listedFacilities[index];
+            mtxtb_FacilityId.Text = facility.id;
+            selectedFacilityName = facility.name;
+            CloseFacilityList();
+        }
+
+        /// <summary>Closes the list and shows the selected facility's name again, dropping any unfinished search.</summary>
+        private void CloseFacilityList()
+        {
+            facilitySearchTimer.Stop();
+            lst_Facility.Visible = false;
+            SetFacilityText(FacilityDisplayText());
+        }
+
+        /// <summary>The selected facility's name, or its id when the name is not known.</summary>
+        private string FacilityDisplayText()
+        {
+            return string.IsNullOrEmpty(selectedFacilityName) ? mtxtb_FacilityId.Text.Trim() : selectedFacilityName;
+        }
+
+        private void SetFacilityText(string text)
+        {
+            loadingFacilities = true;
+            mtxtb_Facility.Text = text ?? string.Empty;
+            loadingFacilities = false;
+        }
+
+        private void mtxtb_Facility_Click(object sender, EventArgs e)
+        {
+            if (!lst_Facility.Visible)
+            {
+                FilterFacilityList(string.Empty);
+                mtxtb_Facility.SelectAll();   // typing replaces the name and searches
             }
         }
 
-        private void mtxtb_FacilitySearch_TextChanged(object sender, EventArgs e)
+        private void mtxtb_Facility_TextChanged(object sender, EventArgs e)
         {
             if (loadingFacilities)
                 return;
@@ -977,11 +1038,62 @@ namespace Plexus_DICOM_Enabler
             facilitySearchTimer.Start();
         }
 
-        private void mcb_Facility_SelectedIndexChanged(object sender, EventArgs e)
+        private void mtxtb_Facility_KeyDown(object sender, KeyEventArgs e)
         {
-            if (loadingFacilities || mcb_Facility.SelectedIndex < 0 || mcb_Facility.SelectedIndex >= careFacilities.Count)
-                return;
-            mtxtb_FacilityId.Text = careFacilities[mcb_Facility.SelectedIndex].id;
+            switch (e.KeyCode)
+            {
+                case Keys.Down:
+                    if (!lst_Facility.Visible)
+                        FilterFacilityList(mtxtb_Facility.Text);
+                    if (listedFacilities.Count > 0)
+                    {
+                        lst_Facility.Focus();
+                        if (lst_Facility.SelectedIndex < 0)
+                            lst_Facility.SelectedIndex = 0;
+                    }
+                    e.Handled = true;
+                    break;
+                case Keys.Enter:
+                    if (lst_Facility.Visible && listedFacilities.Count > 0)
+                        SelectFacility(lst_Facility.SelectedIndex >= 0 ? lst_Facility.SelectedIndex : 0);
+                    e.Handled = e.SuppressKeyPress = true;
+                    break;
+                case Keys.Escape:
+                    CloseFacilityList();
+                    e.Handled = e.SuppressKeyPress = true;
+                    break;
+            }
+        }
+
+        private void mtxtb_Facility_Leave(object sender, EventArgs e)
+        {
+            // Focus moves to the list when it is clicked; close only when it went somewhere else
+            BeginInvoke((Action)(() => { if (!lst_Facility.Focused) CloseFacilityList(); }));
+        }
+
+        private void lst_Facility_MouseClick(object sender, MouseEventArgs e)
+        {
+            SelectFacility(lst_Facility.IndexFromPoint(e.Location));
+        }
+
+        private void lst_Facility_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                SelectFacility(lst_Facility.SelectedIndex);
+                e.Handled = e.SuppressKeyPress = true;
+            }
+            else if (e.KeyCode == Keys.Escape)
+            {
+                CloseFacilityList();
+                mtxtb_Facility.Focus();
+                e.Handled = e.SuppressKeyPress = true;
+            }
+        }
+
+        private void lst_Facility_Leave(object sender, EventArgs e)
+        {
+            BeginInvoke((Action)(() => { if (!mtxtb_Facility.Focused) CloseFacilityList(); }));
         }
 
         private void mbtn_SaveConfig_Click(object sender, EventArgs e)
@@ -997,6 +1109,7 @@ namespace Plexus_DICOM_Enabler
                 }
 
                 var values = GetConfigFields().ToDictionary(field => field.Key, field => field.Value.Text.Trim());
+                values[FacilityNameConfigKey] = selectedFacilityName.Trim();
 
                 string fromDate = values["care_from_date"];
                 if (fromDate != string.Empty && !DateTime.TryParseExact(fromDate, ConfigDateFormat,

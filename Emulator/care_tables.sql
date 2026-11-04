@@ -150,6 +150,7 @@ CREATE TABLE IF NOT EXISTS `care_config` (
 -- INSERT IGNORE adds keys missing from older installs without overwriting values already set.
 INSERT IGNORE INTO `care_config` (`config_key`, `config_value`, `description`) VALUES
   ('facility_id', NULL, 'CARE Facility ID used to fetch the worklist, upload DICOM files and send scan status updates. Blank = App.config careFacilityId; one of them is required.'),
+  ('facility_name', NULL, 'Name of the CARE facility selected in the Configuration tab, saved with facility_id. For display only; the services use facility_id.'),
   ('care_modality', NULL, 'Modality filter for the CARE worklist. Blank = App.config careModality.'),
   ('care_from_date', NULL, 'Earliest worklist date fetched from CARE (yyyy-MM-dd HH:mm:ss). Blank = App.config careFromDate.'),
   ('scu_poll_interval_seconds', NULL, 'Seconds between scans of the SCP folder for files to upload. Blank = 5. Restart the SCU service to apply.'),
