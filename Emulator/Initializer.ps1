@@ -97,7 +97,8 @@ function Format-Size {
 function Invoke-MySql {
     param([string]$Sql)
     $allArgs = $mysqlArgs + @('-N', '-B', '-e', $Sql)
-    $output = & $mysqlExe @allArgs 2>&1 | ForEach-Object { "$_" }
+    $output = & $mysqlExe @allArgs 2>&1 | ForEach-Object { "$_" } |
+        Where-Object { $_ -notmatch '^mysql(\.exe)?: \[Warning\] Using a password on the command line' }
     return @{ ExitCode = $LASTEXITCODE; Output = @($output) }
 }
 
@@ -453,7 +454,8 @@ if (-not $mysqlExe) {
                 "Ensure user '$MySqlUser' can read information_schema, then re-run this script."
         } else {
             $connected = $true
-            $dbExists = ($dbCheck.Output | Select-Object -First 1) -eq '1'
+            # The COUNT(*) row, skipping any other line mysql.exe writes (warnings go to the same output)
+            $dbExists = "$($dbCheck.Output | Where-Object { $_ -match '^\s*\d+\s*$' } | Select-Object -First 1)".Trim() -eq '1'
             if ($dbExists) {
                 Write-Warn "Database '$DbName' already exists. It will be backed up in full and then updated - it is not dropped."
             } else {
