@@ -68,20 +68,12 @@ namespace Plexus.Common.Database
         }
 
         /// <summary>
-        /// The accession number for a worklist result: service_request.accession_number, or when
-        /// that is empty, the last two dash-separated parts of the service request id joined together.
+        /// The accession number of a worklist result: service_request.accession_number, trimmed. CARE
+        /// always sends one; null when it is missing, and the entry is then not added to the worklist.
         /// </summary>
         public static string GetAccessionNumber(CareWorklistResult item)
         {
-            string acc_servicerequestid = item.service_request?.id ?? string.Empty;
-
-            string[] parts = acc_servicerequestid.Split('-');
-
-            string result = parts.Length >= 2 ? parts[parts.Length - 2] + parts[parts.Length - 1] : acc_servicerequestid;
-
-            string accNum = item.service_request?.accession_number ?? string.Empty;
-
-            return string.IsNullOrWhiteSpace(accNum) ? result : accNum;
+            return NullIfBlank(item?.service_request?.accession_number);
         }
 
         /// <summary>
@@ -185,10 +177,25 @@ namespace Plexus.Common.Database
                 }
 
                 List<CareWorklistRecord> careRecords = new List<CareWorklistRecord>();
-                if (careResponse.results != null)
+                // An accession number identifies one service request; care_worklist keeps one row per accession number
+                var keptByAccession = new Dictionary<string, CareServiceRequest>(StringComparer.OrdinalIgnoreCase);
+                foreach (CareWorklistResult item in careResponse.results ?? new List<CareWorklistResult>())
                 {
-                    foreach (CareWorklistResult item in careResponse.results)
-                        careRecords.Add(ToCareWorklistRecord(item, GetAccessionNumber(item), facilityId));
+                    CareServiceRequest sr = item?.service_request;
+                    string accessionNumber = GetAccessionNumber(item);
+                    if (accessionNumber == null)
+                    {
+                        writeToLog($"Worklist entry skipped: service request {sr?.id} ({sr?.name}) has no accession_number in CARE", false);
+                        continue;
+                    }
+                    if (keptByAccession.TryGetValue(accessionNumber, out CareServiceRequest kept))
+                    {
+                        writeToLog($"Duplicate accession_number {accessionNumber} in the CARE worklist: service request {sr?.id} ({sr?.name}) skipped, " +
+                                   $"{kept?.id} ({kept?.name}) kept. Each service request needs its own accession number in CARE.", false);
+                        continue;
+                    }
+                    keptByAccession[accessionNumber] = sr;
+                    careRecords.Add(ToCareWorklistRecord(item, accessionNumber, facilityId));
                 }
 
                 string errorString = string.Empty;
