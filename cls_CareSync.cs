@@ -1,8 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using Plexus.Common.Database;
 using Plexus_DICOM_Enabler.Forms;
 
@@ -27,8 +25,9 @@ namespace Plexus_DICOM_Enabler
 
         /// <summary>Changes to the enabler's own entry in CARE (name, IP, location, status).</summary>
         public List<string> EnablerChanges = new List<string>();
-        public string UpdatedEnablerDetails;
-        public string UpdatedEnablerName;
+        /// <summary>The enabler's care_devices row as saved, and with CARE's changes (saved on Apply).</summary>
+        public CareDeviceRecord SavedEnabler;
+        public CareDeviceRecord UpdatedEnabler;
 
         /// <summary>Modality SCP / Store SCP settings in cfg/common.cfg that differ from the enabler's endpoints.</summary>
         public Dictionary<string, string> ScpSettingChanges = new Dictionary<string, string>();
@@ -50,7 +49,7 @@ namespace Plexus_DICOM_Enabler
             }
             if (EnablerChanges.Count > 0)
             {
-                lines.Add($"DICOM Enabler {EnablerName} - saved to care_config:");
+                lines.Add($"DICOM Enabler {EnablerName} - saved to care_devices:");
                 lines.AddRange(EnablerChanges.Select(change => "    " + change));
             }
             if (ScpSettingChanges.Count > 0)
@@ -77,8 +76,6 @@ namespace Plexus_DICOM_Enabler
     {
         private const string Area = "SYNC";
         private const string DicomEnablerIdKey = "dicom_enabler_id";
-        private const string DicomEnablerNameKey = "dicom_enabler_name";
-        private const string DicomEnablerDetailsKey = "dicom_enabler_details";
 
         // The device fields compared with the saved ones; a change in any of them is a change to confirm
         private static readonly (string Name, Func<CareDeviceRecord, string> Value)[] DeviceFields =
@@ -93,16 +90,16 @@ namespace Plexus_DICOM_Enabler
             ("Assignment", d => d.AssignmentStatus),
         };
 
-        // The enabler's list entry fields compared with its saved details (the endpoints are only returned
+        // The enabler's list entry fields compared with its saved row (the endpoints are only returned
         // while it is unassigned, so they cannot be checked again once it is assigned)
-        private static readonly (string Name, string Path)[] EnablerFields =
+        private static readonly (string Name, Func<CareDeviceRecord, string> Value)[] EnablerFields =
         {
-            ("Name", "device_name"),
-            ("IP", "ip"),
-            ("Location", "location.name"),
-            ("Status", "device_status.status"),
-            ("Availability", "device_status.availability_status"),
-            ("Assignment", "assignment_status"),
+            ("Name", d => d.DeviceName),
+            ("IP", d => d.Ip),
+            ("Location", d => d.LocationName),
+            ("Status", d => d.Status),
+            ("Availability", d => d.AvailabilityStatus),
+            ("Assignment", d => d.AssignmentStatus),
         };
 
         /// <summary>
@@ -142,19 +139,21 @@ namespace Plexus_DICOM_Enabler
                 string errorString = string.Empty;
                 check.FacilityId = dal.GetConfigValue("facility_id", string.Empty, ref errorString).Trim();
                 check.EnablerId = dal.GetConfigValue(DicomEnablerIdKey, string.Empty, ref errorString).Trim();
-                check.EnablerName = dal.GetConfigValue(DicomEnablerNameKey, string.Empty, ref errorString).Trim();
-                string savedDetails = dal.GetConfigValue(DicomEnablerDetailsKey, string.Empty, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
                     return Fail(check, "Could not read the configuration: " + errorString);
                 if (check.EnablerId == string.Empty)
                     return Fail(check, "No DICOM Enabler is selected. Select one in the Configuration tab and save it.");
-                if (check.EnablerName == string.Empty)
-                    check.EnablerName = check.EnablerId;
+                check.SavedEnabler = dal.GetCareDevice(check.EnablerId, ref errorString);
+                if (!string.IsNullOrEmpty(errorString))
+                    return Fail(check, "Could not read the saved DICOM Enabler: " + errorString);
+                if (check.SavedEnabler == null)
+                    return Fail(check, "The selected DICOM Enabler is not saved in care_devices. Select it again in the Configuration tab and save it.");
+                check.EnablerName = string.IsNullOrWhiteSpace(check.SavedEnabler.DeviceName) ? check.EnablerId : check.SavedEnabler.DeviceName.Trim();
                 if (!TryGetModalitiesApi(check.FacilityId, out string modalitiesURL, out string apiKey, out string apiError))
                     return Fail(check, "CARE cannot be checked: " + apiError);
 
-                cls_GeneralLog.Info(Area, $"Checking CARE for changes to DICOM Enabler {check.EnablerName} ({check.EnablerId}) and its devices ({why})");
-                Action<string, bool> log = cls_GeneralLog.For("MODALITIES");
+                cls_AppLog.Info(Area, $"Checking CARE for changes to DICOM Enabler {check.EnablerName} ({check.EnablerId}) and its devices ({why})");
+                Action<string, bool> log = cls_AppLog.For("MODALITIES");
 
                 // 1. The enabler's DICOM devices
                 if (!ucls_CareModalities.TryFetchDicomDevices(modalitiesURL, apiKey, check.EnablerId, log, out CareModalitiesResponse devices, out string error))
@@ -171,24 +170,24 @@ namespace Plexus_DICOM_Enabler
                 if (!ucls_CareModalities.TryFetchModalities(modalitiesURL, apiKey, ucls_CareModalities.CareTypeDicomEnabler, null, null, log,
                                                             out CareModalitiesResponse enablers, out error))
                     return Fail(check, "Could not get the DICOM Enabler from CARE: " + error);
-                CompareEnabler(check, enablers.results.FirstOrDefault(e => string.Equals(e.id, check.EnablerId, StringComparison.OrdinalIgnoreCase)), savedDetails);
+                CompareEnabler(check, enablers.results.FirstOrDefault(e => string.Equals(e.id, check.EnablerId, StringComparison.OrdinalIgnoreCase)));
 
                 // 3. The Modality SCP / Store SCP settings the services listen with
                 string endpointError = string.Empty;
-                if (!cls_ConfigDefaults.CheckDicomEndpointSettings(check.UpdatedEnablerDetails ?? savedDetails, check.ScpSettingChanges, ref endpointError))
+                if (!cls_ConfigDefaults.CheckDicomEndpointSettings(check.UpdatedEnabler ?? check.SavedEnabler, check.ScpSettingChanges, ref endpointError))
                     check.Warnings.Add("The Modality SCP / Store SCP settings cannot be checked: " + endpointError);
 
                 if (check.HasChanges)
                 {
-                    cls_GeneralLog.Warning(Area, $"CARE has changes not yet applied ({why}):");
+                    cls_AppLog.Warning(Area, $"CARE has changes not yet applied ({why}):");
                     foreach (string line in check.Describe())
-                        cls_GeneralLog.Warning(Area, line.Trim());
+                        cls_AppLog.Warning(Area, line.Trim());
                 }
                 else
                 {
-                    cls_GeneralLog.Info(Area, $"No changes in CARE: {check.CareDevices.Count} device(s) and the DICOM Enabler match what is saved ({why})");
+                    cls_AppLog.Info(Area, $"No changes in CARE: {check.CareDevices.Count} device(s) and the DICOM Enabler match what is saved ({why})");
                     foreach (string warning in check.Warnings)
-                        cls_GeneralLog.Warning(Area, warning);
+                        cls_AppLog.Warning(Area, warning);
                 }
                 return check;
             }
@@ -222,7 +221,7 @@ namespace Plexus_DICOM_Enabler
                 {
                     int saved = 0, deleted = 0;
                     if (dal.SyncCareDevices(check.EnablerId, check.CareDevices, ref saved, ref deleted, ref errorString))
-                        cls_GeneralLog.Info(Area, $"care_devices updated: {saved} device(s) saved, {deleted} removed ({check.DevicesAdded} new, {check.DevicesUpdated} updated)");
+                        cls_AppLog.Info(Area, $"care_devices updated: {saved} device(s) saved, {deleted} removed ({check.DevicesAdded} new, {check.DevicesUpdated} updated)");
                     else
                         errors.Add(errorString);
                 }
@@ -230,11 +229,8 @@ namespace Plexus_DICOM_Enabler
                 if (check.EnablerChanges.Count > 0)
                 {
                     errorString = string.Empty;
-                    var values = new Dictionary<string, string> { { DicomEnablerDetailsKey, check.UpdatedEnablerDetails } };
-                    if (!string.IsNullOrWhiteSpace(check.UpdatedEnablerName))
-                        values[DicomEnablerNameKey] = check.UpdatedEnablerName;
-                    if (dal.SaveConfig(values, ref errorString))
-                        cls_GeneralLog.Info(Area, $"DICOM Enabler {check.EnablerName} updated in care_config: {string.Join("; ", check.EnablerChanges)}");
+                    if (dal.SaveCareDevice(check.UpdatedEnabler, ref errorString))
+                        cls_AppLog.Info(Area, $"DICOM Enabler {check.EnablerName} updated in care_devices: {string.Join("; ", check.EnablerChanges)}");
                     else
                         errors.Add(errorString);
                 }
@@ -242,8 +238,7 @@ namespace Plexus_DICOM_Enabler
                 if (check.ScpSettingChanges.Count > 0)
                 {
                     errorString = string.Empty;
-                    string details = check.UpdatedEnablerDetails ?? dal.GetConfigValue(DicomEnablerDetailsKey, string.Empty, ref errorString);
-                    if (!cls_ConfigDefaults.ApplyDicomEndpointSettings(details, scpChanges ?? new Dictionary<string, string>(), ref errorString))
+                    if (!cls_ConfigDefaults.ApplyDicomEndpointSettings(check.UpdatedEnabler ?? check.SavedEnabler, scpChanges ?? new Dictionary<string, string>(), ref errorString))
                         errors.Add(errorString);
                 }
             }
@@ -259,53 +254,35 @@ namespace Plexus_DICOM_Enabler
             if (errors.Count == 0)
                 return true;
             error = string.Join(" ", errors);
-            cls_GeneralLog.Error(Area, "Not every change from CARE was applied: " + error);
+            cls_AppLog.Error(Area, "Not every change from CARE was applied: " + error);
             return false;
         }
 
         /// <summary>Logs that the user chose not to apply the changes a check found.</summary>
         public static void LogDeclined(CareSyncCheck check, string why)
         {
-            cls_GeneralLog.Warning(Area, $"Changes from CARE not applied - declined by the user ({why}). " +
+            cls_AppLog.Warning(Area, $"Changes from CARE not applied - declined by the user ({why}). " +
                                          "The saved devices and settings are kept; Sync again to apply them.");
         }
 
         private static CareSyncCheck Fail(CareSyncCheck check, string error)
         {
             check.Error = error;
-            cls_GeneralLog.Error(Area, error);
+            cls_AppLog.Error(Area, error);
             return check;
         }
 
         /// <summary>
-        /// A device as a care_devices row. Its details are the retrieve response while it is unassigned (CARE
-        /// returns 400 for an assigned device), otherwise its list entry.
+        /// A device as a care_devices row. An unassigned device is retrieved for its full details (CARE
+        /// returns 400 for an assigned one, whose details are its list entry).
         /// </summary>
         private static CareDeviceRecord ToRecord(CareModality device, string modalitiesURL, string apiKey, string facilityId, string enablerId, Action<string, bool> log)
         {
-            string details = device.RawJson;
+            CareModality details = device;
             if (!device.IsAssigned &&
-                ucls_CareModalities.TryRetrieveModality(modalitiesURL, apiKey, device.id, log, out CareModality _, out string retrieved, out _))
+                ucls_CareModalities.TryRetrieveModality(modalitiesURL, apiKey, device.id, log, out CareModality retrieved, out _))
                 details = retrieved;
-            return new CareDeviceRecord
-            {
-                DeviceId = device.id,
-                FacilityId = facilityId,
-                DicomEnablerId = enablerId,
-                DeviceName = device.device_name,
-                DeviceType = device.device_type,
-                Modality = device.machine?.modality?.Trim().ToUpperInvariant(),
-                AeTitle = device.machine?.ae_title,
-                Ip = device.machine?.ip ?? device.ip,
-                LocationId = device.location?.id,
-                LocationName = device.location?.name,
-                Status = device.device_status?.status,
-                AvailabilityStatus = device.device_status?.availability_status,
-                AssignmentStatus = device.assignment_status,
-                LastSyncedAt = device.last_synced_at?.ToString("o"),
-                Details = details,
-                UpdatedTime = DateTime.Now
-            };
+            return ucls_CareModalities.ToDeviceRecord(details, facilityId, enablerId);
         }
 
         private static void CompareDevices(CareSyncCheck check, List<CareDeviceRecord> saved)
@@ -339,7 +316,7 @@ namespace Plexus_DICOM_Enabler
             }
         }
 
-        private static void CompareEnabler(CareSyncCheck check, CareModality entry, string savedDetails)
+        private static void CompareEnabler(CareSyncCheck check, CareModality entry)
         {
             if (entry == null)
             {
@@ -351,40 +328,25 @@ namespace Plexus_DICOM_Enabler
                 check.Warnings.Add($"DICOM Enabler {check.EnablerName} is {entry.assignment_status ?? "not assigned"} in CARE, so another DICOM Enabler " +
                                    "installation can select it. Select it again in the Configuration tab to assign it to this one.");
 
-            JObject saved;
-            JObject current;
-            try
+            CareDeviceRecord current = ucls_CareModalities.ToDeviceRecord(entry, check.SavedEnabler.FacilityId ?? check.FacilityId, null);
+            foreach (var (name, value) in EnablerFields)
             {
-                saved = string.IsNullOrWhiteSpace(savedDetails) ? new JObject() : JObject.Parse(savedDetails);
-                current = string.IsNullOrWhiteSpace(entry.RawJson) ? JObject.FromObject(entry) : JObject.Parse(entry.RawJson);
-            }
-            catch (JsonException ex)
-            {
-                check.Warnings.Add("The saved DICOM Enabler details could not be read: " + ex.Message);
-                return;
-            }
-
-            foreach (var (name, path) in EnablerFields)
-            {
-                string before = ValueAt(saved, path);
-                string after = ValueAt(current, path);
+                string before = value(check.SavedEnabler) ?? string.Empty;
+                string after = value(current) ?? string.Empty;
                 if (before != after)
                     check.EnablerChanges.Add($"{name} {(before == string.Empty ? "-" : before)} -> {(after == string.Empty ? "-" : after)}");
             }
             if (check.EnablerChanges.Count == 0)
                 return;
 
-            // The list entry's fields over the saved details; the endpoints (store_scp, modality_scp) are kept
-            foreach (JProperty property in current.Properties())
-                saved[property.Name] = property.Value.DeepClone();
-            check.UpdatedEnablerDetails = saved.ToString(Formatting.None);
-            check.UpdatedEnablerName = entry.device_name?.Trim();
-        }
-
-        private static string ValueAt(JObject obj, string path)
-        {
-            JToken token = obj.SelectToken(path);
-            return token == null || token.Type == JTokenType.Null ? string.Empty : token.ToString(Formatting.None).Trim('"');
+            // CARE's list entry over the saved row; the endpoints are kept (the list does not return them)
+            current.StoreScpAeTitle = check.SavedEnabler.StoreScpAeTitle;
+            current.StoreScpHost = check.SavedEnabler.StoreScpHost;
+            current.StoreScpPort = check.SavedEnabler.StoreScpPort;
+            current.ModalityScpAeTitle = check.SavedEnabler.ModalityScpAeTitle;
+            current.ModalityScpHost = check.SavedEnabler.ModalityScpHost;
+            current.ModalityScpPort = check.SavedEnabler.ModalityScpPort;
+            check.UpdatedEnabler = current;
         }
     }
 }

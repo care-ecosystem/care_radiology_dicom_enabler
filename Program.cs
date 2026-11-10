@@ -19,15 +19,15 @@ namespace Plexus_DICOM_Enabler
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Global._applicationPath = Path.GetDirectoryName(Application.ExecutablePath);
-            cls_GeneralLog.Info("APP", "CARE DICOM Enabler started (version " + Application.ProductVersion + ")");
+            cls_AppLog.Info("APP", "CARE DICOM Enabler started (version " + Application.ProductVersion + ")");
             try
             {
                 Application.Run(new frm_LoginScreen());
             }
             finally
             {
-                cls_GeneralLog.Info("APP", "CARE DICOM Enabler closed");
-                cls_GeneralLog.Close();
+                cls_AppLog.Info("APP", "CARE DICOM Enabler closed");
+                cls_AppLog.Close();
             }
         }
     }

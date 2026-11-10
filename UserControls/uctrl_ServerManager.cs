@@ -342,11 +342,11 @@ namespace Plexus_DICOM_Enabler.UserControls
                             MessageBox.Show("Error storing the default configuration : " + errorString);
                             return false;
                         }
-                        cls_GeneralLog.Info("CONFIG", "Defaults stored for the blank settings: " + string.Join("; ", defaults.Select(d => $"{d.Key}: {d.Value}")));
+                        cls_AppLog.Info("CONFIG", "Defaults stored for the blank settings: " + string.Join("; ", defaults.Select(d => $"{d.Key}: {d.Value}")));
                     }
                     else
                     {
-                        cls_GeneralLog.Info("CONFIG", "Defaults not stored - declined by the user; the services use them for the blank settings");
+                        cls_AppLog.Info("CONFIG", "Defaults not stored - declined by the user; the services use them for the blank settings");
                     }
                 }
 
@@ -363,15 +363,15 @@ namespace Plexus_DICOM_Enabler.UserControls
                 }
 
                 // The MWL and Store SCP services listen only with the selected DICOM Enabler's endpoints from CARE
-                string enablerDetails = objDAL.GetConfigValue("dicom_enabler_details", string.Empty, ref errorString);
+                CareDeviceRecord enabler = cls_ConfigDefaults.GetSavedEnabler(objDAL, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
                 {
                     MessageBox.Show("Error reading the DICOM Enabler : " + errorString);
                     return false;
                 }
-                if (string.IsNullOrWhiteSpace(enablerDetails))
+                if (enabler == null)
                 {
-                    cls_GeneralLog.Warning("SERVICES", "Services not started: no DICOM Enabler is selected in the Configuration tab");
+                    cls_AppLog.Warning("SERVICES", "Services not started: no DICOM Enabler is selected in the Configuration tab");
                     MessageBox.Show("Please select a DICOM Enabler in the Configuration tab and save it before starting the services. " +
                         "The Modality SCP and Store SCP settings come from its DICOM endpoints in CARE.");
                     return false;
@@ -400,7 +400,7 @@ namespace Plexus_DICOM_Enabler.UserControls
                                     "Start the services with the saved devices and settings?",
                                     "Start Services", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
                     return false;
-                cls_GeneralLog.Warning("SERVICES", "Starting the services without checking CARE: " + check.Error);
+                cls_AppLog.Warning("SERVICES", "Starting the services without checking CARE: " + check.Error);
                 // The SCP settings must still be the saved DICOM Enabler's endpoints
                 return ApplySavedEndpoints();
             }
@@ -445,16 +445,18 @@ namespace Plexus_DICOM_Enabler.UserControls
             ucls_DAL objDAL = new ucls_DAL(Global._applicationPath);
             try
             {
-                string enablerDetails = objDAL.GetConfigValue("dicom_enabler_details", string.Empty, ref errorString);
+                CareDeviceRecord enabler = cls_ConfigDefaults.GetSavedEnabler(objDAL, ref errorString);
+                if (string.IsNullOrEmpty(errorString) && enabler == null)
+                    errorString = "No DICOM Enabler is saved. Select one in the Configuration tab and save it.";
                 if (string.IsNullOrEmpty(errorString) &&
-                    cls_ConfigDefaults.ApplyDicomEndpointSettings(enablerDetails, new Dictionary<string, string>(), ref errorString))
+                    cls_ConfigDefaults.ApplyDicomEndpointSettings(enabler, new Dictionary<string, string>(), ref errorString))
                     return true;
             }
             finally
             {
                 objDAL.Dispose();
             }
-            cls_GeneralLog.Error("SERVICES", "Services not started: " + errorString);
+            cls_AppLog.Error("SERVICES", "Services not started: " + errorString);
             MessageBox.Show("The Modality SCP and Store SCP settings could not be set from the DICOM Enabler : " + errorString);
             return false;
         }

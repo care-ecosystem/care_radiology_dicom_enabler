@@ -86,15 +86,28 @@ namespace Plexus_DICOM_Enabler.Forms
         }
 
         /// <summary>
+        /// The DICOM Enabler selected in the Configuration tab (care_config dicom_enabler_id), as saved in
+        /// care_devices with its DICOM endpoints. Null with errorString empty when none is selected or its
+        /// row is missing; null with errorString set when the database cannot be read.
+        /// </summary>
+        public static CareDeviceRecord GetSavedEnabler(ucls_DAL objDAL, ref string errorString)
+        {
+            string enablerId = objDAL.GetConfigValue("dicom_enabler_id", string.Empty, ref errorString).Trim();
+            if (!string.IsNullOrEmpty(errorString) || enablerId == string.Empty)
+                return null;
+            return objDAL.GetCareDevice(enablerId, ref errorString);
+        }
+
+        /// <summary>
         /// </summary>
         public static readonly string[] DicomEndpointKeys = { "mwlaetitle", "mwlhost", "mwlport", "sscpaetitle", "sscphost", "sscpport" };
 
         /// <summary>
         /// </summary>
-        public static bool TryGetDicomEndpointSettings(string detailsJson, out Dictionary<string, string> settings, ref string errorString)
+        public static bool TryGetDicomEndpointSettings(CareDeviceRecord enabler, out Dictionary<string, string> settings, ref string errorString)
         {
             settings = null;
-            if (!ucls_CareModalities.TryGetDicomEndpoints(detailsJson, out CareDicomEndpoint modalityScp, out CareDicomEndpoint storeScp, out string error))
+            if (!ucls_CareModalities.TryGetDicomEndpoints(enabler, out CareDicomEndpoint modalityScp, out CareDicomEndpoint storeScp, out string error))
             {
                 errorString = error;
                 return false;
@@ -115,26 +128,26 @@ namespace Plexus_DICOM_Enabler.Forms
         /// Writes the DICOM Enabler's endpoints to cfg/common.cfg, where the MWL and Store SCP services read
         /// them when they start.
         /// </summary>
-        public static bool ApplyDicomEndpointSettings(string detailsJson, Dictionary<string, string> changes, ref string errorString)
+        public static bool ApplyDicomEndpointSettings(CareDeviceRecord enabler, Dictionary<string, string> changes, ref string errorString)
         {
-            return UpdateDicomEndpointSettings(detailsJson, changes, true, ref errorString);
+            return UpdateDicomEndpointSettings(enabler, changes, true, ref errorString);
         }
 
         /// <summary>
         /// The changes ApplyDicomEndpointSettings would make to cfg/common.cfg, without making them:
         /// changes gets "key: old -> new" for each value that differs from the DICOM Enabler's endpoints.
         /// </summary>
-        public static bool CheckDicomEndpointSettings(string detailsJson, Dictionary<string, string> changes, ref string errorString)
+        public static bool CheckDicomEndpointSettings(CareDeviceRecord enabler, Dictionary<string, string> changes, ref string errorString)
         {
-            return UpdateDicomEndpointSettings(detailsJson, changes, false, ref errorString);
+            return UpdateDicomEndpointSettings(enabler, changes, false, ref errorString);
         }
 
-        private static bool UpdateDicomEndpointSettings(string detailsJson, Dictionary<string, string> changes, bool write, ref string errorString)
+        private static bool UpdateDicomEndpointSettings(CareDeviceRecord enabler, Dictionary<string, string> changes, bool write, ref string errorString)
         {
-            if (!TryGetDicomEndpointSettings(detailsJson, out Dictionary<string, string> settings, ref errorString))
+            if (!TryGetDicomEndpointSettings(enabler, out Dictionary<string, string> settings, ref errorString))
             {
                 if (write)
-                    cls_GeneralLog.Error("SCP SETTINGS", "The Modality SCP and Store SCP settings cannot be set from the DICOM Enabler: " + errorString);
+                    cls_AppLog.Error("SCP SETTINGS", "The Modality SCP and Store SCP settings cannot be set from the DICOM Enabler: " + errorString);
                 return false;
             }
             try
@@ -167,14 +180,14 @@ namespace Plexus_DICOM_Enabler.Forms
                 {
                     configDoc.Save(cfgPath);
                     foreach (string key in DicomEndpointKeys.Where(changes.ContainsKey))
-                        cls_GeneralLog.Info("SCP SETTINGS", "From the DICOM Enabler's endpoints in CARE - " + changes[key]);
+                        cls_AppLog.Info("SCP SETTINGS", "From the DICOM Enabler's endpoints in CARE - " + changes[key]);
                 }
                 return true;
             }
             catch (Exception ex)
             {
                 errorString = (write ? "Writing the DICOM Enabler's endpoints to" : "Reading") + " cfg/common.cfg failed: " + ex.Message;
-                cls_GeneralLog.Error("SCP SETTINGS", errorString);
+                cls_AppLog.Error("SCP SETTINGS", errorString);
                 return false;
             }
         }

@@ -196,7 +196,6 @@ namespace Plexus.Common.Database
             try
             {
                 page = JsonConvert.DeserializeObject<CareModalitiesResponse>(responseBody);
-                AttachRawJson(page, responseBody);
             }
             catch (JsonException ex)
             {
@@ -214,39 +213,16 @@ namespace Plexus.Common.Database
         }
 
         /// <summary>
-        /// Sets each result's RawJson to its entry as CARE sent it (dates unparsed), so fields this client
-        /// does not know about can still be shown.
-        /// </summary>
-        private static void AttachRawJson(CareModalitiesResponse page, string responseBody)
-        {
-            if (page?.results == null)
-                return;
-            using (var reader = new JsonTextReader(new System.IO.StringReader(responseBody)) { DateParseHandling = DateParseHandling.None })
-            {
-                if (!(JToken.ReadFrom(reader) is JObject body) || !(body["results"] is JArray rawResults) || rawResults.Count != page.results.Count)
-                    return;
-                for (int i = 0; i < rawResults.Count; i++)
-                {
-                    if (page.results[i] != null)
-                        page.results[i].RawJson = rawResults[i].ToString(Formatting.None);
-                }
-            }
-        }
-
-        /// <summary>
-        /// GET .../external/modalities/{device_id}/: the full details of a DICOM Enabler (including its
-        /// DICOM endpoints) or a DICOM device. modality has the summary fields; detailsJson is the response
-        /// as CARE sent it, so fields this client does not know about are kept too. A DICOM Enabler adds its
-        /// DICOM endpoints (store_scp, modality_scp); a DICOM device is returned as in the list.
-        /// Only devices that are active, available and unassigned can be retrieved (CARE returns 400 for
-        /// any other, saying why), so a DICOM Enabler is retrieved before it is assigned.
+        /// GET .../external/modalities/{device_id}/: the full details of a DICOM Enabler (with its DICOM
+        /// endpoints store_scp and modality_scp) or a DICOM device (returned as in the list). Only devices
+        /// that are active, available and unassigned can be retrieved (CARE returns 400 for any other,
+        /// saying why), so a DICOM Enabler is retrieved before it is assigned.
         /// Returns false when the call fails or CARE rejects it; error then says why (it is also logged).
         /// </summary>
         public static bool TryRetrieveModality(string modalitiesURL, string token, string deviceId, Action<string, bool> writeToLog,
-                                               out CareModality modality, out string detailsJson, out string error)
+                                               out CareModality modality, out string error)
         {
             modality = null;
-            detailsJson = null;
             if (!ValidateDeviceId(deviceId, writeToLog, out error))
                 return false;
 
@@ -257,7 +233,6 @@ namespace Plexus.Common.Database
             try
             {
                 modality = JsonConvert.DeserializeObject<CareModality>(responseBody);
-                detailsJson = (responseBody ?? string.Empty).Trim();
             }
             catch (JsonException ex)
             {
@@ -266,44 +241,80 @@ namespace Plexus.Common.Database
                 writeToLog($"{error}. Response body: {ucls_CareWorklist.Truncate(responseBody, 1000)}", false);
                 return false;
             }
-            writeToLog($"CARE Modalities API returned the details of {modality?.device_type ?? "device"} {deviceId} ({modality?.device_name})", true);
+            if (modality == null)
+            {
+                error = "CARE Modalities API returned empty details.";
+                writeToLog(error, false);
+                return false;
+            }
+            writeToLog($"CARE Modalities API returned the details of {modality.device_type ?? "device"} {deviceId} ({modality.device_name})", true);
             return true;
         }
 
         /// <summary>
-        /// The DICOM endpoints (modality_scp, store_scp) from a DICOM Enabler's details JSON (the retrieve
-        /// response). These are the only source of the Modality Worklist SCP and Store SCP AE titles and
-        /// ports. Returns false with error set when either is missing, has no AE title or a port outside
-        /// 1-65535.
+        /// A device as CARE returned it, as a care_devices row: one column per field. A DICOM device's
+        /// machine (modality, AE title, IP) and a DICOM Enabler's IP and DICOM endpoints each get their own
+        /// columns. dicomEnablerId is the enabler a DICOM device is connected to (null for an enabler).
         /// </summary>
-        public static bool TryGetDicomEndpoints(string detailsJson, out CareDicomEndpoint modalityScp, out CareDicomEndpoint storeScp, out string error)
+        public static CareDeviceRecord ToDeviceRecord(CareModality device, string facilityId, string dicomEnablerId)
+        {
+            return new CareDeviceRecord
+            {
+                DeviceId = device.id?.Trim(),
+                FacilityId = facilityId,
+                DicomEnablerId = string.IsNullOrWhiteSpace(dicomEnablerId) ? null : dicomEnablerId.Trim(),
+                DeviceName = device.device_name,
+                DeviceType = device.device_type,
+                Modality = device.machine?.modality?.Trim().ToUpperInvariant(),
+                AeTitle = device.machine?.ae_title,
+                Ip = device.machine?.ip ?? device.ip,
+                LocationId = device.location?.id,
+                LocationName = device.location?.name,
+                Status = device.device_status?.status,
+                AvailabilityStatus = device.device_status?.availability_status,
+                AssignmentStatus = device.assignment_status,
+                LastSyncedAt = device.last_synced_at?.ToString("o"),
+                StoreScpAeTitle = device.store_scp?.ae_title,
+                StoreScpHost = device.store_scp?.host,
+                StoreScpPort = device.store_scp?.port,
+                ModalityScpAeTitle = device.modality_scp?.ae_title,
+                ModalityScpHost = device.modality_scp?.host,
+                ModalityScpPort = device.modality_scp?.port,
+                UpdatedTime = DateTime.Now
+            };
+        }
+
+        /// <summary>
+        /// The DICOM endpoints (Modality Worklist SCP and Store SCP) of a DICOM Enabler saved in care_devices.
+        /// These are the only source of the Modality SCP and Store SCP AE titles and ports. Returns false with
+        /// error set when either has no AE title or a port outside 1-65535.
+        /// </summary>
+        public static bool TryGetDicomEndpoints(CareDeviceRecord enabler, out CareDicomEndpoint modalityScp, out CareDicomEndpoint storeScp, out string error)
         {
             modalityScp = null;
             storeScp = null;
-            error = null;
-            if (string.IsNullOrWhiteSpace(detailsJson))
+            if (enabler == null)
             {
-                error = "No DICOM Enabler details are saved.";
+                error = "No DICOM Enabler is saved.";
                 return false;
             }
-
-            CareModality enabler;
-            try
-            {
-                enabler = JsonConvert.DeserializeObject<CareModality>(detailsJson);
-            }
-            catch (JsonException ex)
-            {
-                error = "The DICOM Enabler details could not be read: " + ex.Message;
+            var modality = new CareDicomEndpoint { ae_title = enabler.ModalityScpAeTitle, host = enabler.ModalityScpHost, port = enabler.ModalityScpPort };
+            var store = new CareDicomEndpoint { ae_title = enabler.StoreScpAeTitle, host = enabler.StoreScpHost, port = enabler.StoreScpPort };
+            if (!ValidateDicomEndpoints(modality, store, out error))
                 return false;
-            }
-
-            error = DescribeEndpointProblem("modality_scp", enabler?.modality_scp) ?? DescribeEndpointProblem("store_scp", enabler?.store_scp);
-            if (error != null)
-                return false;
-            modalityScp = enabler.modality_scp;
-            storeScp = enabler.store_scp;
+            modalityScp = modality;
+            storeScp = store;
             return true;
+        }
+
+        /// <summary>
+        /// Checks a DICOM Enabler's endpoints as CARE returned them (modality_scp, store_scp): each needs an
+        /// AE title of at most 16 characters and a port from 1 to 65535. Returns false with error set otherwise.
+        /// </summary>
+        public static bool ValidateDicomEndpoints(CareDicomEndpoint modalityScp, CareDicomEndpoint storeScp, out string error)
+        {
+            error = DescribeEndpointProblem("modality_scp", modalityScp) ?? DescribeEndpointProblem("store_scp", storeScp);
+            return error == null;
         }
 
         /// <summary>Why an endpoint cannot be used, or null when it can.</summary>
@@ -445,120 +456,57 @@ namespace Plexus.Common.Database
         }
 
         /// <summary>
-        /// A details JSON object (a device or DICOM Enabler as CARE returned it) as readable rows of
-        /// { section, field, value }: top-level values under "General", each nested object (e.g.
-        /// machine, store_scp) as its own section, with labels such as "AE Title" instead of field
-        /// names, dates in local time and modality codes with their names. Fields this client does not
-        /// know about are shown too. Empty when detailsJson is blank or not JSON.
+        /// A saved device or DICOM Enabler as readable rows of { section, field, value }, from its care_devices
+        /// columns: General, Modality Machine (a DICOM device), Location, Device Status, and the Modality
+        /// Worklist SCP and Store SCP (a DICOM Enabler). Dates are in local time, modality codes with their
+        /// names; an empty value is shown as "-".
         /// </summary>
-        public static List<string[]> ReadableDetails(string detailsJson)
+        public static List<string[]> ReadableDetails(CareDeviceRecord device)
         {
             var rows = new List<string[]>();
-            if (string.IsNullOrWhiteSpace(detailsJson))
+            if (device == null)
                 return rows;
-            JToken root;
-            try
-            {
-                // Dates are kept as CARE sent them and converted to local time below
-                using (var reader = new JsonTextReader(new System.IO.StringReader(detailsJson)) { DateParseHandling = DateParseHandling.None })
-                    root = JToken.ReadFrom(reader);
-            }
-            catch (JsonException)
-            {
-                return rows;
-            }
-            if (!(root is JObject obj))
-                return rows;
+            bool isEnabler = device.DeviceType == CareTypeDicomEnabler;
+            void Add(string section, string field, string value) =>
+                rows.Add(new[] { section, field, string.IsNullOrWhiteSpace(value) ? "-" : value.Trim() });
 
-            // General first, then each nested object in the order CARE sent it
-            foreach (JProperty property in obj.Properties().Where(p => !(p.Value is JObject) && !(p.Value is JArray)))
-                rows.Add(new[] { "General", ReadableLabel(property.Name), ReadableValue(property.Name, property.Value) });
-            foreach (JProperty property in obj.Properties().Where(p => p.Value is JObject || p.Value is JArray))
-                AppendReadable(property.Value, ReadableLabel(property.Name), string.Empty, rows);
+            Add("General", "Device Name", device.DeviceName);
+            Add("General", "Device Type", isEnabler ? "DICOM Enabler" : device.DeviceType == CareTypeDicom ? "DICOM Device" : device.DeviceType);
+            Add("General", "ID", device.DeviceId);
+            if (!isEnabler)
+            {
+                Add("Modality Machine", "Modality", DescribeModality(device.Modality));
+                Add("Modality Machine", "Station AE Title", device.AeTitle);
+                Add("Modality Machine", "IP Address", device.Ip);
+                Add("Modality Machine", "DICOM Enabler ID", device.DicomEnablerId);
+            }
+            else
+            {
+                Add("General", "IP Address", device.Ip);
+            }
+            Add("Location", "Name", device.LocationName);
+            Add("Location", "ID", device.LocationId);
+            Add("Device Status", "Status", Capitalize(device.Status));
+            Add("Device Status", "Availability", Capitalize(device.AvailabilityStatus));
+            Add("Device Status", "Assignment", Capitalize(device.AssignmentStatus));
+            Add("Device Status", "Last Synced", DateTimeOffset.TryParse(device.LastSyncedAt, out DateTimeOffset synced)
+                                                    ? synced.ToLocalTime().ToString("dd-MMM-yyyy HH:mm:ss") : "Never");
+            if (isEnabler)
+            {
+                Add("Modality Worklist SCP", "AE Title", device.ModalityScpAeTitle);
+                Add("Modality Worklist SCP", "Host", device.ModalityScpHost);
+                Add("Modality Worklist SCP", "Port", device.ModalityScpPort?.ToString());
+                Add("Store SCP", "AE Title", device.StoreScpAeTitle);
+                Add("Store SCP", "Host", device.StoreScpHost);
+                Add("Store SCP", "Port", device.StoreScpPort?.ToString());
+            }
+            Add("Saved", "Saved On", device.UpdatedTime?.ToString("dd-MMM-yyyy HH:mm:ss"));
             return rows;
         }
 
-        private static void AppendReadable(JToken token, string section, string prefix, List<string[]> rows)
+        private static string Capitalize(string text)
         {
-            if (token is JObject obj)
-            {
-                if (!obj.HasValues)
-                    rows.Add(new[] { section, prefix == string.Empty ? "-" : prefix, "-" });
-                foreach (JProperty property in obj.Properties())
-                {
-                    string label = prefix == string.Empty ? ReadableLabel(property.Name) : prefix + " > " + ReadableLabel(property.Name);
-                    if (property.Value is JObject || property.Value is JArray)
-                        AppendReadable(property.Value, section, label, rows);
-                    else
-                        rows.Add(new[] { section, label, ReadableValue(property.Name, property.Value) });
-                }
-            }
-            else if (token is JArray array)
-            {
-                if (array.Count == 0)
-                    rows.Add(new[] { section, prefix == string.Empty ? "Items" : prefix, "None" });
-                for (int i = 0; i < array.Count; i++)
-                {
-                    string label = (prefix == string.Empty ? string.Empty : prefix + " > ") + "Item " + (i + 1);
-                    if (array[i] is JObject || array[i] is JArray)
-                        AppendReadable(array[i], section, label, rows);
-                    else
-                        rows.Add(new[] { section, label, ReadableValue(null, array[i]) });
-                }
-            }
-        }
-
-        private static readonly Dictionary<string, string> ReadableLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            { "id", "ID" },
-            { "ip", "IP Address" },
-            { "ae_title", "AE Title" },
-            { "device_status", "Device Status" },
-            { "availability_status", "Availability" },
-            { "assignment_status", "Assignment" },
-            { "last_synced_at", "Last Synced" },
-            { "dicom_enabler", "DICOM Enabler ID" },
-            { "store_scp", "Store SCP" },
-            { "modality_scp", "Modality Worklist SCP" },
-            { "machine", "Modality Machine" },
-        };
-
-        private static readonly HashSet<string> Acronyms = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "id", "ip", "ae", "scp", "scu", "dicom", "uhid", "url", "uid", "mwl"
-        };
-
-        /// <summary>A field name as a label, e.g. "device_name" as "Device Name", "ae_title" as "AE Title".</summary>
-        private static string ReadableLabel(string name)
-        {
-            if (string.IsNullOrEmpty(name))
-                return string.Empty;
-            if (ReadableLabels.TryGetValue(name, out string label))
-                return label;
-            return string.Join(" ", name.Split(new[] { '_', '-' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(word => Acronyms.Contains(word) ? word.ToUpperInvariant() : char.ToUpperInvariant(word[0]) + word.Substring(1)));
-        }
-
-        /// <summary>A value as text: "-" for none, Yes / No, dates in local time, modality codes with their names.</summary>
-        private static string ReadableValue(string name, JToken value)
-        {
-            if (value == null || value.Type == JTokenType.Null)
-                return "-";
-            if (value.Type == JTokenType.Boolean)
-                return (bool)value ? "Yes" : "No";
-            string text = value.Type == JTokenType.String ? (string)value : value.ToString(Formatting.None);
-            if (string.IsNullOrWhiteSpace(text))
-                return "-";
-            if (string.Equals(name, "modality", StringComparison.OrdinalIgnoreCase))
-                return DescribeModality(text);
-            if (string.Equals(name, "device_type", StringComparison.OrdinalIgnoreCase))
-                return text == CareTypeDicomEnabler ? "DICOM Enabler" : text == CareTypeDicom ? "DICOM Device" : text;
-            if (value.Type == JTokenType.String && text.Length >= 19 && text[4] == '-' && text[10] == 'T' &&
-                DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTimeOffset date))
-                return date.ToLocalTime().ToString("dd-MMM-yyyy HH:mm:ss");
-            if (value.Type == JTokenType.String && (name ?? string.Empty).EndsWith("status", StringComparison.OrdinalIgnoreCase))
-                return char.ToUpperInvariant(text[0]) + text.Substring(1);
-            return text;
+            return string.IsNullOrWhiteSpace(text) ? text : char.ToUpperInvariant(text.Trim()[0]) + text.Trim().Substring(1);
         }
 
         /// <summary>
@@ -635,10 +583,6 @@ namespace Plexus.Common.Database
 
         /// <summary>DICOM device only: id of the DICOM Enabler the device is connected to.</summary>
         public string dicom_enabler { get; set; }
-
-        /// <summary>The list entry as CARE sent it (set for list results only).</summary>
-        [JsonIgnore]
-        public string RawJson { get; set; }
 
         [JsonIgnore]
         public bool IsDicomEnabler => device_type == ucls_CareModalities.CareTypeDicomEnabler;

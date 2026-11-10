@@ -102,8 +102,8 @@ namespace Plexus_DICOM_Enabler
             this.rtb_SCPLog = new System.Windows.Forms.RichTextBox();
             this.tp_SCULog = new System.Windows.Forms.TabPage();
             this.rtb_SCULog = new System.Windows.Forms.RichTextBox();
-            this.tp_GeneralLog = new System.Windows.Forms.TabPage();
-            this.rtb_GeneralLog = new System.Windows.Forms.RichTextBox();
+            this.tp_AppLog = new System.Windows.Forms.TabPage();
+            this.rtb_AppLog = new System.Windows.Forms.RichTextBox();
             this.tbp_Configuration = new System.Windows.Forms.TabPage();
             this.tbp_Devices = new System.Windows.Forms.TabPage();
             this.mbtn_DevicesSync = new MaterialSkin.Controls.MaterialButton();
@@ -171,7 +171,7 @@ namespace Plexus_DICOM_Enabler
             this.tp_MWLLog.SuspendLayout();
             this.tp_SCPLog.SuspendLayout();
             this.tp_SCULog.SuspendLayout();
-            this.tp_GeneralLog.SuspendLayout();
+            this.tp_AppLog.SuspendLayout();
             this.tbp_Configuration.SuspendLayout();
             this.grpb_CareSettings.SuspendLayout();
             this.grpb_UploadSettings.SuspendLayout();
@@ -1044,7 +1044,7 @@ namespace Plexus_DICOM_Enabler
             this.tbc_Logs.Controls.Add(this.tp_MWLLog);
             this.tbc_Logs.Controls.Add(this.tp_SCPLog);
             this.tbc_Logs.Controls.Add(this.tp_SCULog);
-            this.tbc_Logs.Controls.Add(this.tp_GeneralLog);
+            this.tbc_Logs.Controls.Add(this.tp_AppLog);
             this.tbc_Logs.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tbc_Logs.Location = new System.Drawing.Point(80, 2);
             this.tbc_Logs.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
@@ -1118,27 +1118,27 @@ namespace Plexus_DICOM_Enabler
             this.rtb_SCULog.TabIndex = 0;
             this.rtb_SCULog.Text = "";
             //
-            // tp_GeneralLog
+            // tp_AppLog
             //
-            this.tp_GeneralLog.Controls.Add(this.rtb_GeneralLog);
-            this.tp_GeneralLog.Location = new System.Drawing.Point(4, 25);
-            this.tp_GeneralLog.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.tp_GeneralLog.Name = "tp_GeneralLog";
-            this.tp_GeneralLog.Size = new System.Drawing.Size(939, 728);
-            this.tp_GeneralLog.TabIndex = 3;
-            this.tp_GeneralLog.Text = "General";
-            this.tp_GeneralLog.UseVisualStyleBackColor = true;
+            this.tp_AppLog.Controls.Add(this.rtb_AppLog);
+            this.tp_AppLog.Location = new System.Drawing.Point(4, 25);
+            this.tp_AppLog.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
+            this.tp_AppLog.Name = "tp_AppLog";
+            this.tp_AppLog.Size = new System.Drawing.Size(939, 728);
+            this.tp_AppLog.TabIndex = 3;
+            this.tp_AppLog.Text = "App Log";
+            this.tp_AppLog.UseVisualStyleBackColor = true;
             //
-            // rtb_GeneralLog
+            // rtb_AppLog
             //
-            this.rtb_GeneralLog.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.rtb_GeneralLog.Location = new System.Drawing.Point(0, 0);
-            this.rtb_GeneralLog.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.rtb_GeneralLog.Name = "rtb_GeneralLog";
-            this.rtb_GeneralLog.ReadOnly = true;
-            this.rtb_GeneralLog.Size = new System.Drawing.Size(939, 728);
-            this.rtb_GeneralLog.TabIndex = 0;
-            this.rtb_GeneralLog.Text = "";
+            this.rtb_AppLog.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.rtb_AppLog.Location = new System.Drawing.Point(0, 0);
+            this.rtb_AppLog.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
+            this.rtb_AppLog.Name = "rtb_AppLog";
+            this.rtb_AppLog.ReadOnly = true;
+            this.rtb_AppLog.Size = new System.Drawing.Size(939, 728);
+            this.rtb_AppLog.TabIndex = 0;
+            this.rtb_AppLog.Text = "";
             //
             // tbp_Configuration
             //
@@ -1909,7 +1909,7 @@ namespace Plexus_DICOM_Enabler
             this.tp_MWLLog.ResumeLayout(false);
             this.tp_SCPLog.ResumeLayout(false);
             this.tp_SCULog.ResumeLayout(false);
-            this.tp_GeneralLog.ResumeLayout(false);
+            this.tp_AppLog.ResumeLayout(false);
             this.grpb_CareSettings.ResumeLayout(false);
             this.grpb_CareSettings.PerformLayout();
             this.grpb_UploadSettings.ResumeLayout(false);
@@ -1974,8 +1974,8 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.TabPage tp_SCPLog;
         private System.Windows.Forms.TabPage tp_SCULog;
         private System.Windows.Forms.RichTextBox rtb_SCULog;
-        private System.Windows.Forms.TabPage tp_GeneralLog;
-        private System.Windows.Forms.RichTextBox rtb_GeneralLog;
+        private System.Windows.Forms.TabPage tp_AppLog;
+        private System.Windows.Forms.RichTextBox rtb_AppLog;
         private System.Windows.Forms.RichTextBox rtb_SCPLog;
         private MaterialSkin.Controls.MaterialCheckbox mtchkb_CheckServer;
         private System.Windows.Forms.DataGridViewTextBoxColumn pk;

@@ -8,17 +8,17 @@ using Serilog.Events;
 namespace Plexus_DICOM_Enabler
 {
     /// <summary>
-    /// The DICOM Enabler application's own log, shown in View Logs > General. It is for anything the
+    /// The DICOM Enabler application's own log, shown in View Logs > App Log. It is for anything the
     /// application does that is not a service's work: the CARE Modalities API calls (DICOM Enablers and
     /// DICOM devices), connection failures, assignment status changes, changes CARE reports for the
-    /// devices, and configuration saves. Written to logs/yyyy-MM-dd/General.txt next to the EXE, in the
+    /// devices, and configuration saves. Written to logs/yyyy-MM-dd/App.txt next to the EXE, in the
     /// same format and folders as the service logs, so the log viewer reads it the same way. Each entry
     /// starts with its area in brackets, e.g. "[MODALITIES]", so the log can be searched by area.
     /// </summary>
-    public static class cls_GeneralLog
+    public static class cls_AppLog
     {
-        /// <summary>File name prefix; the log viewer finds the parts as General*.txt.</summary>
-        public const string FileName = "General";
+        /// <summary>File name prefix; the log viewer finds the parts as App*.txt.</summary>
+        public const string FileName = "App";
 
         private const string DateFormat = "yyyy-MM-dd";
         private static readonly object Lock = new object();

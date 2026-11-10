@@ -778,43 +778,14 @@ namespace Plexus.Common.Database
                     return false;
                 transaction = conConnection.BeginTransaction();
 
-                const string upsertQuery =
-                    "INSERT INTO care_devices (device_id, facility_id, dicom_enabler_id, device_name, device_type, modality, ae_title, ip, " +
-                    "location_id, location_name, status, availability_status, assignment_status, last_synced_at, details) VALUES " +
-                    "(@device_id, @facility_id, @dicom_enabler_id, @device_name, @device_type, @modality, @ae_title, @ip, " +
-                    "@location_id, @location_name, @status, @availability_status, @assignment_status, @last_synced_at, @details) " +
-                    "ON DUPLICATE KEY UPDATE facility_id = VALUES(facility_id), dicom_enabler_id = VALUES(dicom_enabler_id), " +
-                    "device_name = VALUES(device_name), device_type = VALUES(device_type), modality = VALUES(modality), ae_title = VALUES(ae_title), " +
-                    "ip = VALUES(ip), location_id = VALUES(location_id), location_name = VALUES(location_name), status = VALUES(status), " +
-                    "availability_status = VALUES(availability_status), assignment_status = VALUES(assignment_status), " +
-                    "last_synced_at = VALUES(last_synced_at), details = VALUES(details), updated_time = CURRENT_TIMESTAMP";
-
                 var deviceIds = new List<string>();
                 foreach (CareDeviceRecord device in devices ?? new List<CareDeviceRecord>())
                 {
                     if (string.IsNullOrWhiteSpace(device?.DeviceId))
                         continue;
                     deviceIds.Add(device.DeviceId.Trim());
-                    using (MySqlCommand cmd = new MySqlCommand(upsertQuery, conConnection, transaction))
-                    {
-                        cmd.Parameters.AddWithValue("@device_id", device.DeviceId.Trim());
-                        cmd.Parameters.AddWithValue("@facility_id", DbValue(device.FacilityId));
-                        cmd.Parameters.AddWithValue("@dicom_enabler_id", dicomEnablerId.Trim());
-                        cmd.Parameters.AddWithValue("@device_name", DbValue(device.DeviceName));
-                        cmd.Parameters.AddWithValue("@device_type", DbValue(device.DeviceType));
-                        cmd.Parameters.AddWithValue("@modality", DbValue(device.Modality));
-                        cmd.Parameters.AddWithValue("@ae_title", DbValue(device.AeTitle));
-                        cmd.Parameters.AddWithValue("@ip", DbValue(device.Ip));
-                        cmd.Parameters.AddWithValue("@location_id", DbValue(device.LocationId));
-                        cmd.Parameters.AddWithValue("@location_name", DbValue(device.LocationName));
-                        cmd.Parameters.AddWithValue("@status", DbValue(device.Status));
-                        cmd.Parameters.AddWithValue("@availability_status", DbValue(device.AvailabilityStatus));
-                        cmd.Parameters.AddWithValue("@assignment_status", DbValue(device.AssignmentStatus));
-                        cmd.Parameters.AddWithValue("@last_synced_at", DbValue(device.LastSyncedAt));
-                        cmd.Parameters.AddWithValue("@details", DbValue(device.Details));
-                        cmd.ExecuteNonQuery();
-                        savedCount++;
-                    }
+                    UpsertCareDevice(device, dicomEnablerId.Trim(), transaction);
+                    savedCount++;
                 }
 
                 using (MySqlCommand cmd = new MySqlCommand(string.Empty, conConnection, transaction))
@@ -845,6 +816,115 @@ namespace Plexus.Common.Database
                 closeDBConnection(ref errorString);
                 errorString = "Saving care_devices failed with exception " + ex.Message;
                 return false;
+            }
+        }
+
+
+        /// <summary>
+        /// Inserts or updates one care_devices row (a DICOM Enabler is saved this way), in one transaction.
+        /// The row's dicom_enabler_id is the record's (null for a DICOM Enabler).
+        /// </summary>
+        public bool SaveCareDevice(CareDeviceRecord device, ref string errorString)
+        {
+            if (string.IsNullOrWhiteSpace(device?.DeviceId))
+            {
+                errorString = "Saving to care_devices needs the device id.";
+                return false;
+            }
+            MySqlTransaction transaction = null;
+            try
+            {
+                if (!openDBConnection(ref errorString))
+                    return false;
+                transaction = conConnection.BeginTransaction();
+                UpsertCareDevice(device, device.DicomEnablerId, transaction);
+                transaction.Commit();
+                closeDBConnection(ref errorString);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try { transaction?.Rollback(); } catch { }
+                closeDBConnection(ref errorString);
+                errorString = "Saving to care_devices failed with exception " + ex.Message;
+                return false;
+            }
+        }
+
+
+        /// <summary>
+        /// Deletes a DICOM Enabler's row and the rows of the DICOM devices saved for it, in one transaction,
+        /// once it is no longer this enabler's (replaced or cleared in the Configuration tab).
+        /// </summary>
+        public bool DeleteCareDevicesOfEnabler(string dicomEnablerId, ref int deletedCount, ref string errorString)
+        {
+            deletedCount = 0;
+            if (string.IsNullOrWhiteSpace(dicomEnablerId))
+                return true;
+            try
+            {
+                if (!openDBConnection(ref errorString))
+                    return false;
+                using (MySqlCommand cmd = new MySqlCommand(
+                    "DELETE FROM care_devices WHERE device_id = @id OR dicom_enabler_id = @id", conConnection))
+                {
+                    cmd.Parameters.AddWithValue("@id", dicomEnablerId.Trim());
+                    deletedCount = cmd.ExecuteNonQuery();
+                }
+                closeDBConnection(ref errorString);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                closeDBConnection(ref errorString);
+                errorString = "Deleting from care_devices failed with exception " + ex.Message;
+                return false;
+            }
+        }
+
+
+        /// <summary>One care_devices row inserted, or updated with the record's values, inside the given transaction.</summary>
+        private void UpsertCareDevice(CareDeviceRecord device, string dicomEnablerId, MySqlTransaction transaction)
+        {
+            const string upsertQuery =
+                "INSERT INTO care_devices (device_id, facility_id, dicom_enabler_id, device_name, device_type, modality, ae_title, ip, " +
+                "location_id, location_name, status, availability_status, assignment_status, last_synced_at, " +
+                "store_scp_ae_title, store_scp_host, store_scp_port, modality_scp_ae_title, modality_scp_host, modality_scp_port) VALUES " +
+                "(@device_id, @facility_id, @dicom_enabler_id, @device_name, @device_type, @modality, @ae_title, @ip, " +
+                "@location_id, @location_name, @status, @availability_status, @assignment_status, @last_synced_at, " +
+                "@store_scp_ae_title, @store_scp_host, @store_scp_port, @modality_scp_ae_title, @modality_scp_host, @modality_scp_port) " +
+                "ON DUPLICATE KEY UPDATE facility_id = VALUES(facility_id), dicom_enabler_id = VALUES(dicom_enabler_id), " +
+                "device_name = VALUES(device_name), device_type = VALUES(device_type), modality = VALUES(modality), ae_title = VALUES(ae_title), " +
+                "ip = VALUES(ip), location_id = VALUES(location_id), location_name = VALUES(location_name), status = VALUES(status), " +
+                "availability_status = VALUES(availability_status), assignment_status = VALUES(assignment_status), " +
+                "last_synced_at = VALUES(last_synced_at), store_scp_ae_title = VALUES(store_scp_ae_title), " +
+                "store_scp_host = VALUES(store_scp_host), store_scp_port = VALUES(store_scp_port), " +
+                "modality_scp_ae_title = VALUES(modality_scp_ae_title), modality_scp_host = VALUES(modality_scp_host), " +
+                "modality_scp_port = VALUES(modality_scp_port), updated_time = CURRENT_TIMESTAMP";
+
+            using (MySqlCommand cmd = new MySqlCommand(upsertQuery, conConnection, transaction))
+            {
+                cmd.Parameters.AddWithValue("@device_id", device.DeviceId.Trim());
+                cmd.Parameters.AddWithValue("@facility_id", DbValue(device.FacilityId));
+                cmd.Parameters.AddWithValue("@dicom_enabler_id", DbValue(dicomEnablerId));
+                cmd.Parameters.AddWithValue("@device_name", DbValue(device.DeviceName));
+                cmd.Parameters.AddWithValue("@device_type", DbValue(device.DeviceType));
+                cmd.Parameters.AddWithValue("@modality", DbValue(device.Modality));
+                cmd.Parameters.AddWithValue("@ae_title", DbValue(device.AeTitle));
+                cmd.Parameters.AddWithValue("@ip", DbValue(device.Ip));
+                cmd.Parameters.AddWithValue("@location_id", DbValue(device.LocationId));
+                cmd.Parameters.AddWithValue("@location_name", DbValue(device.LocationName));
+                cmd.Parameters.AddWithValue("@status", DbValue(device.Status));
+                cmd.Parameters.AddWithValue("@availability_status", DbValue(device.AvailabilityStatus));
+                cmd.Parameters.AddWithValue("@assignment_status", DbValue(device.AssignmentStatus));
+                cmd.Parameters.AddWithValue("@last_synced_at", DbValue(device.LastSyncedAt));
+                cmd.Parameters.AddWithValue("@store_scp_ae_title", DbValue(device.StoreScpAeTitle));
+                cmd.Parameters.AddWithValue("@store_scp_host", DbValue(device.StoreScpHost));
+                cmd.Parameters.AddWithValue("@store_scp_port", device.StoreScpPort.HasValue ? (object)device.StoreScpPort.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@modality_scp_ae_title", DbValue(device.ModalityScpAeTitle));
+                cmd.Parameters.AddWithValue("@modality_scp_host", DbValue(device.ModalityScpHost));
+                cmd.Parameters.AddWithValue("@modality_scp_port", device.ModalityScpPort.HasValue ? (object)device.ModalityScpPort.Value : DBNull.Value);
+                cmd.ExecuteNonQuery();
             }
         }
 
@@ -935,7 +1015,12 @@ namespace Plexus.Common.Database
                 AvailabilityStatus = DbString(reader, "availability_status"),
                 AssignmentStatus = DbString(reader, "assignment_status"),
                 LastSyncedAt = DbString(reader, "last_synced_at"),
-                Details = DbString(reader, "details"),
+                StoreScpAeTitle = DbString(reader, "store_scp_ae_title"),
+                StoreScpHost = DbString(reader, "store_scp_host"),
+                StoreScpPort = reader["store_scp_port"] == DBNull.Value ? (int?)null : Convert.ToInt32(reader["store_scp_port"]),
+                ModalityScpAeTitle = DbString(reader, "modality_scp_ae_title"),
+                ModalityScpHost = DbString(reader, "modality_scp_host"),
+                ModalityScpPort = reader["modality_scp_port"] == DBNull.Value ? (int?)null : Convert.ToInt32(reader["modality_scp_port"]),
                 UpdatedTime = reader["updated_time"] == DBNull.Value ? (DateTime?)null : Convert.ToDateTime(reader["updated_time"])
             };
         }
@@ -1433,8 +1518,9 @@ namespace Plexus.Common.Database
 
 
     /// <summary>
-    /// One care_devices row: a DICOM device (modality machine) connected to the selected DICOM Enabler,
-    /// with its summary and its full details JSON as CARE returned it.
+    /// One care_devices row, one column per field CARE returns: a DICOM device (modality machine) connected
+    /// to the selected DICOM Enabler (DicomEnablerId set; Modality, AeTitle, Ip from its machine), or the
+    /// DICOM Enabler itself (DeviceType dicom-enabler, DicomEnablerId null) with its DICOM endpoints.
     /// </summary>
     public class CareDeviceRecord
     {
@@ -1452,7 +1538,14 @@ namespace Plexus.Common.Database
         public string AvailabilityStatus { get; set; }
         public string AssignmentStatus { get; set; }
         public string LastSyncedAt { get; set; }
-        public string Details { get; set; }
+        /// <summary>DICOM Enabler only: its Store SCP endpoint (store_scp).</summary>
+        public string StoreScpAeTitle { get; set; }
+        public string StoreScpHost { get; set; }
+        public int? StoreScpPort { get; set; }
+        /// <summary>DICOM Enabler only: its Modality Worklist SCP endpoint (modality_scp).</summary>
+        public string ModalityScpAeTitle { get; set; }
+        public string ModalityScpHost { get; set; }
+        public int? ModalityScpPort { get; set; }
         public DateTime? UpdatedTime { get; set; }
     }
 }
