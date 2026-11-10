@@ -30,15 +30,21 @@ namespace Worklist_SCP.Model
             }
 
             DicomDataset procedureStep = null;
+            string requestedScheduledAET = null;
             if (request.Contains(DicomTag.ScheduledProcedureStepSequence))
             {
                 procedureStep = request.GetSequence(DicomTag.ScheduledProcedureStepSequence).First();
 
                 // Required Matching keys
-                var scheduledStationAET = procedureStep.GetSingleValueOrDefault(DicomTag.ScheduledStationAETitle, string.Empty);
+                // Scheduled Station AE Title: an item scheduled on several DICOM devices matches the AE
+                // title of any of them
+                var scheduledStationAET = procedureStep.GetSingleValueOrDefault(DicomTag.ScheduledStationAETitle, string.Empty).Trim();
                 if (!string.IsNullOrEmpty(scheduledStationAET))
                 {
-                    exams = exams.Where(x => x.ScheduledAET == scheduledStationAET);
+                    requestedScheduledAET = scheduledStationAET;
+                    exams = exams.Where(x => x.ScheduledAETs != null && x.ScheduledAETs.Count > 0
+                        ? x.ScheduledAETs.Contains(scheduledStationAET)
+                        : x.ScheduledAET == scheduledStationAET);
                 }
 
                 var performingPhysician = procedureStep.GetSingleValueOrDefault(DicomTag.PerformingPhysicianName, string.Empty);
@@ -131,7 +137,11 @@ namespace Worklist_SCP.Model
                 // Return if requested
                 if (procedureStep != null)
                 {
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledStationAETitle, result.ScheduledAET); // T1
+                    // The AE title the C-FIND asked for when it is one of the item's, else its first
+                    string scheduledAET = requestedScheduledAET != null && result.ScheduledAETs != null && result.ScheduledAETs.Contains(requestedScheduledAET)
+                        ? requestedScheduledAET
+                        : result.ScheduledAET;
+                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledStationAETitle, scheduledAET); // T1
 
                     // Taken from the CARE service request date. Return key type 1 needs a value, so an
                     // item without one is reported as scheduled now.

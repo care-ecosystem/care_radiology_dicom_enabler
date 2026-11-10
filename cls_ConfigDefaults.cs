@@ -1,4 +1,4 @@
-using Plexus.Common.Database;
+﻿using Plexus.Common.Database;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -17,7 +17,6 @@ namespace Plexus_DICOM_Enabler.Forms
         public static readonly string[] ConfigKeys =
         {
             "facility_id",
-            "care_modality",
             "care_from_date",
             "scu_poll_interval_seconds",
             "worklist_refresh_start_seconds",
@@ -52,8 +51,6 @@ namespace Plexus_DICOM_Enabler.Forms
         {
             switch (configKey)
             {
-                case "care_modality":
-                    return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careModality"), ReadServiceSetting("CARE_SCU_Service", "careModality"));
                 case "care_from_date":
                     return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careFromDate"), ReadServiceSetting("CARE_SCU_Service", "careFromDate"));
                 case "worklist_refresh_start_seconds":
@@ -72,6 +69,77 @@ namespace Plexus_DICOM_Enabler.Forms
                     return "2";
                 default:
                     return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// </summary>
+        public static readonly string[] DicomEndpointKeys = { "mwlaetitle", "mwlhost", "mwlport", "sscpaetitle", "sscphost", "sscpport" };
+
+        /// <summary>
+        /// </summary>
+        public static bool TryGetDicomEndpointSettings(string detailsJson, out Dictionary<string, string> settings, ref string errorString)
+        {
+            settings = null;
+            if (!ucls_CareModalities.TryGetDicomEndpoints(detailsJson, out CareDicomEndpoint modalityScp, out CareDicomEndpoint storeScp, out string error))
+            {
+                errorString = error;
+                return false;
+            }
+            settings = new Dictionary<string, string>
+            {
+                { "mwlaetitle", modalityScp.ae_title.Trim() },
+                { "mwlhost", (modalityScp.host ?? string.Empty).Trim() },
+                { "mwlport", modalityScp.port.Value.ToString() },
+                { "sscpaetitle", storeScp.ae_title.Trim() },
+                { "sscphost", (storeScp.host ?? string.Empty).Trim() },
+                { "sscpport", storeScp.port.Value.ToString() },
+            };
+            return true;
+        }
+
+        /// <summary>
+        /// Writes the DICOM Enabler's endpoints to cfg/common.cfg, where the MWL and Store SCP services read
+        /// them when they start.
+        /// </summary>
+        public static bool ApplyDicomEndpointSettings(string detailsJson, Dictionary<string, string> changes, ref string errorString)
+        {
+            if (!TryGetDicomEndpointSettings(detailsJson, out Dictionary<string, string> settings, ref errorString))
+                return false;
+            try
+            {
+                string cfgPath = Path.Combine(Global._applicationPath, "cfg", "common.cfg");
+                var configDoc = new System.Xml.XmlDocument();
+                configDoc.Load(cfgPath);
+                System.Xml.XmlNode root = configDoc.SelectSingleNode("/configurations");
+                if (root == null)
+                {
+                    errorString = cfgPath + " has no <configurations> element.";
+                    return false;
+                }
+
+                bool changed = false;
+                foreach (string key in DicomEndpointKeys)
+                {
+                    System.Xml.XmlNode node = root.SelectSingleNode(key);
+                    string oldValue = node?.InnerText.Trim() ?? string.Empty;
+                    if (oldValue == settings[key])
+                        continue;
+                    // An older common.cfg may not have the element (e.g. no mwlhost): add it
+                    if (node == null)
+                        node = root.AppendChild(configDoc.CreateElement(key));
+                    node.InnerText = settings[key];
+                    changes[key] = $"{key}: {(oldValue == string.Empty ? "(blank)" : oldValue)} -> {settings[key]}";
+                    changed = true;
+                }
+                if (changed)
+                    configDoc.Save(cfgPath);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errorString = "Writing the DICOM Enabler's endpoints to cfg/common.cfg failed: " + ex.Message;
+                return false;
             }
         }
 

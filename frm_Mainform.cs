@@ -61,66 +61,50 @@ namespace Plexus_DICOM_Enabler
             objDAL = new ucls_DAL(Global._applicationPath);
         }
 
-        private void mbtn_SaveSCPSettings_Click(object sender, EventArgs e)
-        {
-            try { 
-                if (string.IsNullOrEmpty(mtxtb_ModalityAETitle.Text) || string.IsNullOrEmpty(mtxtb_ModalityHost.Text) || 
-                    string.IsNullOrEmpty(mtxtb_ModalityPort.Text) || string.IsNullOrEmpty(mtxtb_StoreAETitle.Text) || 
-                    string.IsNullOrEmpty(mtxtb_StoreHost.Text) || string.IsNullOrEmpty(mtxtb_StorePort.Text) )
-                {
-                    MessageBox.Show(this, "Please fill mandatory fields. All Fields are mandatory",
-                                      "Error Saving Configuration", MessageBoxButtons.OK,
-                                      MessageBoxIcon.Error);
-                    return;
-                }
-                else
-                {
-                    // Save MWL Settings
-                    SetSetting("mwlaetitle", mtxtb_ModalityAETitle.Text);
-                    SetSetting("mwlhost", mtxtb_ModalityHost.Text);
-                    SetSetting("mwlport", mtxtb_ModalityPort.Text);
-
-                    // Save StorageSCP Settings
-                    SetSetting("sscpaetitle", mtxtb_StoreAETitle.Text);
-                    SetSetting("sscphost", mtxtb_StoreHost.Text);
-                    SetSetting("sscpport", mtxtb_StorePort.Text);
-
-                    MessageBox.Show(this, "SCP Settings saved Successfully!! For the settings to take effect,please restart the services from Server Manager",
-                                     "Saving Configuration Successfull", MessageBoxButtons.OK,
-                                     MessageBoxIcon.Information);
-                }
-            }
-            catch(Exception ex)
-            {
-                MessageBox.Show(this, "Error Saving Server Configuration with expection : " + ex.Message,
-                                     "Error Saving Configuration", MessageBoxButtons.OK,
-                                     MessageBoxIcon.Error);
-            }
-        }
-
-
         /// <summary>
-        /// Get SCP Settings from App Configuration file
+        /// Shows the Modality SCP and Store SCP settings, read-only. They are not entered by hand: they are
+        /// the modality_scp and store_scp of the DICOM Enabler selected in the Configuration tab, as CARE
+        /// returned them (care_config dicom_enabler_details).
         /// </summary>
         private void GetSCPSettings()
         {
+            var boxes = new Dictionary<string, MaterialTextBox>
+            {
+                { "mwlaetitle", mtxtb_ModalityAETitle }, { "mwlhost", mtxtb_ModalityHost }, { "mwlport", mtxtb_ModalityPort },
+                { "sscpaetitle", mtxtb_StoreAETitle }, { "sscphost", mtxtb_StoreHost }, { "sscpport", mtxtb_StorePort },
+            };
+            foreach (MaterialTextBox box in boxes.Values)
+                box.Text = string.Empty;
+
             try
             {
-                // Load Modality SCP Settings
-                mtxtb_ModalityAETitle.Text = cls_PlexusConfig.ReadDetailsFromXML(Global._applicationPath, @"/configurations/mwlaetitle"); // ConfigurationManager.AppSettings["mwlaetitle"].ToString();
-                mtxtb_ModalityHost.Text = cls_PlexusConfig.ReadDetailsFromXML(Global._applicationPath, @"/configurations/mwlhost");  // ConfigurationManager.AppSettings["mwlhost"].ToString();
-                mtxtb_ModalityPort.Text = cls_PlexusConfig.ReadDetailsFromXML(Global._applicationPath, @"/configurations/mwlport");  // ConfigurationManager.AppSettings["mwlport"].ToString();
-
-                // Storage SCP Settings
-                mtxtb_StoreAETitle.Text = cls_PlexusConfig.ReadDetailsFromXML(Global._applicationPath, @"/configurations/sscpaetitle");  // ConfigurationManager.AppSettings["sscpaetitle"].ToString();
-                mtxtb_StoreHost.Text = cls_PlexusConfig.ReadDetailsFromXML(Global._applicationPath, @"/configurations/sscphost");  // ConfigurationManager.AppSettings["sscphost"].ToString();
-                mtxtb_StorePort.Text = cls_PlexusConfig.ReadDetailsFromXML(Global._applicationPath, @"/configurations/sscpport");  // ConfigurationManager.AppSettings["sscpport"].ToString();
+                string errorString = string.Empty;
+                string detailsJson = objDAL.GetConfigValue(DicomEnablerDetailsKey, string.Empty, ref errorString);
+                string enablerName = string.IsNullOrEmpty(errorString) ? objDAL.GetConfigValue(DicomEnablerNameKey, string.Empty, ref errorString) : string.Empty;
+                if (!string.IsNullOrEmpty(errorString))
+                {
+                    lbl_ScpSettingsSource.Text = "Could not read the DICOM Enabler's settings: " + errorString;
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(detailsJson))
+                {
+                    lbl_ScpSettingsSource.Text = "No DICOM Enabler is selected. Select one in the Configuration tab and save it: " +
+                                                 "these settings come from its DICOM endpoints in CARE.";
+                    return;
+                }
+                if (!cls_ConfigDefaults.TryGetDicomEndpointSettings(detailsJson, out Dictionary<string, string> settings, ref errorString))
+                {
+                    lbl_ScpSettingsSource.Text = errorString;
+                    return;
+                }
+                foreach (var box in boxes)
+                    box.Value.Text = settings[box.Key];
+                lbl_ScpSettingsSource.Text = $"From the DICOM endpoints of DICOM Enabler {enablerName.Trim()} in CARE (read-only). " +
+                                             "To change them, change them in CARE or select another DICOM Enabler in the Configuration tab.";
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "Error loading SCP Settings" + ex.Message,
-                                     "Error loading SCP Settings", MessageBoxButtons.OK,
-                                     MessageBoxIcon.Error);
+                lbl_ScpSettingsSource.Text = "Could not read the DICOM Enabler's settings: " + ex.Message;
             }
         }
 
@@ -170,6 +154,8 @@ namespace Plexus_DICOM_Enabler
                     GetServeListing();
                 else if (selectedTab == tbp_Configuration) // Configuration Tab Clicked
                     GetConfiguration();
+                else if (selectedTab == tbp_Devices)
+                    LoadDevices();
                 else if (selectedTab == tdp_ViewPatients)
                     GetPatientDetails();
                 else if (selectedTab == tbp_ViewLog) // View Logs Clicked
@@ -842,9 +828,16 @@ namespace Plexus_DICOM_Enabler
                 foreach (DataRow row in dsResult.Tables[0].Rows)
                 {
                     string key = row["config_key"].ToString();
-                    if (fields.ContainsKey(key))
+                    if (fields.ContainsKey(key) || key == DicomEnablerIdKey || key == DicomEnablerNameKey || key == DicomEnablerDetailsKey)
                         loadedConfigValues[key] = row["config_value"].ToString().Trim();
                 }
+
+                // The saved DICOM Enabler stays selected while the user pages through the list
+                loadedConfigValues.TryGetValue(DicomEnablerIdKey, out string savedEnablerId);
+                loadedConfigValues.TryGetValue(DicomEnablerNameKey, out string savedEnablerName);
+                selectedDicomEnabler = string.IsNullOrWhiteSpace(savedEnablerId)
+                    ? null
+                    : new DicomEnablerItem(savedEnablerId.Trim(), savedEnablerName, null);
 
                 // A blank setting (services not started yet) shows its default, which Save stores in care_config
                 foreach (var field in fields)
@@ -854,6 +847,8 @@ namespace Plexus_DICOM_Enabler
                         value = cls_ConfigDefaults.GetConfigDefault(field.Key);
                     field.Value.Text = value;
                 }
+
+                LoadDicomEnablerPage(0);
             }
             catch (Exception ex)
             {
@@ -867,7 +862,7 @@ namespace Plexus_DICOM_Enabler
             }
         }
 
-        private void mbtn_SaveConfig_Click(object sender, EventArgs e)
+        private async void mbtn_SaveConfig_Click(object sender, EventArgs e)
         {
             try
             {
@@ -880,6 +875,11 @@ namespace Plexus_DICOM_Enabler
                 }
 
                 var values = GetConfigFields().ToDictionary(field => field.Key, field => field.Value.Text.Trim());
+                if (IsDicomEnablerConfigAvailable())
+                {
+                    values[DicomEnablerIdKey] = selectedDicomEnabler?.Id ?? string.Empty;
+                    values[DicomEnablerNameKey] = selectedDicomEnabler?.Name ?? string.Empty;
+                }
 
                 string fromDate = values["care_from_date"];
                 if (fromDate != string.Empty && !DateTime.TryParseExact(fromDate, ConfigDateFormat,
@@ -930,30 +930,87 @@ namespace Plexus_DICOM_Enabler
                     return;
                 }
 
-                string errorString = string.Empty;
-                if (objDAL.SaveConfig(values, ref errorString))
+                // A newly selected DICOM Enabler is retrieved from CARE (its details are only returned while
+                // it is unassigned) and assigned before it is saved; the one it replaces is unassigned after
+                loadedConfigValues.TryGetValue(DicomEnablerIdKey, out string oldEnablerId);
+                oldEnablerId = (oldEnablerId ?? string.Empty).Trim();
+                loadedConfigValues.TryGetValue("facility_id", out string oldFacilityId);
+                bool enablerChanged = changes.ContainsKey(DicomEnablerIdKey);
+                string newEnablerId = enablerChanged ? values[DicomEnablerIdKey] : oldEnablerId;
+                string newFacilityId = values["facility_id"];
+                bool newEnablerAssigned = false;
+
+                mbtn_SaveConfig.Enabled = false;
+                this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
+                try
                 {
-                    this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
-                    string restartSummary;
-                    try
+                    if (enablerChanged && newEnablerId != string.Empty)
                     {
-                        restartSummary = RestartServicesForChanges(changes);
+                        if (!TryGetModalitiesApi(newFacilityId, out string modalitiesURL, out string apiKey, out string apiError))
+                        {
+                            ShowSaveError("The DICOM Enabler could not be assigned: " + apiError + " Nothing was saved.");
+                            return;
+                        }
+                        var assigned = await System.Threading.Tasks.Task.Run(() => AssignDicomEnabler(modalitiesURL, apiKey, newEnablerId));
+                        if (IsDisposed)
+                            return;
+                        if (!assigned.Item1)
+                        {
+                            ShowSaveError(assigned.Item4 + " Nothing was saved.");
+                            return;
+                        }
+                        newEnablerAssigned = true;
+                        values[DicomEnablerDetailsKey] = assigned.Item3;
+                        if (!string.IsNullOrWhiteSpace(assigned.Item2?.device_name))
+                            values[DicomEnablerNameKey] = assigned.Item2.device_name.Trim();
                     }
-                    finally
+                    else if (enablerChanged)
                     {
-                        this.Cursor = System.Windows.Forms.Cursors.Default;
+                        values[DicomEnablerNameKey] = string.Empty;
+                        values[DicomEnablerDetailsKey] = string.Empty;
                     }
 
-                    MessageBox.Show(this, "Configuration saved Successfully!!" + Environment.NewLine + Environment.NewLine + restartSummary,
+                    string errorString = string.Empty;
+                    if (!objDAL.SaveConfig(values, ref errorString))
+                    {
+                        string message = "Error Saving Configuration with error message : " + errorString;
+                        // Give back the DICOM Enabler assigned above, as it was not saved
+                        if (newEnablerAssigned)
+                            message += Environment.NewLine + Environment.NewLine +
+                                       await UnassignDicomEnablerAsync(newFacilityId, newEnablerId, "The DICOM Enabler assigned for this save");
+                        ShowSaveError(message);
+                        return;
+                    }
+
+                    var notes = new StringBuilder();
+                    if (enablerChanged && oldEnablerId != string.Empty)
+                        notes.AppendLine(await UnassignDicomEnablerAsync(string.IsNullOrWhiteSpace(oldFacilityId) ? newFacilityId : oldFacilityId.Trim(),
+                                                                         oldEnablerId, "The previous DICOM Enabler"));
+                    if (newEnablerAssigned)
+                    {
+                        notes.AppendLine("DICOM Enabler " + values[DicomEnablerNameKey] + " is assigned to this enabler in CARE.");
+                        // Its endpoints become the Modality SCP and Store SCP settings the services listen with
+                        string endpointError = string.Empty;
+                        if (!cls_ConfigDefaults.ApplyDicomEndpointSettings(values[DicomEnablerDetailsKey], changes, ref endpointError))
+                            notes.AppendLine("The SCP settings could not be updated from it: " + endpointError);
+                    }
+
+                    string restartSummary = RestartServicesForChanges(changes);
+                    string summary = (notes.ToString().TrimEnd() + Environment.NewLine + Environment.NewLine + restartSummary).Trim();
+                    this.Cursor = System.Windows.Forms.Cursors.Default;
+                    MessageBox.Show(this, "Configuration saved Successfully!!" + Environment.NewLine + Environment.NewLine + summary,
                                      "Saving Configuration Successfull", MessageBoxButtons.OK,
                                      MessageBoxIcon.Information);
                     GetConfiguration();
+
+                    // Show the modality devices connected to the newly assigned DICOM Enabler
+                    if (newEnablerAssigned)
+                        mtc_Modules.SelectedTab = tbp_Devices;
                 }
-                else
+                finally
                 {
-                    MessageBox.Show(this, "Error Saving Configuration with error message : " + errorString,
-                                     "Error Saving Configuration", MessageBoxButtons.OK,
-                                     MessageBoxIcon.Error);
+                    this.Cursor = System.Windows.Forms.Cursors.Default;
+                    mbtn_SaveConfig.Enabled = true;
                 }
             }
             catch (Exception ex)
@@ -962,6 +1019,595 @@ namespace Plexus_DICOM_Enabler
                                      "Error Saving Configuration", MessageBoxButtons.OK,
                                      MessageBoxIcon.Error);
             }
+        }
+
+        private void ShowSaveError(string message)
+        {
+            this.Cursor = System.Windows.Forms.Cursors.Default;
+            MessageBox.Show(this, message, "Error Saving Configuration", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+
+        /// <summary>
+        /// The facility's modalities API URL and the static API key from App.config. False with error set
+        /// when the facility, careBackendURL or staticAPIKey is missing.
+        /// </summary>
+        private static bool TryGetModalitiesApi(string facilityId, out string modalitiesURL, out string apiKey, out string error)
+        {
+            modalitiesURL = null;
+            error = null;
+            string baseUrl = (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).Trim();
+            apiKey = ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(facilityId))
+                error = "the Facility Id is not set.";
+            else if (baseUrl == string.Empty)
+                error = "careBackendURL is not set in App.config.";
+            else if (string.IsNullOrWhiteSpace(apiKey))
+                error = "staticAPIKey is not set in App.config.";
+            if (error != null)
+                return false;
+            modalitiesURL = ucls_CareModalities.BuildModalitiesURL(baseUrl, ConfigurationManager.AppSettings["modalitiesURL"], facilityId);
+            return true;
+        }
+
+        /// <summary>
+        /// Retrieves the DICOM Enabler's full details (GET .../modalities/{id}/), then assigns it
+        /// (PATCH .../modalities/{id}/status/ assigned). Returns success, the enabler, its details JSON
+        /// and the error. Runs off the UI thread.
+        /// </summary>
+        private static Tuple<bool, CareModality, string, string> AssignDicomEnabler(string modalitiesURL, string apiKey, string enablerId)
+        {
+            if (!ucls_CareModalities.TryRetrieveModality(modalitiesURL, apiKey, enablerId, LogDicomEnablerLoad,
+                                                         out CareModality enabler, out string detailsJson, out string error))
+                return Tuple.Create(false, (CareModality)null, (string)null, "The DICOM Enabler's details could not be loaded from CARE: " + error);
+            if (enabler != null && !string.IsNullOrEmpty(enabler.device_type) && !enabler.IsDicomEnabler)
+                return Tuple.Create(false, enabler, detailsJson, $"The selected device is a {enabler.device_type} device, not a DICOM Enabler.");
+            // The Modality SCP and Store SCP settings come only from these endpoints, so it is not assigned without them
+            if (!ucls_CareModalities.TryGetDicomEndpoints(detailsJson, out _, out _, out error))
+                return Tuple.Create(false, enabler, detailsJson, error + " Set its DICOM endpoints in CARE and select it again.");
+            if (!ucls_CareModalities.TryUpdateAssignmentStatus(modalitiesURL, apiKey, enablerId, ucls_CareModalities.AssignmentAssigned,
+                                                               LogDicomEnablerLoad, out error))
+                return Tuple.Create(false, enabler, detailsJson, "The DICOM Enabler could not be assigned in CARE: " + error);
+            return Tuple.Create(true, enabler, detailsJson, (string)null);
+        }
+
+        /// <summary>
+        /// Sets a DICOM Enabler back to unassigned in CARE, as no enabler uses it any more. Returns a
+        /// line for the message saying whether that worked (what names the enabler in it).
+        /// </summary>
+        private async System.Threading.Tasks.Task<string> UnassignDicomEnablerAsync(string facilityId, string enablerId, string what)
+        {
+            if (!TryGetModalitiesApi(facilityId, out string modalitiesURL, out string apiKey, out string error))
+                return $"{what} could not be unassigned in CARE: {error}";
+            string unassignError = null;
+            bool ok = await System.Threading.Tasks.Task.Run(() => ucls_CareModalities.TryUpdateAssignmentStatus(
+                modalitiesURL, apiKey, enablerId, ucls_CareModalities.AssignmentUnassigned, LogDicomEnablerLoad, out unassignError));
+            return ok
+                ? $"{what} ({enablerId}) is unassigned in CARE."
+                : $"{what} ({enablerId}) could not be unassigned in CARE: {unassignError}. Unassign it in CARE.";
+        }
+        }
+
+        // care_config keys of the DICOM Enabler selected in the Configuration tab. The name is kept so the
+        // saved enabler can be shown when it is not in the list CARE returns (e.g. once it is assigned).
+        private const string DicomEnablerIdKey = "dicom_enabler_id";
+        private const string DicomEnablerNameKey = "dicom_enabler_name";
+        // The enabler's full details (JSON) from GET .../modalities/{id}/, kept as CARE no longer returns them once it is assigned
+        private const string DicomEnablerDetailsKey = "dicom_enabler_details";
+
+        // The DICOM Enabler dropdown shows one page (ucls_CareModalities.PageSize) of the facility's
+        // unassigned DICOM Enablers at a time; Prev / Next load the other pages from CARE.
+        private DicomEnablerItem selectedDicomEnabler;
+        private int dicomEnablerOffset;
+        private int dicomEnablerTotal;
+        // Increased by every load, so the result of an older load that finishes late is ignored
+        private int dicomEnablerLoadVersion;
+        // Set while the dropdown items are rebuilt, so that does not change selectedDicomEnabler
+        private bool rebuildingDicomEnablerItems;
+
+        /// <summary>
+        /// A DICOM Enabler in the dropdown. Id is null for the "(None)" entry, which clears the selection.
+        /// </summary>
+        private sealed class DicomEnablerItem
+        {
+            public static readonly DicomEnablerItem None = new DicomEnablerItem(null, null, null);
+
+            public DicomEnablerItem(string id, string name, string detail)
+            {
+                Id = id;
+                Name = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+                Detail = detail;
+            }
+
+            public string Id { get; }
+            public string Name { get; }
+            public string Detail { get; }
+            // Set for the saved enabler when it is not on the page CARE returned
+            public bool NotOnPage { get; set; }
+
+            public override string ToString()
+            {
+                if (Id == null)
+                    return "(None)";
+                string text = Name ?? Id;
+                if (!string.IsNullOrEmpty(Detail))
+                    text += " - " + Detail;
+                if (NotOnPage)
+                    text += " (saved)";
+                return text;
+            }
+        }
+
+        /// <summary>
+        /// False when care_config has no dicom_enabler_id or dicom_enabler_details row yet (Initializer.bat not re-run since this
+        /// setting was added), as Save only updates rows that exist.
+        /// </summary>
+        private bool IsDicomEnablerConfigAvailable()
+        {
+            return loadedConfigValues.ContainsKey(DicomEnablerIdKey) && loadedConfigValues.ContainsKey(DicomEnablerDetailsKey);
+        }
+
+        /// <summary>
+        /// Loads one page of the facility's unassigned DICOM Enablers from CARE into the dropdown:
+        /// GET .../external/modalities/?care_type=dicom-enabler&assignment_status=unassigned&limit=14&offset=offset.
+        /// The call runs in the background so the form stays responsive.
+        /// </summary>
+        private async void LoadDicomEnablerPage(int offset)
+        {
+            int loadVersion = ++dicomEnablerLoadVersion;
+
+            if (!IsDicomEnablerConfigAvailable())
+            {
+                ShowDicomEnablers(null, "The DICOM Enabler setting is missing from the database. Run Initializer.bat to add it.");
+                mcb_DicomEnabler.Enabled = false;
+                mbtn_DicomEnablerRefresh.Enabled = false;
+                return;
+            }
+            mcb_DicomEnabler.Enabled = true;
+
+            string facilityId = mtxtb_FacilityId.Text.Trim();
+            string baseUrl = (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).Trim();
+            string modalitiesPath = ConfigurationManager.AppSettings["modalitiesURL"];
+            string staticAPIKey = ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty;
+
+            string notLoadedReason = null;
+            if (facilityId == string.Empty)
+                notLoadedReason = "Enter the Facility Id and click Refresh to load the DICOM Enablers.";
+            else if (baseUrl == string.Empty)
+                notLoadedReason = "careBackendURL is not set in App.config - the DICOM Enablers cannot be loaded.";
+            else if (string.IsNullOrWhiteSpace(staticAPIKey))
+                notLoadedReason = "staticAPIKey is not set in App.config - the DICOM Enablers cannot be loaded.";
+            if (notLoadedReason != null)
+            {
+                ShowDicomEnablers(null, notLoadedReason);
+                mbtn_DicomEnablerRefresh.Enabled = true;
+                return;
+            }
+
+            string modalitiesURL = ucls_CareModalities.BuildModalitiesURL(baseUrl, modalitiesPath, facilityId);
+            SetDicomEnablerPagingEnabled(false, false);
+            mbtn_DicomEnablerRefresh.Enabled = false;
+            lbl_DicomEnablerPage.Text = "Loading DICOM Enablers from CARE...";
+
+            var result = await System.Threading.Tasks.Task.Run(() =>
+            {
+                bool ok = ucls_CareModalities.TryFetchUnassignedDicomEnablersPage(
+                    modalitiesURL, staticAPIKey, offset, LogDicomEnablerLoad, out CareModalitiesResponse page, out string error);
+                return Tuple.Create(ok, page, error);
+            });
+
+            // The form was closed, or a newer load (Refresh, Prev, Next, tab reopened) replaced this one
+            if (IsDisposed || loadVersion != dicomEnablerLoadVersion)
+                return;
+            mbtn_DicomEnablerRefresh.Enabled = true;
+
+            if (!result.Item1)
+            {
+                ShowDicomEnablers(null, "Could not load the DICOM Enablers: " + result.Item3);
+                return;
+            }
+
+            CareModalitiesResponse loadedPage = result.Item2;
+            // Enablers assigned since the last page was loaded can leave this page empty: show the last page instead
+            int lastPageOffset = Math.Max(0, (loadedPage.count - 1) / ucls_CareModalities.PageSize) * ucls_CareModalities.PageSize;
+            if (loadedPage.results.Count == 0 && offset > 0 && lastPageOffset < offset)
+            {
+                LoadDicomEnablerPage(lastPageOffset);
+                return;
+            }
+
+            dicomEnablerOffset = offset;
+            dicomEnablerTotal = loadedPage.count;
+            ShowDicomEnablers(loadedPage.results, null);
+        }
+
+        /// <summary>
+        /// Fills the dropdown with "(None)", the selected enabler when it is not on this page, and the
+        /// page's enablers, and selects the selected one. enablers null means no page was loaded:
+        /// message then says why and paging is disabled.
+        /// </summary>
+        private void ShowDicomEnablers(List<CareModality> enablers, string message)
+        {
+            rebuildingDicomEnablerItems = true;
+            try
+            {
+                mcb_DicomEnabler.Items.Clear();
+                mcb_DicomEnabler.Items.Add(DicomEnablerItem.None);
+
+                var pageItems = new List<DicomEnablerItem>();
+                foreach (CareModality enabler in enablers ?? new List<CareModality>())
+                {
+                    if (string.IsNullOrWhiteSpace(enabler.id))
+                        continue;
+                    var details = new List<string>();
+                    if (!string.IsNullOrWhiteSpace(enabler.location?.name))
+                        details.Add(enabler.location.name.Trim());
+                    if (!string.IsNullOrWhiteSpace(enabler.ip))
+                        details.Add(enabler.ip.Trim());
+                    pageItems.Add(new DicomEnablerItem(enabler.id.Trim(), enabler.device_name, string.Join(", ", details)));
+                }
+
+                DicomEnablerItem toSelect = DicomEnablerItem.None;
+                if (selectedDicomEnabler != null)
+                {
+                    toSelect = pageItems.FirstOrDefault(item => string.Equals(item.Id, selectedDicomEnabler.Id, StringComparison.OrdinalIgnoreCase));
+                    if (toSelect == null)
+                    {
+                        toSelect = new DicomEnablerItem(selectedDicomEnabler.Id, selectedDicomEnabler.Name, selectedDicomEnabler.Detail) { NotOnPage = true };
+                        mcb_DicomEnabler.Items.Add(toSelect);
+                    }
+                }
+                foreach (DicomEnablerItem item in pageItems)
+                    mcb_DicomEnabler.Items.Add(item);
+                mcb_DicomEnabler.SelectedItem = toSelect;
+            }
+            finally
+            {
+                rebuildingDicomEnablerItems = false;
+            }
+
+            if (enablers == null)
+            {
+                lbl_DicomEnablerPage.Text = message;
+                SetDicomEnablerPagingEnabled(false, false);
+                return;
+            }
+
+            int pageSize = ucls_CareModalities.PageSize;
+            int totalPages = Math.Max(1, (dicomEnablerTotal + pageSize - 1) / pageSize);
+            int currentPage = dicomEnablerOffset / pageSize + 1;
+            lbl_DicomEnablerPage.Text = dicomEnablerTotal == 0
+                ? "No unassigned DICOM Enablers in this facility."
+                : $"Page {currentPage} of {totalPages} ({dicomEnablerTotal} unassigned DICOM Enabler{(dicomEnablerTotal == 1 ? "" : "s")})";
+            SetDicomEnablerPagingEnabled(dicomEnablerOffset > 0, dicomEnablerOffset + pageSize < dicomEnablerTotal);
+        }
+
+        private void SetDicomEnablerPagingEnabled(bool previous, bool next)
+        {
+            mbtn_DicomEnablerPrev.Enabled = previous;
+            mbtn_DicomEnablerNext.Enabled = next;
+        }
+
+        private static void LogDicomEnablerLoad(string message, bool success)
+        {
+            System.Diagnostics.Trace.WriteLine((success ? "" : "ERROR: ") + message);
+        }
+
+        private void mcb_DicomEnabler_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (rebuildingDicomEnablerItems)
+                return;
+            var item = mcb_DicomEnabler.SelectedItem as DicomEnablerItem;
+            selectedDicomEnabler = item == null || item.Id == null ? null : item;
+        }
+
+        private void mbtn_DicomEnablerRefresh_Click(object sender, EventArgs e)
+        {
+            LoadDicomEnablerPage(0);
+        }
+
+        private void mbtn_DicomEnablerPrev_Click(object sender, EventArgs e)
+        {
+            LoadDicomEnablerPage(Math.Max(0, dicomEnablerOffset - ucls_CareModalities.PageSize));
+        }
+
+        private void mbtn_DicomEnablerNext_Click(object sender, EventArgs e)
+        {
+            LoadDicomEnablerPage(dicomEnablerOffset + ucls_CareModalities.PageSize);
+        }
+
+        // The Devices tab lists every DICOM device (modality machine such as CT or X-Ray, each with its own
+        // modality) connected to the DICOM Enabler saved in the Configuration tab, in a scrollable grid.
+        // Each load saves them to care_devices; clicking a device shows its details from there.
+        // Increased by every load, so the result of an older load that finishes late is ignored
+        private int devicesLoadVersion;
+
+        /// <summary>
+        /// Loads every DICOM device connected to the saved DICOM Enabler into the Devices tab:
+        /// GET .../external/modalities/?care_type=dicom&dicom_enabler={id} (all pages), then
+        /// GET .../external/modalities/{device_id}/ for the full details of each unassigned device
+        /// </summary>
+        private async void LoadDevices()
+        {
+            int loadVersion = ++devicesLoadVersion;
+            dgv_Devices.Rows.Clear();
+
+            string errorString = string.Empty;
+            string facilityId = objDAL.GetConfigValue("facility_id", string.Empty, ref errorString).Trim();
+            string enablerId = string.IsNullOrEmpty(errorString) ? objDAL.GetConfigValue(DicomEnablerIdKey, string.Empty, ref errorString).Trim() : string.Empty;
+            string enablerName = string.IsNullOrEmpty(errorString) ? objDAL.GetConfigValue(DicomEnablerNameKey, string.Empty, ref errorString).Trim() : string.Empty;
+
+            lbl_DevicesEnabler.Text = enablerId == string.Empty
+                ? "DICOM Enabler: none selected"
+                : "DICOM Enabler: " + (enablerName == string.Empty ? enablerId : enablerName);
+
+            if (!string.IsNullOrEmpty(errorString))
+            {
+                lbl_DevicesStatus.Text = "Could not read the configuration: " + errorString;
+                return;
+            }
+            if (facilityId == string.Empty || enablerId == string.Empty)
+            {
+                lbl_DevicesStatus.Text = facilityId == string.Empty
+                    ? "Enter and save the Facility Id in the Configuration tab to see its devices."
+                    : "Select and save a DICOM Enabler in the Configuration tab to see the devices connected to it.";
+                return;
+            }
+            if (!TryGetModalitiesApi(facilityId, out string modalitiesURL, out string apiKey, out string apiError))
+            {
+                ShowSavedDevices(enablerId, "The devices cannot be loaded from CARE: " + apiError);
+                return;
+            }
+
+            mbtn_DevicesRefresh.Enabled = false;
+            lbl_DevicesStatus.Text = "Loading devices from CARE...";
+
+            var result = await System.Threading.Tasks.Task.Run(() => FetchAndSaveDevices(modalitiesURL, apiKey, facilityId, enablerId));
+
+            // The form was closed, or a newer load (Refresh, tab reopened) replaced this one
+            if (IsDisposed || loadVersion != devicesLoadVersion)
+                return;
+            mbtn_DevicesRefresh.Enabled = true;
+
+            if (result.Item1 == null)
+            {
+                ShowSavedDevices(enablerId, "Could not load the devices from CARE: " + result.Item2);
+                return;
+            }
+            ShowDevices(result.Item1);
+            if (!string.IsNullOrEmpty(result.Item2))
+                lbl_DevicesStatus.Text += Environment.NewLine + result.Item2;
+        }
+
+        /// <summary>
+        /// Fetches the enabler's DICOM devices with their details from CARE and saves them to care_devices.
+        /// Returns the devices, or null and why they could not be fetched; a save failure is returned as a
+        /// note with the devices. Runs off the UI thread with its own database connection.
+        /// </summary>
+        private static Tuple<List<CareDeviceRecord>, string> FetchAndSaveDevices(string modalitiesURL, string apiKey, string facilityId, string enablerId)
+        {
+            if (!ucls_CareModalities.TryFetchDicomDevices(modalitiesURL, apiKey, enablerId, LogDicomEnablerLoad, out CareModalitiesResponse list, out string error))
+                return Tuple.Create((List<CareDeviceRecord>)null, error);
+
+            var devices = new List<CareDeviceRecord>();
+            foreach (CareModality device in list.results)
+            {
+                string details = device.RawJson;
+                if (!device.IsAssigned &&
+                    ucls_CareModalities.TryRetrieveModality(modalitiesURL, apiKey, device.id, LogDicomEnablerLoad, out CareModality _, out string retrieved, out _))
+                    details = retrieved;
+                devices.Add(new CareDeviceRecord
+                {
+                    DeviceId = device.id,
+                    FacilityId = facilityId,
+                    DicomEnablerId = enablerId,
+                    DeviceName = device.device_name,
+                    DeviceType = device.device_type,
+                    Modality = device.machine?.modality?.Trim().ToUpperInvariant(),
+                    AeTitle = device.machine?.ae_title,
+                    Ip = device.machine?.ip ?? device.ip,
+                    LocationId = device.location?.id,
+                    LocationName = device.location?.name,
+                    Status = device.device_status?.status,
+                    AvailabilityStatus = device.device_status?.availability_status,
+                    AssignmentStatus = device.assignment_status,
+                    LastSyncedAt = device.last_synced_at?.ToString("o"),
+                    Details = details,
+                    UpdatedTime = DateTime.Now
+                });
+            }
+
+            string note = null;
+            // Its own connection: the UI thread's objDAL holds a single one
+            var dal = new ucls_DAL(Global._applicationPath);
+            try
+            {
+                string saveError = string.Empty;
+                int saved = 0, deleted = 0;
+                if (!dal.SyncCareDevices(enablerId, devices, ref saved, ref deleted, ref saveError))
+                    note = "The devices could not be saved to care_devices: " + saveError;
+            }
+            finally
+            {
+                dal.Dispose();
+            }
+            return Tuple.Create(devices.OrderBy(d => d.Modality ?? string.Empty).ThenBy(d => d.DeviceName ?? string.Empty).ToList(), note);
+        }
+
+        /// <summary>Shows the devices last saved to care_devices for the enabler, after why CARE was not used.</summary>
+        private void ShowSavedDevices(string enablerId, string reason)
+        {
+            string errorString = string.Empty;
+            List<CareDeviceRecord> saved = objDAL.GetCareDevices(enablerId, ref errorString);
+            if (!string.IsNullOrEmpty(errorString) || saved.Count == 0)
+            {
+                lbl_DevicesStatus.Text = reason + (string.IsNullOrEmpty(errorString) ? string.Empty : " " + errorString);
+                return;
+            }
+            ShowDevices(saved);
+            DateTime? savedAt = saved.Max(d => d.UpdatedTime);
+            lbl_DevicesStatus.Text = reason + Environment.NewLine +
+                                     $"Showing the {saved.Count} device(s) saved{(savedAt.HasValue ? " on " + savedAt.Value.ToString("dd-MMM-yyyy HH:mm") : string.Empty)}.";
+        }
+
+        /// <summary>Fills the grid, one row per device (Tag = its CARE device id), and summarises them by modality.</summary>
+        private void ShowDevices(List<CareDeviceRecord> devices)
+        {
+            dgv_Devices.Rows.Clear();
+            foreach (CareDeviceRecord device in devices)
+            {
+                string status = string.Join(" / ", new[] { device.Status, device.AvailabilityStatus }.Where(value => !string.IsNullOrWhiteSpace(value)));
+                string lastSynced = DateTimeOffset.TryParse(device.LastSyncedAt, out DateTimeOffset synced)
+                    ? synced.ToLocalTime().ToString("dd-MMM-yyyy HH:mm")
+                    : "Never";
+                int row = dgv_Devices.Rows.Add(
+                    device.DeviceName,
+                    ucls_CareModalities.DescribeModality(device.Modality),
+                    device.AeTitle,
+                    device.Ip,
+                    device.LocationName,
+                    status,
+                    device.AssignmentStatus,
+                    lastSynced);
+                dgv_Devices.Rows[row].Tag = device.DeviceId;
+            }
+            dgv_Devices.ClearSelection();
+
+            if (devices.Count == 0)
+            {
+                lbl_DevicesStatus.Text = "No devices are connected to this DICOM Enabler.";
+                return;
+            }
+            string byModality = string.Join(", ", devices.GroupBy(d => string.IsNullOrWhiteSpace(d.Modality) ? "no modality" : d.Modality)
+                                                         .Select(g => $"{g.Count()} {g.Key}"));
+            lbl_DevicesStatus.Text = $"{devices.Count} device{(devices.Count == 1 ? "" : "s")} ({byModality}). Click a device to see its details.";
+        }
+
+        /// <summary>Clicking a device opens its details, from care_devices, read-only.</summary>
+        private void dgv_Devices_CellClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0 || !(dgv_Devices.Rows[e.RowIndex].Tag is string deviceId))
+                return;
+            string errorString = string.Empty;
+            CareDeviceRecord device = objDAL.GetCareDevice(deviceId, ref errorString);
+            if (device == null)
+            {
+                MessageBox.Show(this, string.IsNullOrEmpty(errorString)
+                                    ? "This device is not saved in care_devices. Click Refresh to load the devices again."
+                                    : "Could not read the device's details: " + errorString,
+                                "Device Details", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            string title = device.DeviceName ?? device.DeviceId;
+            if (!string.IsNullOrWhiteSpace(device.Modality))
+                title += " - " + ucls_CareModalities.DescribeModality(device.Modality);
+            string note = device.UpdatedTime.HasValue ? "As CARE returned it on " + device.UpdatedTime.Value.ToString("dd-MMM-yyyy HH:mm") : null;
+            ShowReadableDetails(title, device.Details, note);
+        }
+
+        /// <summary>
+        /// Shows the saved DICOM Enabler's full details, as CARE returned them when it was selected and assigned.
+        /// </summary>
+        private void mbtn_EnablerDetails_Click(object sender, EventArgs e)
+        {
+            string errorString = string.Empty;
+            string detailsJson = objDAL.GetConfigValue(DicomEnablerDetailsKey, string.Empty, ref errorString);
+            if (!string.IsNullOrEmpty(errorString) || string.IsNullOrWhiteSpace(detailsJson))
+            {
+                MessageBox.Show(this, !string.IsNullOrEmpty(errorString)
+                                    ? "Could not read the DICOM Enabler's details: " + errorString
+                                    : "No DICOM Enabler details are saved. Select a DICOM Enabler in the Configuration tab and save it.",
+                                "DICOM Enabler Details", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            ShowReadableDetails("DICOM Enabler", detailsJson, "As CARE returned it when it was selected");
+        }
+
+        /// <summary>
+        /// A read-only window with a device's details as labelled fields grouped in sections (General,
+        /// Modality Machine, Store SCP, ...). Nothing in it can be edited: the details come from CARE.
+        /// </summary>
+        private void ShowReadableDetails(string title, string detailsJson, string note)
+        {
+            List<string[]> rows = ucls_CareModalities.ReadableDetails(detailsJson);
+            using (Form dialog = new Form())
+            {
+                dialog.Text = title + " - Details";
+                dialog.StartPosition = FormStartPosition.CenterParent;
+                dialog.MinimizeBox = false;
+                dialog.ShowInTaskbar = false;
+                dialog.Size = new Size(620, 560);
+                dialog.Font = new Font("Segoe UI", 9.75F);
+                dialog.BackColor = Color.White;
+
+                var grid = new DataGridView
+                {
+                    Dock = DockStyle.Fill,
+                    ReadOnly = true,
+                    AllowUserToAddRows = false,
+                    AllowUserToDeleteRows = false,
+                    AllowUserToResizeRows = false,
+                    RowHeadersVisible = false,
+                    ColumnHeadersVisible = false,
+                    SelectionMode = DataGridViewSelectionMode.CellSelect,
+                    BackgroundColor = Color.White,
+                    BorderStyle = BorderStyle.None,
+                    CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal,
+                    GridColor = Color.Gainsboro,
+                    AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells,
+                    ScrollBars = ScrollBars.Vertical
+                };
+                grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Field", Width = 210, SortMode = DataGridViewColumnSortMode.NotSortable });
+                grid.Columns.Add(new DataGridViewTextBoxColumn
+                {
+                    Name = "Value",
+                    AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                    SortMode = DataGridViewColumnSortMode.NotSortable,
+                    DefaultCellStyle = { WrapMode = DataGridViewTriState.True }
+                });
+                grid.Columns[0].DefaultCellStyle.ForeColor = Color.DimGray;
+                grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(232, 240, 254);
+                grid.DefaultCellStyle.SelectionForeColor = Color.Black;
+                grid.DefaultCellStyle.Padding = new Padding(6, 4, 6, 4);
+
+                if (rows.Count == 0)
+                    grid.Rows.Add("Details", "CARE returned no details for this device.");
+                string section = null;
+                foreach (string[] row in rows)
+                {
+                    if (row[0] != section)
+                    {
+                        section = row[0];
+                        int header = grid.Rows.Add(section, string.Empty);
+                        grid.Rows[header].DefaultCellStyle.Font = new Font(dialog.Font, FontStyle.Bold);
+                        grid.Rows[header].DefaultCellStyle.ForeColor = Color.Black;
+                        grid.Rows[header].DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
+                        grid.Rows[header].Cells[0].Style.ForeColor = Color.Black;
+                    }
+                    grid.Rows.Add(row[1], row[2]);
+                }
+                dialog.Controls.Add(grid);
+
+                var footer = new Panel { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(12, 8, 12, 8) };
+                var close = new Button { Text = "Close", DialogResult = DialogResult.OK, Dock = DockStyle.Right, Width = 90 };
+                footer.Controls.Add(close);
+                footer.Controls.Add(new Label
+                {
+                    Text = "Read-only" + (string.IsNullOrEmpty(note) ? string.Empty : " - " + note) + ". To change it, change it in CARE.",
+                    Dock = DockStyle.Fill,
+                    ForeColor = Color.DimGray,
+                    TextAlign = ContentAlignment.MiddleLeft
+                });
+                dialog.Controls.Add(footer);
+                dialog.AcceptButton = close;
+                dialog.CancelButton = close;
+                grid.ClearSelection();
+                dialog.ShowDialog(this);
+            }
+        }
+
+        private void mbtn_DevicesRefresh_Click(object sender, EventArgs e)
+        {
+            LoadDevices();
         }
 
         // care_from_date is sent to the CARE worklist API as entered, in this format
@@ -982,7 +1628,6 @@ namespace Plexus_DICOM_Enabler
             switch (configKey)
             {
                 case "facility_id":
-                case "care_modality":
                 case "care_from_date":
                     return new[] { MwlServiceName, StoreScuServiceName };
                 case "worklist_refresh_start_seconds":
@@ -995,6 +1640,14 @@ namespace Plexus_DICOM_Enabler
                     return new[] { StoreScuServiceName };
                 case "scp_folder":
                     return new[] { MwlServiceName, StoreScpServiceName, StoreScuServiceName };
+                case "mwlaetitle":
+                case "mwlhost":
+                case "mwlport":
+                    return new[] { MwlServiceName };
+                case "sscpaetitle":
+                case "sscphost":
+                case "sscpport":
+                    return new[] { StoreScpServiceName };
                 default:
                     return new string[0];
             }
@@ -1207,7 +1860,6 @@ namespace Plexus_DICOM_Enabler
             return new System.Collections.Generic.Dictionary<string, MaterialTextBox>
             {
                 { "facility_id", mtxtb_FacilityId },
-                { "care_modality", mtxtb_CareModality },
                 { "care_from_date", mtxtb_CareFromDate },
                 { "scu_poll_interval_seconds", mtxtb_ScuPollInterval },
                 { "worklist_refresh_start_seconds", mtxtb_WorklistRefreshStart },

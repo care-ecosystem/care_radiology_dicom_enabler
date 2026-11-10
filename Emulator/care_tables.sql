@@ -4,16 +4,19 @@ USE `plexus_mi2`;
 
 -- CARE service requests from the worklist API (service_request object), one row per CARE
 -- service request id. Refreshed with the latest values each time the worklist is fetched.
--- modality is not in the response: it is the modality the worklist was fetched with
--- (care_modality, or App.config careModality).
+-- modality is not in the service_request object: it is the modality of the first DICOM device in
+-- the result's locations; a result without one keeps the modality already stored. Each device's own
+-- modality is in care_service_request_device. referring_physician is who raised the request.
 CREATE TABLE IF NOT EXISTS `care_service_request` (
   `pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `service_request_id` varchar(64) NOT NULL,
   `name` varchar(255) DEFAULT NULL,
   `date` datetime DEFAULT NULL,
   `body_site` text DEFAULT NULL,
+  `body_site_id` varchar(64) DEFAULT NULL,
   `description` text DEFAULT NULL,
   `modality` varchar(16) DEFAULT NULL,
+  `referring_physician` varchar(255) DEFAULT NULL,
   `procedure_id` varchar(64) DEFAULT NULL,
   `priority` varchar(32) DEFAULT NULL,
   `technician_instruction` text DEFAULT NULL,
@@ -24,9 +27,12 @@ CREATE TABLE IF NOT EXISTS `care_service_request` (
   UNIQUE KEY `uq_care_service_request_id` (`service_request_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Locations and devices a CARE service request is scheduled on, from the worklist API (locations
--- array, each with its devices). One row per device, or one row with NULL device_id/device_name for
--- a location without devices. A service request's rows are replaced each time the worklist is fetched.
+-- Locations and DICOM devices a CARE service request is scheduled on, from the worklist API
+-- (locations array, each with its devices). One row per device, or one row with NULL device columns
+-- for a location without devices. device_ae_title is the device's Scheduled Station AE Title
+-- (0040,0001), not a calling AE title; device_modality is its modality. A C-FIND is answered with the
+-- requests scheduled on a device of the modality and Scheduled Station AE Title it asks for.
+-- A service request's rows are replaced each time the worklist is fetched.
 CREATE TABLE IF NOT EXISTS `care_service_request_device` (
   `pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `service_request_pk` bigint(20) NOT NULL,
@@ -34,11 +40,75 @@ CREATE TABLE IF NOT EXISTS `care_service_request_device` (
   `location_name` varchar(255) DEFAULT NULL,
   `device_id` varchar(64) DEFAULT NULL,
   `device_name` varchar(255) DEFAULT NULL,
+  `device_ae_title` varchar(64) DEFAULT NULL,
+  `device_modality` varchar(16) DEFAULT NULL,
   `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`pk`),
   KEY `idx_care_service_request_device_sr_pk` (`service_request_pk`),
   KEY `idx_care_service_request_device_device_id` (`device_id`),
+  KEY `idx_care_service_request_device_modality` (`device_modality`),
   CONSTRAINT `fk_care_service_request_device_sr` FOREIGN KEY (`service_request_pk`) REFERENCES `care_service_request` (`pk`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Upgrade: columns added to tables created by an older version of this script. Each is added only
+-- while it is missing, so re-running this script changes nothing.
+DROP PROCEDURE IF EXISTS `care_add_column`;
+DELIMITER //
+CREATE PROCEDURE `care_add_column`(IN table_name_in VARCHAR(64), IN column_name_in VARCHAR(64), IN definition_in VARCHAR(500))
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = table_name_in AND COLUMN_NAME = column_name_in) THEN
+    SET @care_add_column_sql = CONCAT('ALTER TABLE `', table_name_in, '` ADD COLUMN `', column_name_in, '` ', definition_in);
+    PREPARE care_add_column_stmt FROM @care_add_column_sql;
+    EXECUTE care_add_column_stmt;
+    DEALLOCATE PREPARE care_add_column_stmt;
+  END IF;
+END //
+DELIMITER ;
+CALL `care_add_column`('care_service_request', 'body_site_id', 'varchar(64) DEFAULT NULL AFTER `body_site`');
+CALL `care_add_column`('care_service_request', 'referring_physician', 'varchar(255) DEFAULT NULL AFTER `modality`');
+CALL `care_add_column`('care_service_request_device', 'device_ae_title', 'varchar(64) DEFAULT NULL AFTER `device_name`');
+CALL `care_add_column`('care_service_request_device', 'device_modality', 'varchar(16) DEFAULT NULL AFTER `device_ae_title`');
+DROP PROCEDURE IF EXISTS `care_add_column`;
+
+SET @care_device_modality_index = (
+  SELECT IF(COUNT(*) > 0, 'DO 0',
+            'ALTER TABLE `care_service_request_device` ADD KEY `idx_care_service_request_device_modality` (`device_modality`)')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'care_service_request_device' AND INDEX_NAME = 'idx_care_service_request_device_modality');
+PREPARE care_device_modality_index_stmt FROM @care_device_modality_index;
+EXECUTE care_device_modality_index_stmt;
+DEALLOCATE PREPARE care_device_modality_index_stmt;
+
+-- The DICOM devices (modality machines such as CT or X-Ray) connected to the selected DICOM Enabler,
+-- one row per CARE device id, from GET .../external/modalities/?dicom_enabler={id}. Refreshed by the
+-- Devices tab: rows are inserted or updated with CARE's latest values, and the enabler's rows CARE no
+-- longer lists are deleted. details is the device's full JSON as CARE returned it (from GET
+-- .../external/modalities/{device_id}/ while it is unassigned, else its list entry), shown when the
+-- device is clicked; the other columns are its summary.
+CREATE TABLE IF NOT EXISTS `care_devices` (
+  `pk` bigint(20) NOT NULL AUTO_INCREMENT,
+  `device_id` varchar(64) NOT NULL,
+  `facility_id` varchar(64) DEFAULT NULL,
+  `dicom_enabler_id` varchar(64) DEFAULT NULL,
+  `device_name` varchar(255) DEFAULT NULL,
+  `device_type` varchar(32) DEFAULT NULL,
+  `modality` varchar(16) DEFAULT NULL,
+  `ae_title` varchar(64) DEFAULT NULL,
+  `ip` varchar(64) DEFAULT NULL,
+  `location_id` varchar(64) DEFAULT NULL,
+  `location_name` varchar(255) DEFAULT NULL,
+  `status` varchar(32) DEFAULT NULL,
+  `availability_status` varchar(32) DEFAULT NULL,
+  `assignment_status` varchar(32) DEFAULT NULL,
+  `last_synced_at` varchar(64) DEFAULT NULL,
+  `details` text DEFAULT NULL,
+  `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`pk`),
+  UNIQUE KEY `uq_care_devices_device_id` (`device_id`),
+  KEY `idx_care_devices_dicom_enabler_id` (`dicom_enabler_id`),
+  KEY `idx_care_devices_ae_title` (`ae_title`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- CARE patients from the worklist API (patient object), one row per CARE patient id.
@@ -141,7 +211,7 @@ CREATE TABLE IF NOT EXISTS `care_sync_upload` (
 -- stay in App.config.
 CREATE TABLE IF NOT EXISTS `care_config` (
   `config_key` varchar(100) NOT NULL,
-  `config_value` varchar(1000) DEFAULT NULL,
+  `config_value` text DEFAULT NULL,
   `description` varchar(500) DEFAULT NULL,
   `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`config_key`)
@@ -150,7 +220,6 @@ CREATE TABLE IF NOT EXISTS `care_config` (
 -- INSERT IGNORE adds keys missing from older installs without overwriting values already set.
 INSERT IGNORE INTO `care_config` (`config_key`, `config_value`, `description`) VALUES
   ('facility_id', NULL, 'CARE Facility ID used to fetch the worklist, upload DICOM files and send scan status updates. Blank = App.config careFacilityId; one of them is required.'),
-  ('care_modality', NULL, 'Modality filter for the CARE worklist. Blank = App.config careModality.'),
   ('care_from_date', NULL, 'Earliest worklist date fetched from CARE (yyyy-MM-dd HH:mm:ss). Blank = App.config careFromDate.'),
   ('scu_poll_interval_seconds', NULL, 'Seconds between scans of the SCP folder for files to upload. Blank = 5. Restart the SCU service to apply.'),
   ('worklist_refresh_start_seconds', NULL, 'Seconds after the MWL service starts before the first worklist refresh. Blank = App.config. Restart the MWL service to apply.'),
@@ -159,4 +228,21 @@ INSERT IGNORE INTO `care_config` (`config_key`, `config_value`, `description`) V
   ('upload_retry_delay_minutes', NULL, 'Minutes after a failed upload before the first retry; the wait doubles after each retry (2, 4, 8...). Blank = 2.'),
   ('scan_completed_wait_seconds', NULL, 'Seconds after the last upload of an accession number, with none of its files left in the SCP folder, before COMPLETED is sent to CARE. Blank = App.config scanCompletedWaitSeconds, or 60.'),
   ('scp_folder', NULL, 'Folder where received DICOM files are saved and picked up for upload. Blank = SCP under the install folder. Restart the services to apply.'),
-  ('failed_scp_folder', NULL, 'Folder files are moved to after the upload retry limit is hit. Blank = FailedSCP under the install folder.');
+  ('failed_scp_folder', NULL, 'Folder files are moved to after the upload retry limit is hit. Blank = FailedSCP under the install folder.'),
+  ('dicom_enabler_id', NULL, 'CARE id of the DICOM Enabler this enabler is, selected in the Configuration tab from the facility''s unassigned DICOM Enablers. Blank = none selected.'),
+  ('dicom_enabler_name', NULL, 'Name of the selected DICOM Enabler (dicom_enabler_id), shown in the Configuration tab.'),
+  ('dicom_enabler_details', NULL, 'Full details (JSON) of the selected DICOM Enabler as CARE returned them when it was selected, including its DICOM endpoints. CARE no longer returns them once it is assigned.');
+
+-- Upgrade: the worklist is no longer filtered by modality, so the care_modality setting is removed.
+-- Deleting a row that is not there does nothing, so re-running this script changes nothing.
+DELETE FROM `care_config` WHERE `config_key` = 'care_modality';
+
+-- Upgrade: config_value was varchar(1000), too short for dicom_enabler_details. Widened to TEXT only
+-- while it is still varchar, so re-running this script changes nothing.
+SET @care_config_upgrade = (
+  SELECT IF(COUNT(*) > 0, 'ALTER TABLE `care_config` MODIFY `config_value` text DEFAULT NULL', 'DO 0')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'care_config' AND COLUMN_NAME = 'config_value' AND DATA_TYPE = 'varchar');
+PREPARE care_config_upgrade_stmt FROM @care_config_upgrade;
+EXECUTE care_config_upgrade_stmt;
+DEALLOCATE PREPARE care_config_upgrade_stmt;

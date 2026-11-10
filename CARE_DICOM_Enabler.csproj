@@ -243,6 +243,7 @@
     <Content Include="Images\aboutus.png" />
     <None Include="Images\delete.ico" />
     <None Include="Images\delete.png" />
+    <None Include="Images\devices.png" />
     <Content Include="Images\landing.png" />
     <Content Include="Images\Login.JPG" />
     <Content Include="Images\scusetting.png" />

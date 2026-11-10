@@ -28,7 +28,7 @@ namespace Worklist_SCP.Model
         /// <summary>
         /// Calls the CARE worklist API for a single facility and saves the response to care_worklist.
         /// The Facility ID is mandatory - with none given nothing is fetched and false is returned.
-        /// The API call uses the Configuration tab modality.
+        /// Every modality is fetched; C-FIND matches the device's modality from care_worklist.
         /// </summary>
         bool RefreshCareWorklistFromApi(string facilityId);
 

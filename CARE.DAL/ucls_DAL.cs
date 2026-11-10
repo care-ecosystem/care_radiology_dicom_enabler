@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Configuration;
 using System.Data;
 using System.IO;
+using System.Linq;
 
 using System.Xml;
 using MySql.Data.MySqlClient;
@@ -599,13 +600,12 @@ namespace Plexus.Common.Database
         /// Accession numbers not yet in care_worklist are inserted, linked to that patient and service
         /// request; worklist rows already there are left
         /// untouched. Rows still SCHEDULED whose accession number is not in this response are marked
-        /// COMPLETED, but only rows for the facilityId and modality the response was fetched with
-        /// (a blank modality covers every modality), so changing either in the Configuration tab leaves
-        /// the other facility's or modality's rows as they are. With a blank facilityId no row is marked
-        /// COMPLETED. Call only with a response the CARE API reported as successful - an empty list
-        /// marks every scheduled row for that facility and modality completed.
+        /// COMPLETED, but only rows for the facilityId the response was fetched with, so changing it in
+        /// the Configuration tab leaves the other facility's rows as they are. With a blank facilityId
+        /// no row is marked COMPLETED. Call only with a response the CARE API reported as successful -
+        /// an empty list marks every scheduled row for that facility completed.
         /// </summary>
-        public bool SyncCareWorklist(List<CareWorklistRecord> records, string facilityId, string modality, ref int insertedCount, ref int completedCount, ref string errorString)
+        public bool SyncCareWorklist(List<CareWorklistRecord> records, string facilityId, ref int insertedCount, ref int completedCount, ref string errorString)
         {
             insertedCount = 0;
             completedCount = 0;
@@ -623,12 +623,13 @@ namespace Plexus.Common.Database
                     "ON DUPLICATE KEY UPDATE name = VALUES(name), gender = VALUES(gender), age = VALUES(age), patient_uhid = VALUES(patient_uhid)";
 
                 const string serviceRequestQuery =
-                    "INSERT INTO care_service_request (service_request_id, name, date, body_site, description, modality, procedure_id, priority, " +
-                    "technician_instruction, patient_instruction) VALUES " +
-                    "(@service_request_id, @name, @date, @body_site, @description, @modality, @procedure_id, @priority, " +
-                    "@technician_instruction, @patient_instruction) " +
-                    "ON DUPLICATE KEY UPDATE name = VALUES(name), date = VALUES(date), body_site = VALUES(body_site), description = VALUES(description), " +
-                    "modality = COALESCE(VALUES(modality), modality), procedure_id = VALUES(procedure_id), priority = VALUES(priority), " +
+                    "INSERT INTO care_service_request (service_request_id, name, date, body_site, body_site_id, description, modality, referring_physician, " +
+                    "procedure_id, priority, technician_instruction, patient_instruction) VALUES " +
+                    "(@service_request_id, @name, @date, @body_site, @body_site_id, @description, @modality, @referring_physician, " +
+                    "@procedure_id, @priority, @technician_instruction, @patient_instruction) " +
+                    "ON DUPLICATE KEY UPDATE name = VALUES(name), date = VALUES(date), body_site = VALUES(body_site), body_site_id = VALUES(body_site_id), " +
+                    "description = VALUES(description), modality = COALESCE(VALUES(modality), modality), referring_physician = VALUES(referring_physician), " +
+                    "procedure_id = VALUES(procedure_id), priority = VALUES(priority), " +
                     "technician_instruction = VALUES(technician_instruction), patient_instruction = VALUES(patient_instruction)";
 
                 const string deleteDevicesQuery =
@@ -636,8 +637,9 @@ namespace Plexus.Common.Database
                     "WHERE sr.service_request_id = @service_request_id";
 
                 const string deviceQuery =
-                    "INSERT INTO care_service_request_device (service_request_pk, location_id, location_name, device_id, device_name) " +
-                    "SELECT pk, @location_id, @location_name, @device_id, @device_name FROM care_service_request WHERE service_request_id = @service_request_id";
+                    "INSERT INTO care_service_request_device (service_request_pk, location_id, location_name, device_id, device_name, device_ae_title, device_modality) " +
+                    "SELECT pk, @location_id, @location_name, @device_id, @device_name, @device_ae_title, @device_modality " +
+                    "FROM care_service_request WHERE service_request_id = @service_request_id";
 
                 const string worklistQuery =
                     "INSERT IGNORE INTO care_worklist (accession_number, status, service_request_pk, patient_pk, facility_id, facility_name) VALUES " +
@@ -672,8 +674,10 @@ namespace Plexus.Common.Database
                             cmd.Parameters.AddWithValue("@name", DbValue(record.ServiceRequestName));
                             cmd.Parameters.AddWithValue("@date", record.ServiceRequestDate.HasValue ? (object)record.ServiceRequestDate.Value : DBNull.Value);
                             cmd.Parameters.AddWithValue("@body_site", DbValue(record.ServiceRequestBodySite));
+                            cmd.Parameters.AddWithValue("@body_site_id", DbValue(record.ServiceRequestBodySiteId));
                             cmd.Parameters.AddWithValue("@description", DbValue(record.ServiceRequestDescription));
                             cmd.Parameters.AddWithValue("@modality", DbValue(record.ServiceRequestModality));
+                            cmd.Parameters.AddWithValue("@referring_physician", DbValue(record.ServiceRequestReferringPhysician));
                             cmd.Parameters.AddWithValue("@procedure_id", DbValue(record.ServiceRequestProcedureId));
                             cmd.Parameters.AddWithValue("@priority", DbValue(record.ServiceRequestPriority));
                             cmd.Parameters.AddWithValue("@technician_instruction", DbValue(record.ServiceRequestTechnicianInstruction));
@@ -696,6 +700,8 @@ namespace Plexus.Common.Database
                                 cmd.Parameters.AddWithValue("@location_name", DbValue(device.LocationName));
                                 cmd.Parameters.AddWithValue("@device_id", DbValue(device.DeviceId));
                                 cmd.Parameters.AddWithValue("@device_name", DbValue(device.DeviceName));
+                                cmd.Parameters.AddWithValue("@device_ae_title", DbValue(device.DeviceAeTitle));
+                                cmd.Parameters.AddWithValue("@device_modality", DbValue(device.DeviceModality));
                                 cmd.ExecuteNonQuery();
                             }
                         }
@@ -715,13 +721,11 @@ namespace Plexus.Common.Database
                 if (!string.IsNullOrWhiteSpace(facilityId))
                 {
                     string completeQuery =
-                        "UPDATE care_worklist w LEFT JOIN care_service_request sr ON sr.pk = w.service_request_pk " +
-                        "SET w.status = 'COMPLETED' WHERE w.status <> 'COMPLETED' AND w.facility_id = @facility_id " +
-                        "AND (@modality = '' OR sr.modality = @modality)";
+                        "UPDATE care_worklist w " +
+                        "SET w.status = 'COMPLETED' WHERE w.status <> 'COMPLETED' AND w.facility_id = @facility_id";
                     using (MySqlCommand cmd = new MySqlCommand(string.Empty, conConnection, transaction))
                     {
                         cmd.Parameters.AddWithValue("@facility_id", facilityId.Trim());
-                        cmd.Parameters.AddWithValue("@modality", (modality ?? string.Empty).Trim());
                         if (accessionNumbers.Count > 0)
                         {
                             var placeholders = new List<string>();
@@ -754,12 +758,198 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
+        /// Brings care_devices in line with the DICOM devices CARE lists for a DICOM Enabler: each device
+        /// is inserted, or updated with CARE's latest values, and the enabler's rows for devices CARE no
+        /// longer lists (removed, or connected to another enabler) are deleted. One transaction.
+        /// </summary>
+        public bool SyncCareDevices(string dicomEnablerId, List<CareDeviceRecord> devices, ref int savedCount, ref int deletedCount, ref string errorString)
+        {
+            savedCount = 0;
+            deletedCount = 0;
+            if (string.IsNullOrWhiteSpace(dicomEnablerId))
+            {
+                errorString = "Saving care_devices needs the DICOM Enabler id.";
+                return false;
+            }
+            MySqlTransaction transaction = null;
+            try
+            {
+                if (!openDBConnection(ref errorString))
+                    return false;
+                transaction = conConnection.BeginTransaction();
+
+                const string upsertQuery =
+                    "INSERT INTO care_devices (device_id, facility_id, dicom_enabler_id, device_name, device_type, modality, ae_title, ip, " +
+                    "location_id, location_name, status, availability_status, assignment_status, last_synced_at, details) VALUES " +
+                    "(@device_id, @facility_id, @dicom_enabler_id, @device_name, @device_type, @modality, @ae_title, @ip, " +
+                    "@location_id, @location_name, @status, @availability_status, @assignment_status, @last_synced_at, @details) " +
+                    "ON DUPLICATE KEY UPDATE facility_id = VALUES(facility_id), dicom_enabler_id = VALUES(dicom_enabler_id), " +
+                    "device_name = VALUES(device_name), device_type = VALUES(device_type), modality = VALUES(modality), ae_title = VALUES(ae_title), " +
+                    "ip = VALUES(ip), location_id = VALUES(location_id), location_name = VALUES(location_name), status = VALUES(status), " +
+                    "availability_status = VALUES(availability_status), assignment_status = VALUES(assignment_status), " +
+                    "last_synced_at = VALUES(last_synced_at), details = VALUES(details), updated_time = CURRENT_TIMESTAMP";
+
+                var deviceIds = new List<string>();
+                foreach (CareDeviceRecord device in devices ?? new List<CareDeviceRecord>())
+                {
+                    if (string.IsNullOrWhiteSpace(device?.DeviceId))
+                        continue;
+                    deviceIds.Add(device.DeviceId.Trim());
+                    using (MySqlCommand cmd = new MySqlCommand(upsertQuery, conConnection, transaction))
+                    {
+                        cmd.Parameters.AddWithValue("@device_id", device.DeviceId.Trim());
+                        cmd.Parameters.AddWithValue("@facility_id", DbValue(device.FacilityId));
+                        cmd.Parameters.AddWithValue("@dicom_enabler_id", dicomEnablerId.Trim());
+                        cmd.Parameters.AddWithValue("@device_name", DbValue(device.DeviceName));
+                        cmd.Parameters.AddWithValue("@device_type", DbValue(device.DeviceType));
+                        cmd.Parameters.AddWithValue("@modality", DbValue(device.Modality));
+                        cmd.Parameters.AddWithValue("@ae_title", DbValue(device.AeTitle));
+                        cmd.Parameters.AddWithValue("@ip", DbValue(device.Ip));
+                        cmd.Parameters.AddWithValue("@location_id", DbValue(device.LocationId));
+                        cmd.Parameters.AddWithValue("@location_name", DbValue(device.LocationName));
+                        cmd.Parameters.AddWithValue("@status", DbValue(device.Status));
+                        cmd.Parameters.AddWithValue("@availability_status", DbValue(device.AvailabilityStatus));
+                        cmd.Parameters.AddWithValue("@assignment_status", DbValue(device.AssignmentStatus));
+                        cmd.Parameters.AddWithValue("@last_synced_at", DbValue(device.LastSyncedAt));
+                        cmd.Parameters.AddWithValue("@details", DbValue(device.Details));
+                        cmd.ExecuteNonQuery();
+                        savedCount++;
+                    }
+                }
+
+                using (MySqlCommand cmd = new MySqlCommand(string.Empty, conConnection, transaction))
+                {
+                    string deleteQuery = "DELETE FROM care_devices WHERE dicom_enabler_id = @dicom_enabler_id";
+                    cmd.Parameters.AddWithValue("@dicom_enabler_id", dicomEnablerId.Trim());
+                    if (deviceIds.Count > 0)
+                    {
+                        var placeholders = new List<string>();
+                        for (int i = 0; i < deviceIds.Count; i++)
+                        {
+                            placeholders.Add("@id" + i);
+                            cmd.Parameters.AddWithValue("@id" + i, deviceIds[i]);
+                        }
+                        deleteQuery += " AND device_id NOT IN (" + string.Join(",", placeholders) + ")";
+                    }
+                    cmd.CommandText = deleteQuery;
+                    deletedCount = cmd.ExecuteNonQuery();
+                }
+
+                transaction.Commit();
+                closeDBConnection(ref errorString);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try { transaction?.Rollback(); } catch { }
+                closeDBConnection(ref errorString);
+                errorString = "Saving care_devices failed with exception " + ex.Message;
+                return false;
+            }
+        }
+
+
+        /// <summary>
+        /// The care_devices rows of a DICOM Enabler, by modality then name. Empty when there are none
+        /// or they cannot be read (errorString is then set).
+        /// </summary>
+        public List<CareDeviceRecord> GetCareDevices(string dicomEnablerId, ref string errorString)
+        {
+            var devices = new List<CareDeviceRecord>();
+            if (string.IsNullOrWhiteSpace(dicomEnablerId))
+                return devices;
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "SELECT * FROM care_devices WHERE dicom_enabler_id = @dicom_enabler_id ORDER BY modality, device_name",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@dicom_enabler_id", dicomEnablerId.Trim());
+                        using (MySqlDataReader reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                                devices.Add(ReadCareDevice(reader));
+                        }
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                closeDBConnection(ref errorString);
+                errorString = "Reading care_devices failed with exception " + ex.Message;
+                devices.Clear();
+            }
+            return devices;
+        }
+
+
+        /// <summary>One care_devices row by CARE device id, or null when it is not there or cannot be read.</summary>
+        public CareDeviceRecord GetCareDevice(string deviceId, ref string errorString)
+        {
+            if (string.IsNullOrWhiteSpace(deviceId))
+                return null;
+            CareDeviceRecord device = null;
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    using (MySqlCommand cmd = new MySqlCommand("SELECT * FROM care_devices WHERE device_id = @device_id", conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@device_id", deviceId.Trim());
+                        using (MySqlDataReader reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                                device = ReadCareDevice(reader);
+                        }
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                closeDBConnection(ref errorString);
+                errorString = "Reading care_devices failed with exception " + ex.Message;
+                device = null;
+            }
+            return device;
+        }
+
+        private static CareDeviceRecord ReadCareDevice(MySqlDataReader reader)
+        {
+            return new CareDeviceRecord
+            {
+                DeviceId = DbString(reader, "device_id"),
+                FacilityId = DbString(reader, "facility_id"),
+                DicomEnablerId = DbString(reader, "dicom_enabler_id"),
+                DeviceName = DbString(reader, "device_name"),
+                DeviceType = DbString(reader, "device_type"),
+                Modality = DbString(reader, "modality"),
+                AeTitle = DbString(reader, "ae_title"),
+                Ip = DbString(reader, "ip"),
+                LocationId = DbString(reader, "location_id"),
+                LocationName = DbString(reader, "location_name"),
+                Status = DbString(reader, "status"),
+                AvailabilityStatus = DbString(reader, "availability_status"),
+                AssignmentStatus = DbString(reader, "assignment_status"),
+                LastSyncedAt = DbString(reader, "last_synced_at"),
+                Details = DbString(reader, "details"),
+                UpdatedTime = reader["updated_time"] == DBNull.Value ? (DateTime?)null : Convert.ToDateTime(reader["updated_time"])
+            };
+        }
+
+
+        /// <summary>
         /// Returns the SCHEDULED care_worklist rows for a facility with their care_patient and
         /// care_service_request details, the worklist the MWL service shares with modalities. Only
         /// rows whose scan has not started are returned (scan_status NULL), so a study that is in
         /// progress, completed or cancelled is not offered to the modality again. Only rows for that
-        /// facility are returned, and when modality is set, only service requests with that
-        /// modality; a blank modality returns every modality. A blank facilityId returns nothing.
+        /// facility are returned, and when modality is set, only service requests scheduled on a DICOM
+        /// device of that modality (care_service_request_device.device_modality), or, for a request
+        /// with no device modality stored, whose own modality is that one. A blank modality returns
+        /// every modality. A blank facilityId returns nothing.
         /// </summary>
         public List<CareWorklistRecord> GetScheduledCareWorklist(string facilityId, string modality, ref string errorString)
         {
@@ -772,14 +962,22 @@ namespace Plexus.Common.Database
                 {
                     using (MySqlCommand cmd = new MySqlCommand(
                         "SELECT w.accession_number, w.facility_id, w.facility_name, " +
-                        "sr.service_request_id, sr.name AS sr_name, sr.date AS sr_date, sr.body_site, sr.description, sr.modality, sr.procedure_id, sr.priority, " +
-                        "sr.technician_instruction, sr.patient_instruction, " +
+                        "sr.service_request_id, sr.name AS sr_name, sr.date AS sr_date, sr.body_site, sr.body_site_id, sr.description, sr.modality, " +
+                        "sr.referring_physician, sr.procedure_id, sr.priority, sr.technician_instruction, sr.patient_instruction, " +
+                        // The Scheduled Station AE Titles: the AE titles of the request's DICOM devices of the
+                        // requested modality (or with none stored, for rows saved before device modalities were)
+                        "(SELECT GROUP_CONCAT(DISTINCT d.device_ae_title ORDER BY d.device_ae_title SEPARATOR '|') " +
+                        "  FROM care_service_request_device d WHERE d.service_request_pk = sr.pk AND d.device_ae_title IS NOT NULL " +
+                        "  AND (@modality = '' OR d.device_modality IS NULL OR UPPER(d.device_modality) = UPPER(@modality))) AS device_ae_titles, " +
                         "p.patient_id, p.name AS patient_name, p.gender, p.age, p.patient_uhid " +
                         "FROM care_worklist w " +
                         "LEFT JOIN care_service_request sr ON sr.pk = w.service_request_pk " +
                         "LEFT JOIN care_patient p ON p.pk = w.patient_pk " +
                         "WHERE w.status = 'SCHEDULED' AND w.scan_status IS NULL AND w.facility_id = @facility_id " +
-                        "AND (@modality = '' OR sr.modality = @modality) " +
+                        "AND (@modality = '' " +
+                        "  OR EXISTS (SELECT 1 FROM care_service_request_device d WHERE d.service_request_pk = sr.pk AND UPPER(d.device_modality) = UPPER(@modality)) " +
+                        "  OR (UPPER(sr.modality) = UPPER(@modality) AND NOT EXISTS (SELECT 1 FROM care_service_request_device d " +
+                        "      WHERE d.service_request_pk = sr.pk AND d.device_modality IS NOT NULL))) " +
                         "ORDER BY w.pk",
                         conConnection))
                     {
@@ -798,8 +996,12 @@ namespace Plexus.Common.Database
                                     ServiceRequestName = DbString(reader, "sr_name"),
                                     ServiceRequestDate = reader["sr_date"] == DBNull.Value ? (DateTime?)null : Convert.ToDateTime(reader["sr_date"]),
                                     ServiceRequestBodySite = DbString(reader, "body_site"),
+                                    ServiceRequestBodySiteId = DbString(reader, "body_site_id"),
                                     ServiceRequestDescription = DbString(reader, "description"),
                                     ServiceRequestModality = DbString(reader, "modality"),
+                                    ServiceRequestReferringPhysician = DbString(reader, "referring_physician"),
+                                    DeviceAeTitles = (DbString(reader, "device_ae_titles") ?? string.Empty)
+                                                     .Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries).ToList(),
                                     ServiceRequestProcedureId = DbString(reader, "procedure_id"),
                                     ServiceRequestPriority = DbString(reader, "priority"),
                                     ServiceRequestTechnicianInstruction = DbString(reader, "technician_instruction"),
@@ -1190,8 +1392,10 @@ namespace Plexus.Common.Database
         public string ServiceRequestName { get; set; }
         public DateTime? ServiceRequestDate { get; set; }
         public string ServiceRequestBodySite { get; set; }
+        public string ServiceRequestBodySiteId { get; set; }
         public string ServiceRequestDescription { get; set; }
         public string ServiceRequestModality { get; set; }
+        public string ServiceRequestReferringPhysician { get; set; }
         public string ServiceRequestProcedureId { get; set; }
         public string ServiceRequestPriority { get; set; }
         public string ServiceRequestTechnicianInstruction { get; set; }
@@ -1204,12 +1408,18 @@ namespace Plexus.Common.Database
         public int? PatientAge { get; set; }
         public string PatientUhid { get; set; }
         public List<CareWorklistDevice> Devices { get; set; } = new List<CareWorklistDevice>();
+        /// <summary>
+        /// Read by GetScheduledCareWorklist: the AE titles of the DICOM devices the request is scheduled
+        /// on (of the requested modality), its Scheduled Station AE Titles (0040,0001).
+        /// </summary>
+        public List<string> DeviceAeTitles { get; set; } = new List<string>();
     }
 
 
     /// <summary>
-    /// One care_service_request_device row: a device a service request is scheduled on, with its
-    /// location. DeviceId and DeviceName are null for a location without devices.
+    /// One care_service_request_device row: a DICOM device a service request is scheduled on, with
+    /// its location. The device fields are null for a location without devices. DeviceAeTitle is the
+    /// Scheduled Station AE Title (0040,0001) of the worklist items for that device, not a calling AE.
     /// </summary>
     public class CareWorklistDevice
     {
@@ -1217,5 +1427,32 @@ namespace Plexus.Common.Database
         public string LocationName { get; set; }
         public string DeviceId { get; set; }
         public string DeviceName { get; set; }
+        public string DeviceAeTitle { get; set; }
+        public string DeviceModality { get; set; }
+    }
+
+
+    /// <summary>
+    /// One care_devices row: a DICOM device (modality machine) connected to the selected DICOM Enabler,
+    /// with its summary and its full details JSON as CARE returned it.
+    /// </summary>
+    public class CareDeviceRecord
+    {
+        public string DeviceId { get; set; }
+        public string FacilityId { get; set; }
+        public string DicomEnablerId { get; set; }
+        public string DeviceName { get; set; }
+        public string DeviceType { get; set; }
+        public string Modality { get; set; }
+        public string AeTitle { get; set; }
+        public string Ip { get; set; }
+        public string LocationId { get; set; }
+        public string LocationName { get; set; }
+        public string Status { get; set; }
+        public string AvailabilityStatus { get; set; }
+        public string AssignmentStatus { get; set; }
+        public string LastSyncedAt { get; set; }
+        public string Details { get; set; }
+        public DateTime? UpdatedTime { get; set; }
     }
 }

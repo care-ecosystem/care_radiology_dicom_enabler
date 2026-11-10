@@ -160,8 +160,7 @@ namespace Worklist_SCP
                     // The worklist is served from care_worklist. The CARE API is called only when no
                     // row there matches this query, then care_worklist is read again.
                     // The care_worklist read is limited to the modality in the query (0008,0060); a
-                    // C-FIND without one gets no worklist. The CARE API refresh always uses the
-                    // Configuration tab modality.
+                    // C-FIND without one gets no worklist. The CARE API refresh fetches every modality.
                     string requestedModality = GetRequestedModality(request.Dataset);
                     if (requestedModality == null)
                     {

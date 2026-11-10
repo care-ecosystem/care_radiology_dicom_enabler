@@ -335,6 +335,26 @@ namespace Plexus_DICOM_Enabler.UserControls
                         "The default configuration has been stored there.");
                     return false;
                 }
+
+                // The MWL and Store SCP services listen only with the selected DICOM Enabler's endpoints from
+                // CARE: write them to cfg/common.cfg so a service never starts with other values
+                string enablerDetails = objDAL.GetConfigValue("dicom_enabler_details", string.Empty, ref errorString);
+                if (!string.IsNullOrEmpty(errorString))
+                {
+                    MessageBox.Show("Error reading the DICOM Enabler : " + errorString);
+                    return false;
+                }
+                if (string.IsNullOrWhiteSpace(enablerDetails))
+                {
+                    MessageBox.Show("Please select a DICOM Enabler in the Configuration tab and save it before starting the services. " +
+                        "The Modality SCP and Store SCP settings come from its DICOM endpoints in CARE.");
+                    return false;
+                }
+                if (!cls_ConfigDefaults.ApplyDicomEndpointSettings(enablerDetails, new Dictionary<string, string>(), ref errorString))
+                {
+                    MessageBox.Show("The Modality SCP and Store SCP settings could not be set from the DICOM Enabler : " + errorString);
+                    return false;
+                }
             }
             finally
             {

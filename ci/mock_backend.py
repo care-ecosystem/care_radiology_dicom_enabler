@@ -19,17 +19,19 @@ WORKLIST_RESPONSE = json.dumps({
             "name": "CT Chest CI Test",
             "description": "CT of chest",
             "body_site": "Chest",
+            "body_site_id": "51185008",
             "procedure_id": "169069000",
             "priority": "routine",
             "technician_instruction": None,
             "patient_instruction": None,
             "date": "2026-06-10T10:00:00Z",
-            "accession_number": "CI0000000001"
+            "accession_number": "CI0000000001",
+            "referring_physician": "Dr. CI Referrer"
         },
         "locations": [{
             "id": "ci-location-id",
             "name": "CI Radiology",
-            "devices": [{"id": "ci-device-id", "name": "CT"}]
+            "devices": [{"id": "ci-device-id", "name": "CT", "ae_title": "CT1", "modality": "CT"}]
         }],
         "facility": {
             "id": "ci-fac-id",
