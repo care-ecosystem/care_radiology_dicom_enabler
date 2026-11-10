@@ -67,7 +67,7 @@ namespace Plexus_DICOM_Enabler.Forms
                 case "care_from_date":
                     return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careFromDate"), ReadServiceSetting("CARE_SCU_Service", "careFromDate"));
                 case "worklist_refresh_start_seconds":
-                    return WholeNumberOrDefault(ReadServiceSetting("CARE_MWL_Service", "worklistRefreshStartSeconds"), 30, 0);
+                    return WholeNumberOrDefault(ReadServiceSetting("CARE_MWL_Service", "worklistRefreshStartSeconds"), 5, 0);
                 case "worklist_refresh_interval_seconds":
                     return WholeNumberOrDefault(ReadServiceSetting("CARE_MWL_Service", "worklistRefreshIntervalSeconds"), 30, 1);
                 case "scu_poll_interval_seconds":

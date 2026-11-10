@@ -883,6 +883,43 @@ namespace Plexus.Common.Database
         }
 
 
+        /// <summary>
+        /// Sets assignment_status of the given care_devices rows (rows not saved are skipped), after CARE was
+        /// told the same: Sync sets the DICOM Enabler and its devices to assigned in CARE. updatedCount is
+        /// the number of rows whose status changed.
+        /// </summary>
+        public bool SetCareDevicesAssignmentStatus(IEnumerable<string> deviceIds, string assignmentStatus, ref int updatedCount, ref string errorString)
+        {
+            updatedCount = 0;
+            var ids = (deviceIds ?? Enumerable.Empty<string>()).Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim()).Distinct().ToList();
+            if (ids.Count == 0)
+                return true;
+            try
+            {
+                if (!openDBConnection(ref errorString))
+                    return false;
+                foreach (string id in ids)
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "UPDATE care_devices SET assignment_status = @status, updated_time = CURRENT_TIMESTAMP " +
+                        "WHERE device_id = @id AND (assignment_status IS NULL OR assignment_status <> @status)", conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@status", assignmentStatus);
+                        cmd.Parameters.AddWithValue("@id", id);
+                        updatedCount += cmd.ExecuteNonQuery();
+                    }
+                }
+                closeDBConnection(ref errorString);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                closeDBConnection(ref errorString);
+                errorString = "Updating assignment_status in care_devices failed with exception " + ex.Message;
+                return false;
+            }
+        }
+
         /// <summary>One care_devices row inserted, or updated with the record's values, inside the given transaction.</summary>
         private void UpsertCareDevice(CareDeviceRecord device, string dicomEnablerId, MySqlTransaction transaction)
         {

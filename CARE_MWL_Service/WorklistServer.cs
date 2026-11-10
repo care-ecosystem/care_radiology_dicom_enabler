@@ -76,7 +76,7 @@ namespace Worklist_SCP
                 _server = DicomServerFactory.Create<WorklistService>(port);
                 // The worklist source is first queried worklist_refresh_start_seconds after start, then every
                 // worklist_refresh_interval_seconds, and the current list of items is cached in CurrentWorklistItems.
-                int refreshStartSeconds = GetSecondsSetting("worklist_refresh_start_seconds", "worklistRefreshStartSeconds", 30, 0);
+                int refreshStartSeconds = GetSecondsSetting("worklist_refresh_start_seconds", "worklistRefreshStartSeconds", 5, 0);
                 int refreshIntervalSeconds = GetSecondsSetting("worklist_refresh_interval_seconds", "worklistRefreshIntervalSeconds", 30, 1);
                 RefreshLogger.Information($"[REFRESH] Worklist refresh starts after {refreshStartSeconds}s, then every {refreshIntervalSeconds}s");
                 _itemsLoaderTimer = new System.Threading.Timer((state) => RequestRefresh(backend),

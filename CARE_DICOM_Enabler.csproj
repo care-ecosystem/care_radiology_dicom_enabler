@@ -158,6 +158,9 @@
     <Compile Include="cls_CareSync.cs" />
     <Compile Include="cls_ConfigDefaults.cs" />
     <Compile Include="cls_ConfirmDialog.cs" />
+    <Compile Include="cls_Spinner.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="cls_AppLog.cs" />
     <Compile Include="Forms\frm_LoginScreen.cs">
       <SubType>Form</SubType>

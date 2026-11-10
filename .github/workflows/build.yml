@@ -32,7 +32,7 @@ name: Build CARE DICOM Enabler
 #     CARE_FROM_DATE   optional, e.g. 2025-01-01 08:00:00
 #     CARE_BACKEND     optional, 0=List 1=Database 2=CARE Server
 #     CARE_MAX_UPLOAD_RETRIES   optional, e.g. 10  (upload retries before FailedSCP)
-#     CARE_WORKLIST_REFRESH_START     optional, e.g. 30  (seconds after start before the first worklist fetch)
+#     CARE_WORKLIST_REFRESH_START     optional, e.g. 5   (seconds after start before the first worklist fetch)
 #     CARE_WORKLIST_REFRESH_INTERVAL  optional, e.g. 30  (seconds between worklist fetches)
 
 on:

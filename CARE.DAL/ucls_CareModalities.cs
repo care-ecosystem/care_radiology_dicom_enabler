@@ -24,6 +24,15 @@ namespace Plexus.Common.Database
         /// <summary>Page size sent as limit; CARE returns at most this many results per call.</summary>
         public const int PageSize = 14;
 
+        /// <summary>Shown for a field CARE did not return (or returned empty).</summary>
+        public const string NotAvailable = "N/A";
+
+        /// <summary>value trimmed, or NotAvailable when it is empty.</summary>
+        public static string OrNotAvailable(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? NotAvailable : value.Trim();
+        }
+
         /// <summary>care_type / device_type values.</summary>
         public const string CareTypeDicomEnabler = "dicom-enabler";
         public const string CareTypeDicom = "dicom";
@@ -135,13 +144,6 @@ namespace Plexus.Common.Database
             return TryFetchModalities(modalitiesURL, token, CareTypeDicomEnabler, AssignmentUnassigned, null, writeToLog, out modalities, out error);
         }
 
-        /// <summary>One page of the DICOM Enablers that are not assigned yet, for the user to pick from.</summary>
-        public static bool TryFetchUnassignedDicomEnablersPage(string modalitiesURL, string token, int offset, Action<string, bool> writeToLog,
-                                                               out CareModalitiesResponse page, out string error)
-        {
-            return TryFetchModalitiesPage(modalitiesURL, token, CareTypeDicomEnabler, AssignmentUnassigned, null, offset, writeToLog, out page, out error);
-        }
-
         /// <summary>Checks the filters before calling CARE, so a bad value gets a clear error without a request.</summary>
         private static bool ValidateFilters(string careType, string assignmentStatus, string dicomEnablerId, Action<string, bool> writeToLog, out string error)
         {
@@ -214,9 +216,8 @@ namespace Plexus.Common.Database
 
         /// <summary>
         /// GET .../external/modalities/{device_id}/: the full details of a DICOM Enabler (with its DICOM
-        /// endpoints store_scp and modality_scp) or a DICOM device (returned as in the list). Only devices
-        /// that are active, available and unassigned can be retrieved (CARE returns 400 for any other,
-        /// saying why), so a DICOM Enabler is retrieved before it is assigned.
+        /// endpoints store_scp and modality_scp) or a DICOM device (returned as in the list). Used when a
+        /// DICOM Enabler is selected and by Sync, for the enabler and each of its DICOM devices.
         /// Returns false when the call fails or CARE rejects it; error then says why (it is also logged).
         /// </summary>
         public static bool TryRetrieveModality(string modalitiesURL, string token, string deviceId, Action<string, bool> writeToLog,
@@ -359,6 +360,70 @@ namespace Plexus.Common.Database
             return true;
         }
 
+        /// <summary>
+        /// Sets the saved DICOM Enabler (care_config dicom_enabler_id) and its saved DICOM devices (care_devices)
+        /// to assignmentStatus in CARE (PATCH .../{device_id}/status/), and saves the same status in their
+        /// care_devices rows. Used by the MWL service: unassigned when it stops, assigned when it starts.
+        /// The devices are skipped when the enabler cannot be set (CARE unreachable or rejecting the call).
+        /// Returns false when the enabler or any device could not be set; summary says what was done either way.
+        /// Nothing is done (true) when no Facility Id or DICOM Enabler is saved.
+        /// </summary>
+        public static bool TrySetEnablerAssignment(ucls_DAL dal, string baseUrl, string token, string modalitiesPath, string assignmentStatus,
+                                                   Action<string, bool> writeToLog, out string summary)
+        {
+            string errorString = string.Empty;
+            string facilityId = dal.GetConfigValue("facility_id", string.Empty, ref errorString).Trim();
+            string enablerId = string.IsNullOrEmpty(errorString) ? dal.GetConfigValue("dicom_enabler_id", string.Empty, ref errorString).Trim() : string.Empty;
+            if (!string.IsNullOrEmpty(errorString))
+            {
+                summary = $"DICOM Enabler not set to {assignmentStatus} in CARE: the configuration could not be read: {errorString}";
+                writeToLog(summary, false);
+                return false;
+            }
+            if (facilityId == string.Empty || enablerId == string.Empty)
+            {
+                summary = $"DICOM Enabler not set to {assignmentStatus} in CARE: no Facility Id or DICOM Enabler is saved";
+                writeToLog(summary, true);
+                return true;
+            }
+            if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token))
+            {
+                summary = $"DICOM Enabler {enablerId} not set to {assignmentStatus} in CARE: the CARE URL or API key is not set in App.config";
+                writeToLog(summary, false);
+                return false;
+            }
+            string modalitiesURL = BuildModalitiesURL(baseUrl, modalitiesPath, facilityId);
+
+            if (!TryUpdateAssignmentStatus(modalitiesURL, token, enablerId, assignmentStatus, writeToLog, out string error))
+            {
+                summary = $"DICOM Enabler {enablerId} and its devices not set to {assignmentStatus} in CARE: {error}";
+                writeToLog(summary, false);
+                return false;
+            }
+            var done = new List<string> { enablerId };
+            var failed = new List<string>();
+            List<CareDeviceRecord> devices = dal.GetCareDevices(enablerId, ref errorString);
+            if (!string.IsNullOrEmpty(errorString))
+                failed.Add("the saved devices could not be read: " + errorString);
+            foreach (CareDeviceRecord device in devices.Where(d => !string.IsNullOrWhiteSpace(d.DeviceId)))
+            {
+                if (TryUpdateAssignmentStatus(modalitiesURL, token, device.DeviceId, assignmentStatus, writeToLog, out error))
+                    done.Add(device.DeviceId);
+                else
+                    failed.Add($"device {device.DeviceName ?? device.DeviceId}: {error}");
+            }
+
+            int updated = 0;
+            errorString = string.Empty;
+            if (!dal.SetCareDevicesAssignmentStatus(done, assignmentStatus, ref updated, ref errorString))
+                failed.Add("care_devices could not be updated: " + errorString);
+
+            summary = $"DICOM Enabler {enablerId} and {done.Count - 1} of {devices.Count} device(s) set to {assignmentStatus} in CARE" +
+                      (failed.Count == 0 ? string.Empty : "; not done for " + string.Join("; ", failed));
+            writeToLog(summary, failed.Count == 0);
+            return failed.Count == 0;
+        }
+
         private static bool ValidateDeviceId(string deviceId, Action<string, bool> writeToLog, out string error)
         {
             error = null;
@@ -367,6 +432,12 @@ namespace Plexus.Common.Database
             error = $"The device id must be a UUID, not '{deviceId}'.";
             writeToLog("CARE Modalities API not called: " + error, false);
             return false;
+        }
+
+        /// <summary>The host (and port) of a URL, for messages; the text itself when it is not a URL.</summary>
+        private static string DescribeHost(string url)
+        {
+            return Uri.TryCreate(url ?? string.Empty, UriKind.Absolute, out Uri uri) ? uri.Authority : url;
         }
 
         /// <summary>modalitiesURL/{device_id}/ followed by suffix (e.g. "status/").</summary>
@@ -401,10 +472,19 @@ namespace Plexus.Common.Database
                 response = httpClient.SendAsync(request).GetAwaiter().GetResult();
                 responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
             }
-            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
+            catch (TaskCanceledException)
             {
-                error = "Could not connect to the CARE Modalities API: " + ex.Message;
-                writeToLog(error + ". " + ucls_NetworkCheck.Describe(), false);
+                // HttpClient reports its timeout as a cancelled task
+                error = $"CARE did not answer within {(int)httpClient.Timeout.TotalSeconds} seconds ({DescribeHost(requestUrl)}). " +
+                        ucls_NetworkCheck.Describe() + ". Try again later.";
+                writeToLog(error, false);
+                return false;
+            }
+            catch (HttpRequestException ex)
+            {
+                string reason = ex.InnerException?.Message ?? ex.Message;
+                error = $"Could not connect to CARE ({DescribeHost(requestUrl)}): {reason}. {ucls_NetworkCheck.Describe()}.";
+                writeToLog(error, false);
                 return false;
             }
 
@@ -416,6 +496,14 @@ namespace Plexus.Common.Database
             if (!string.IsNullOrEmpty(detail))
                 error += ": " + detail;
             writeToLog($"{error}. Response body: {ucls_CareWorklist.Truncate(responseBody, 1000)}", false);
+            // What to check, for the banners that show this error
+            int status = (int)response.StatusCode;
+            if (status == 401 || status == 403)
+                error += ". The staticAPIKey in App.config does not match CARE_RADIOLOGY_WEBHOOK_SECRET on the CARE server.";
+            else if (status == 404)
+                error += ". Check careBackendURL / modalitiesURL in App.config and the Facility Id.";
+            else if (status >= 500)
+                error += ". CARE server error; try again later.";
 
             // A 401/403 is nearly always the token not matching the server's CARE_RADIOLOGY_WEBHOOK_SECRET
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
@@ -428,38 +516,10 @@ namespace Plexus.Common.Database
         }
 
         /// <summary>
-        /// The modality code with its name for the common ones, e.g. "CT Scan (CT)", "X-Ray (DX)".
-        /// Any other code is shown as it is.
-        /// </summary>
-        public static string DescribeModality(string modality)
-        {
-            if (string.IsNullOrWhiteSpace(modality))
-                return string.Empty;
-            string code = modality.Trim().ToUpperInvariant();
-            string name;
-            switch (code)
-            {
-                case "CT": name = "CT Scan"; break;
-                case "CR":
-                case "DX": name = "X-Ray"; break;
-                case "MR": name = "MRI"; break;
-                case "US": name = "Ultrasound"; break;
-                case "MG": name = "Mammography"; break;
-                case "NM": name = "Nuclear Medicine"; break;
-                case "PT": name = "PET"; break;
-                case "XA": name = "Angiography"; break;
-                case "RF": name = "Fluoroscopy"; break;
-                case "IO": name = "Dental X-Ray"; break;
-                default: return modality.Trim();
-            }
-            return $"{name} ({code})";
-        }
-
-        /// <summary>
         /// A saved device or DICOM Enabler as readable rows of { section, field, value }, from its care_devices
         /// columns: General, Modality Machine (a DICOM device), Location, Device Status, and the Modality
-        /// Worklist SCP and Store SCP (a DICOM Enabler). Dates are in local time, modality codes with their
-        /// names; an empty value is shown as "-".
+        /// Worklist SCP and Store SCP (a DICOM Enabler). Dates are in local time and modalities are shown as
+        /// CARE returns them (e.g. DX); an empty value is shown as NotAvailable ("N/A").
         /// </summary>
         public static List<string[]> ReadableDetails(CareDeviceRecord device)
         {
@@ -468,29 +528,30 @@ namespace Plexus.Common.Database
                 return rows;
             bool isEnabler = device.DeviceType == CareTypeDicomEnabler;
             void Add(string section, string field, string value) =>
-                rows.Add(new[] { section, field, string.IsNullOrWhiteSpace(value) ? "-" : value.Trim() });
+                rows.Add(new[] { section, field, string.IsNullOrWhiteSpace(value) ? NotAvailable : value.Trim() });
 
+            // Each section starts with its IDs
+            Add("General", "ID", device.DeviceId);
             Add("General", "Device Name", device.DeviceName);
             Add("General", "Device Type", isEnabler ? "DICOM Enabler" : device.DeviceType == CareTypeDicom ? "DICOM Device" : device.DeviceType);
-            Add("General", "ID", device.DeviceId);
             if (!isEnabler)
             {
-                Add("Modality Machine", "Modality", DescribeModality(device.Modality));
+                Add("Modality Machine", "DICOM Enabler ID", device.DicomEnablerId);
+                Add("Modality Machine", "Modality", device.Modality);
                 Add("Modality Machine", "Station AE Title", device.AeTitle);
                 Add("Modality Machine", "IP Address", device.Ip);
-                Add("Modality Machine", "DICOM Enabler ID", device.DicomEnablerId);
             }
             else
             {
                 Add("General", "IP Address", device.Ip);
             }
-            Add("Location", "Name", device.LocationName);
             Add("Location", "ID", device.LocationId);
+            Add("Location", "Name", device.LocationName);
             Add("Device Status", "Status", Capitalize(device.Status));
             Add("Device Status", "Availability", Capitalize(device.AvailabilityStatus));
             Add("Device Status", "Assignment", Capitalize(device.AssignmentStatus));
             Add("Device Status", "Last Synced", DateTimeOffset.TryParse(device.LastSyncedAt, out DateTimeOffset synced)
-                                                    ? synced.ToLocalTime().ToString("dd-MMM-yyyy HH:mm:ss") : "Never");
+                                                    ? synced.ToLocalTime().ToString("dd-MMM-yyyy HH:mm:ss") : NotAvailable);
             if (isEnabler)
             {
                 Add("Modality Worklist SCP", "AE Title", device.ModalityScpAeTitle);
