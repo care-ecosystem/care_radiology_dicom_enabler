@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace Plexus_DICOM_Enabler.Forms
 {
@@ -28,18 +29,30 @@ namespace Plexus_DICOM_Enabler.Forms
         };
 
         /// <summary>
-        /// Stores the default of each blank Configuration tab setting in care_config. facility_id has no default.
+        /// The defaults Start Service(s) offers to store (with ucls_DAL.FillBlankConfig, once the user confirms):
+        /// each Configuration tab setting that is blank in care_config and has a default, with that default.
+        /// facility_id has no default. Null when care_config cannot be read (errorString is set).
         /// </summary>
-        public static bool ApplyDefaults(ucls_DAL objDAL, ref string errorString)
+        public static Dictionary<string, string> GetBlankDefaults(ucls_DAL objDAL, ref string errorString)
         {
-            var configDefaults = new Dictionary<string, string>();
+            System.Data.DataSet config = objDAL.LoadConfig(ref errorString);
+            if (config == null || config.Tables.Count == 0)
+                return null;
+            var current = new Dictionary<string, string>();
+            foreach (System.Data.DataRow row in config.Tables[0].Rows)
+                current[row["config_key"].ToString()] = row["config_value"]?.ToString() ?? string.Empty;
+
+            var defaults = new Dictionary<string, string>();
             foreach (string configKey in ConfigKeys)
             {
-                string value = GetConfigDefault(configKey);
-                if (!string.IsNullOrWhiteSpace(value))
-                    configDefaults[configKey] = value;
+                // Only settings whose care_config row exists and is blank: FillBlankConfig changes nothing else
+                if (!current.TryGetValue(configKey, out string value) || !string.IsNullOrWhiteSpace(value))
+                    continue;
+                string configDefault = GetConfigDefault(configKey);
+                if (!string.IsNullOrWhiteSpace(configDefault))
+                    defaults[configKey] = configDefault;
             }
-            return objDAL.FillBlankConfig(configDefaults, ref errorString);
+            return defaults;
         }
 
         /// <summary>
@@ -104,8 +117,26 @@ namespace Plexus_DICOM_Enabler.Forms
         /// </summary>
         public static bool ApplyDicomEndpointSettings(string detailsJson, Dictionary<string, string> changes, ref string errorString)
         {
+            return UpdateDicomEndpointSettings(detailsJson, changes, true, ref errorString);
+        }
+
+        /// <summary>
+        /// The changes ApplyDicomEndpointSettings would make to cfg/common.cfg, without making them:
+        /// changes gets "key: old -> new" for each value that differs from the DICOM Enabler's endpoints.
+        /// </summary>
+        public static bool CheckDicomEndpointSettings(string detailsJson, Dictionary<string, string> changes, ref string errorString)
+        {
+            return UpdateDicomEndpointSettings(detailsJson, changes, false, ref errorString);
+        }
+
+        private static bool UpdateDicomEndpointSettings(string detailsJson, Dictionary<string, string> changes, bool write, ref string errorString)
+        {
             if (!TryGetDicomEndpointSettings(detailsJson, out Dictionary<string, string> settings, ref errorString))
+            {
+                if (write)
+                    cls_GeneralLog.Error("SCP SETTINGS", "The Modality SCP and Store SCP settings cannot be set from the DICOM Enabler: " + errorString);
                 return false;
+            }
             try
             {
                 string cfgPath = Path.Combine(Global._applicationPath, "cfg", "common.cfg");
@@ -132,13 +163,18 @@ namespace Plexus_DICOM_Enabler.Forms
                     changes[key] = $"{key}: {(oldValue == string.Empty ? "(blank)" : oldValue)} -> {settings[key]}";
                     changed = true;
                 }
-                if (changed)
+                if (changed && write)
+                {
                     configDoc.Save(cfgPath);
+                    foreach (string key in DicomEndpointKeys.Where(changes.ContainsKey))
+                        cls_GeneralLog.Info("SCP SETTINGS", "From the DICOM Enabler's endpoints in CARE - " + changes[key]);
+                }
                 return true;
             }
             catch (Exception ex)
             {
-                errorString = "Writing the DICOM Enabler's endpoints to cfg/common.cfg failed: " + ex.Message;
+                errorString = (write ? "Writing the DICOM Enabler's endpoints to" : "Reading") + " cfg/common.cfg failed: " + ex.Message;
+                cls_GeneralLog.Error("SCP SETTINGS", errorString);
                 return false;
             }
         }

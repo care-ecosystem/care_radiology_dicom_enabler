@@ -26,7 +26,8 @@ namespace Plexus_DICOM_Enabler
         {
             { "ModalitySCP", new LogTail() },
             { "StoreSCP", new LogTail() },
-            { "StoreSCU", new LogTail() }
+            { "StoreSCU", new LogTail() },
+            { cls_GeneralLog.FileName, new LogTail() }
         };
         public frm_Mainform()
         {
@@ -253,6 +254,9 @@ namespace Plexus_DICOM_Enabler
 
             // Read and Populate StoreSCU Logs
             RefreshLog(rtb_SCULog, "StoreSCU");
+
+            // This application's own log: CARE Modalities API calls, assignment changes, device updates, configuration
+            RefreshLog(rtb_GeneralLog, cls_GeneralLog.FileName);
         }
 
         /// <summary>
@@ -568,9 +572,16 @@ namespace Plexus_DICOM_Enabler
                 return;
             }
 
-            // Add Server to Database
+            // Add Server to Database, once the user confirms
             if (objDAL != null )
             {
+                if (cls_ConfirmDialog.Show(this, (bUpdateServer ? "Update" : "Add") + " Server - confirm",
+                        (bUpdateServer ? "The server will be updated" : "This server will be added") + " in the database. Save it?",
+                        new[] { "Server Name: " + txt_ServerName.Text, "AE Title: " + txt_AETitle.Text, "Host: " + txt_HostAddress.Text,
+                                "Port: " + txt_PortNo.Text, "Description: " + rtb_Description.Text },
+                        ("Save", DialogResult.Yes), ("Cancel", DialogResult.Cancel)) != DialogResult.Yes)
+                    return;
+
                 if ( objDAL.insertorUpdateServer(txt_ServerName.Text, txt_AETitle.Text, txt_HostAddress.Text, txt_PortNo.Text, rtb_Description.Text, primarykey, bUpdateServer, ref errorString)) {
                     MessageBox.Show(this, "Server details added/updated Successfully!!",
                                     "Server added Successfully", MessageBoxButtons.OK,
@@ -940,10 +951,38 @@ namespace Plexus_DICOM_Enabler
                 string newFacilityId = values["facility_id"];
                 bool newEnablerAssigned = false;
 
+                // Nothing is written to the database (or CARE) until the user confirms the changes
+                var confirmLines = changes.Where(change => change.Key != DicomEnablerIdKey && change.Key != DicomEnablerNameKey && change.Key != DicomEnablerDetailsKey)
+                                          .Select(change => change.Value)
+                                          .ToList();
+                if (enablerChanged)
+                {
+                    string newEnabler = newEnablerId == string.Empty ? "none" : $"{selectedDicomEnabler?.Name ?? newEnablerId} ({newEnablerId})";
+                    confirmLines.Add($"DICOM Enabler: {DescribeEnabler(oldEnablerId)} -> {newEnabler}");
+                    if (newEnablerId != string.Empty)
+                        confirmLines.Add("  The new DICOM Enabler is assigned to this enabler in CARE, and its DICOM endpoints become the Modality SCP / Store SCP settings.");
+                    if (oldEnablerId != string.Empty)
+                        confirmLines.Add("  The previous DICOM Enabler is unassigned in CARE.");
+                }
+                if (cls_ConfirmDialog.Show(this, "Save Configuration - confirm changes",
+                        "These changes will be saved to the database, and the services using them restarted. Save them?",
+                        confirmLines, ("Save", DialogResult.Yes), ("Cancel", DialogResult.Cancel)) != DialogResult.Yes)
+                {
+                    cls_GeneralLog.Info("CONFIG", "Configuration changes not saved - cancelled by the user: " +
+                                                  string.Join("; ", confirmLines.Select(line => line.Trim())));
+                    return;
+                }
+
                 mbtn_SaveConfig.Enabled = false;
                 this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
                 try
                 {
+                    if (enablerChanged)
+                        cls_GeneralLog.Info("DICOM ENABLER", newEnablerId == string.Empty
+                            ? $"DICOM Enabler cleared in the Configuration tab (was {DescribeEnabler(oldEnablerId)})"
+                            : $"DICOM Enabler {selectedDicomEnabler?.Name ?? newEnablerId} ({newEnablerId}) selected in the Configuration tab" +
+                              (oldEnablerId == string.Empty ? string.Empty : $", replacing {DescribeEnabler(oldEnablerId)}"));
+
                     if (enablerChanged && newEnablerId != string.Empty)
                     {
                         if (!TryGetModalitiesApi(newFacilityId, out string modalitiesURL, out string apiKey, out string apiError))
@@ -995,7 +1034,15 @@ namespace Plexus_DICOM_Enabler
                             notes.AppendLine("The SCP settings could not be updated from it: " + endpointError);
                     }
 
+                    // dicom_enabler_details is CARE's whole JSON, so only whether it changed is logged
+                    foreach (var change in changes)
+                        cls_GeneralLog.Info("CONFIG", change.Key == DicomEnablerDetailsKey
+                            ? $"{DicomEnablerDetailsKey}: {(string.IsNullOrEmpty(values[DicomEnablerDetailsKey]) ? "cleared" : "updated from CARE")}"
+                            : change.Value);
+
                     string restartSummary = RestartServicesForChanges(changes);
+                    foreach (string line in restartSummary.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries))
+                        cls_GeneralLog.Info("SERVICES", line);
                     string summary = (notes.ToString().TrimEnd() + Environment.NewLine + Environment.NewLine + restartSummary).Trim();
                     this.Cursor = System.Windows.Forms.Cursors.Default;
                     MessageBox.Show(this, "Configuration saved Successfully!!" + Environment.NewLine + Environment.NewLine + summary,
@@ -1003,9 +1050,13 @@ namespace Plexus_DICOM_Enabler
                                      MessageBoxIcon.Information);
                     GetConfiguration();
 
-                    // Show the modality devices connected to the newly assigned DICOM Enabler
+                    // Show the modality devices connected to the newly assigned DICOM Enabler, and offer to save
+                    // them (Sync, with confirmation)
                     if (newEnablerAssigned)
+                    {
+                        syncDevicesOnOpen = true;
                         mtc_Modules.SelectedTab = tbp_Devices;
+                    }
                 }
                 finally
                 {
@@ -1015,38 +1066,33 @@ namespace Plexus_DICOM_Enabler
             }
             catch (Exception ex)
             {
+                cls_GeneralLog.Error("CONFIG", "Saving the configuration failed with exception " + ex);
                 MessageBox.Show(this, "Error Saving Configuration with expection : " + ex.Message,
                                      "Error Saving Configuration", MessageBoxButtons.OK,
                                      MessageBoxIcon.Error);
             }
         }
 
+        /// <summary>A saved enabler for the log: its name from care_config when it is the one loaded, and its id.</summary>
+        private string DescribeEnabler(string enablerId)
+        {
+            if (string.IsNullOrEmpty(enablerId))
+                return "none";
+            loadedConfigValues.TryGetValue(DicomEnablerNameKey, out string name);
+            return string.IsNullOrWhiteSpace(name) ? enablerId : $"{name.Trim()} ({enablerId})";
+        }
+
         private void ShowSaveError(string message)
         {
+            cls_GeneralLog.Error("CONFIG", "Configuration not saved: " + message.Replace(Environment.NewLine, " "));
             this.Cursor = System.Windows.Forms.Cursors.Default;
             MessageBox.Show(this, message, "Error Saving Configuration", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
-        /// <summary>
-        /// The facility's modalities API URL and the static API key from App.config. False with error set
-        /// when the facility, careBackendURL or staticAPIKey is missing.
-        /// </summary>
+        /// <summary>The facility's modalities API URL and the static API key; see cls_CareSync.TryGetModalitiesApi.</summary>
         private static bool TryGetModalitiesApi(string facilityId, out string modalitiesURL, out string apiKey, out string error)
         {
-            modalitiesURL = null;
-            error = null;
-            string baseUrl = (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).Trim();
-            apiKey = ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(facilityId))
-                error = "the Facility Id is not set.";
-            else if (baseUrl == string.Empty)
-                error = "careBackendURL is not set in App.config.";
-            else if (string.IsNullOrWhiteSpace(apiKey))
-                error = "staticAPIKey is not set in App.config.";
-            if (error != null)
-                return false;
-            modalitiesURL = ucls_CareModalities.BuildModalitiesURL(baseUrl, ConfigurationManager.AppSettings["modalitiesURL"], facilityId);
-            return true;
+            return cls_CareSync.TryGetModalitiesApi(facilityId, out modalitiesURL, out apiKey, out error);
         }
 
         /// <summary>
@@ -1064,9 +1110,13 @@ namespace Plexus_DICOM_Enabler
             // The Modality SCP and Store SCP settings come only from these endpoints, so it is not assigned without them
             if (!ucls_CareModalities.TryGetDicomEndpoints(detailsJson, out _, out _, out error))
                 return Tuple.Create(false, enabler, detailsJson, error + " Set its DICOM endpoints in CARE and select it again.");
+            cls_GeneralLog.Info("DICOM ENABLER", $"Details of {enabler?.device_name} ({enablerId}) from CARE: " +
+                $"Modality Worklist SCP {enabler?.modality_scp?.ae_title}:{enabler?.modality_scp?.port}, " +
+                $"Store SCP {enabler?.store_scp?.ae_title}:{enabler?.store_scp?.port}, IP {enabler?.ip ?? "-"}, location {enabler?.location?.name ?? "-"}");
             if (!ucls_CareModalities.TryUpdateAssignmentStatus(modalitiesURL, apiKey, enablerId, ucls_CareModalities.AssignmentAssigned,
                                                                LogDicomEnablerLoad, out error))
                 return Tuple.Create(false, enabler, detailsJson, "The DICOM Enabler could not be assigned in CARE: " + error);
+            cls_GeneralLog.Info("DICOM ENABLER", $"{enabler?.device_name} ({enablerId}) assignment_status: unassigned -> assigned");
             return Tuple.Create(true, enabler, detailsJson, (string)null);
         }
 
@@ -1081,9 +1131,14 @@ namespace Plexus_DICOM_Enabler
             string unassignError = null;
             bool ok = await System.Threading.Tasks.Task.Run(() => ucls_CareModalities.TryUpdateAssignmentStatus(
                 modalitiesURL, apiKey, enablerId, ucls_CareModalities.AssignmentUnassigned, LogDicomEnablerLoad, out unassignError));
-            return ok
+            string result = ok
                 ? $"{what} ({enablerId}) is unassigned in CARE."
                 : $"{what} ({enablerId}) could not be unassigned in CARE: {unassignError}. Unassign it in CARE.";
+            if (ok)
+                cls_GeneralLog.Info("DICOM ENABLER", $"{what} ({enablerId}) assignment_status: assigned -> unassigned");
+            else
+                cls_GeneralLog.Warning("DICOM ENABLER", result);
+            return result;
         }
         }
 
@@ -1287,9 +1342,14 @@ namespace Plexus_DICOM_Enabler
             mbtn_DicomEnablerNext.Enabled = next;
         }
 
+        // The CARE Modalities API clients' log lines (requests, results, connection and authorization
+        // errors) go to View Logs > General
         private static void LogDicomEnablerLoad(string message, bool success)
         {
-            System.Diagnostics.Trace.WriteLine((success ? "" : "ERROR: ") + message);
+            if (success)
+                cls_GeneralLog.Info("MODALITIES", message);
+            else
+                cls_GeneralLog.Error("MODALITIES", message);
         }
 
         private void mcb_DicomEnabler_SelectedIndexChanged(object sender, EventArgs e)
@@ -1315,20 +1375,21 @@ namespace Plexus_DICOM_Enabler
             LoadDicomEnablerPage(dicomEnablerOffset + ucls_CareModalities.PageSize);
         }
 
-        // The Devices tab lists every DICOM device (modality machine such as CT or X-Ray, each with its own
-        // modality) connected to the DICOM Enabler saved in the Configuration tab, in a scrollable grid.
-        // Each load saves them to care_devices; clicking a device shows its details from there.
-        // Increased by every load, so the result of an older load that finishes late is ignored
-        private int devicesLoadVersion;
+        // The Devices tab lists the DICOM devices (modality machines such as CT or X-Ray, each with its own
+        // modality) saved in care_devices for the DICOM Enabler saved in the Configuration tab, in a
+        // scrollable grid; clicking a device shows its details. Opening the tab only reads care_devices.
+        // Sync checks CARE for new devices and changes, and applies them only once the user confirms.
+        private bool devicesSyncRunning;
+        // Set when a DICOM Enabler was just assigned: the Devices tab syncs once it opens, so its devices
+        // are offered for saving straight away
+        private bool syncDevicesOnOpen;
 
         /// <summary>
-        /// Loads every DICOM device connected to the saved DICOM Enabler into the Devices tab:
-        /// GET .../external/modalities/?care_type=dicom&dicom_enabler={id} (all pages), then
-        /// GET .../external/modalities/{device_id}/ for the full details of each unassigned device
+        /// Shows the devices saved in care_devices for the saved DICOM Enabler. Does not call CARE and
+        /// changes nothing: Sync does that, with confirmation.
         /// </summary>
-        private async void LoadDevices()
+        private void LoadDevices()
         {
-            int loadVersion = ++devicesLoadVersion;
             dgv_Devices.Rows.Clear();
 
             string errorString = string.Empty;
@@ -1339,6 +1400,7 @@ namespace Plexus_DICOM_Enabler
             lbl_DevicesEnabler.Text = enablerId == string.Empty
                 ? "DICOM Enabler: none selected"
                 : "DICOM Enabler: " + (enablerName == string.Empty ? enablerId : enablerName);
+            mbtn_DevicesSync.Enabled = !devicesSyncRunning && facilityId != string.Empty && enablerId != string.Empty;
 
             if (!string.IsNullOrEmpty(errorString))
             {
@@ -1352,101 +1414,96 @@ namespace Plexus_DICOM_Enabler
                     : "Select and save a DICOM Enabler in the Configuration tab to see the devices connected to it.";
                 return;
             }
-            if (!TryGetModalitiesApi(facilityId, out string modalitiesURL, out string apiKey, out string apiError))
-            {
-                ShowSavedDevices(enablerId, "The devices cannot be loaded from CARE: " + apiError);
-                return;
-            }
 
-            mbtn_DevicesRefresh.Enabled = false;
-            lbl_DevicesStatus.Text = "Loading devices from CARE...";
-
-            var result = await System.Threading.Tasks.Task.Run(() => FetchAndSaveDevices(modalitiesURL, apiKey, facilityId, enablerId));
-
-            // The form was closed, or a newer load (Refresh, tab reopened) replaced this one
-            if (IsDisposed || loadVersion != devicesLoadVersion)
-                return;
-            mbtn_DevicesRefresh.Enabled = true;
-
-            if (result.Item1 == null)
-            {
-                ShowSavedDevices(enablerId, "Could not load the devices from CARE: " + result.Item2);
-                return;
-            }
-            ShowDevices(result.Item1);
-            if (!string.IsNullOrEmpty(result.Item2))
-                lbl_DevicesStatus.Text += Environment.NewLine + result.Item2;
-        }
-
-        /// <summary>
-        /// Fetches the enabler's DICOM devices with their details from CARE and saves them to care_devices.
-        /// Returns the devices, or null and why they could not be fetched; a save failure is returned as a
-        /// note with the devices. Runs off the UI thread with its own database connection.
-        /// </summary>
-        private static Tuple<List<CareDeviceRecord>, string> FetchAndSaveDevices(string modalitiesURL, string apiKey, string facilityId, string enablerId)
-        {
-            if (!ucls_CareModalities.TryFetchDicomDevices(modalitiesURL, apiKey, enablerId, LogDicomEnablerLoad, out CareModalitiesResponse list, out string error))
-                return Tuple.Create((List<CareDeviceRecord>)null, error);
-
-            var devices = new List<CareDeviceRecord>();
-            foreach (CareModality device in list.results)
-            {
-                string details = device.RawJson;
-                if (!device.IsAssigned &&
-                    ucls_CareModalities.TryRetrieveModality(modalitiesURL, apiKey, device.id, LogDicomEnablerLoad, out CareModality _, out string retrieved, out _))
-                    details = retrieved;
-                devices.Add(new CareDeviceRecord
-                {
-                    DeviceId = device.id,
-                    FacilityId = facilityId,
-                    DicomEnablerId = enablerId,
-                    DeviceName = device.device_name,
-                    DeviceType = device.device_type,
-                    Modality = device.machine?.modality?.Trim().ToUpperInvariant(),
-                    AeTitle = device.machine?.ae_title,
-                    Ip = device.machine?.ip ?? device.ip,
-                    LocationId = device.location?.id,
-                    LocationName = device.location?.name,
-                    Status = device.device_status?.status,
-                    AvailabilityStatus = device.device_status?.availability_status,
-                    AssignmentStatus = device.assignment_status,
-                    LastSyncedAt = device.last_synced_at?.ToString("o"),
-                    Details = details,
-                    UpdatedTime = DateTime.Now
-                });
-            }
-
-            string note = null;
-            // Its own connection: the UI thread's objDAL holds a single one
-            var dal = new ucls_DAL(Global._applicationPath);
-            try
-            {
-                string saveError = string.Empty;
-                int saved = 0, deleted = 0;
-                if (!dal.SyncCareDevices(enablerId, devices, ref saved, ref deleted, ref saveError))
-                    note = "The devices could not be saved to care_devices: " + saveError;
-            }
-            finally
-            {
-                dal.Dispose();
-            }
-            return Tuple.Create(devices.OrderBy(d => d.Modality ?? string.Empty).ThenBy(d => d.DeviceName ?? string.Empty).ToList(), note);
-        }
-
-        /// <summary>Shows the devices last saved to care_devices for the enabler, after why CARE was not used.</summary>
-        private void ShowSavedDevices(string enablerId, string reason)
-        {
-            string errorString = string.Empty;
             List<CareDeviceRecord> saved = objDAL.GetCareDevices(enablerId, ref errorString);
-            if (!string.IsNullOrEmpty(errorString) || saved.Count == 0)
+            if (!string.IsNullOrEmpty(errorString))
             {
-                lbl_DevicesStatus.Text = reason + (string.IsNullOrEmpty(errorString) ? string.Empty : " " + errorString);
+                lbl_DevicesStatus.Text = "Could not read the saved devices: " + errorString;
                 return;
             }
             ShowDevices(saved);
-            DateTime? savedAt = saved.Max(d => d.UpdatedTime);
-            lbl_DevicesStatus.Text = reason + Environment.NewLine +
-                                     $"Showing the {saved.Count} device(s) saved{(savedAt.HasValue ? " on " + savedAt.Value.ToString("dd-MMM-yyyy HH:mm") : string.Empty)}.";
+            if (saved.Count == 0)
+            {
+                lbl_DevicesStatus.Text = "No devices are saved for this DICOM Enabler yet. Click Sync to get them from CARE.";
+            }
+            else
+            {
+                DateTime? savedAt = saved.Max(d => d.UpdatedTime);
+                lbl_DevicesStatus.Text += Environment.NewLine +
+                    $"Saved{(savedAt.HasValue ? " on " + savedAt.Value.ToString("dd-MMM-yyyy HH:mm") : string.Empty)}. Click Sync to check CARE for new devices and changes.";
+            }
+
+            if (syncDevicesOnOpen)
+            {
+                syncDevicesOnOpen = false;
+                SyncDevices("DICOM Enabler assigned");
+            }
+        }
+
+        /// <summary>
+        /// Checks CARE for new DICOM devices and changes to the saved ones, to the DICOM Enabler's entry and to
+        /// the Modality SCP / Store SCP settings, then asks before applying them. Applying saves care_devices
+        /// and care_config, writes the SCP settings and restarts the services that use a changed setting.
+        /// </summary>
+        private async void SyncDevices(string why)
+        {
+            if (devicesSyncRunning)
+                return;
+            devicesSyncRunning = true;
+            mbtn_DevicesSync.Enabled = false;
+            string previousStatus = lbl_DevicesStatus.Text;
+            lbl_DevicesStatus.Text = "Checking CARE for new devices and changes...";
+            try
+            {
+                CareSyncCheck check = await System.Threading.Tasks.Task.Run(() => cls_CareSync.Check(why));
+                if (IsDisposed)
+                    return;
+
+                if (!check.Checked)
+                {
+                    lbl_DevicesStatus.Text = previousStatus;
+                    MessageBox.Show(this, check.Error, "Sync with CARE", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                if (!check.HasChanges)
+                {
+                    lbl_DevicesStatus.Text = previousStatus;
+                    string message = $"The {check.CareDevices.Count} device(s), the DICOM Enabler and the SCP settings match CARE. Nothing to update.";
+                    if (check.Warnings.Count > 0)
+                        message += Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, check.Warnings);
+                    MessageBox.Show(this, message, "Sync with CARE", MessageBoxButtons.OK,
+                                    check.Warnings.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+                    return;
+                }
+
+                DialogResult answer = cls_ConfirmDialog.Show(this, "Sync with CARE - confirm changes",
+                    "CARE has these changes for this DICOM Enabler. Nothing has been changed yet. Update the saved devices and settings?",
+                    check.Describe(),
+                    ("Update", DialogResult.Yes), ("Don't update", DialogResult.No));
+                if (answer != DialogResult.Yes)
+                {
+                    cls_CareSync.LogDeclined(check, why);
+                    lbl_DevicesStatus.Text = previousStatus + Environment.NewLine + "Changes from CARE not applied.";
+                    return;
+                }
+
+                var scpChanges = new Dictionary<string, string>();
+                bool applied = cls_CareSync.Apply(check, scpChanges, out string applyError);
+                string restartSummary = scpChanges.Count > 0 ? RestartServicesForChanges(scpChanges) : string.Empty;
+                foreach (string line in restartSummary.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries))
+                    cls_GeneralLog.Info("SERVICES", line);
+
+                LoadDevices();
+                MessageBox.Show(this, (applied ? "The changes from CARE were saved." : "Not every change was saved: " + applyError) +
+                                      (restartSummary == string.Empty ? string.Empty : Environment.NewLine + Environment.NewLine + restartSummary),
+                                "Sync with CARE", MessageBoxButtons.OK, applied ? MessageBoxIcon.Information : MessageBoxIcon.Error);
+            }
+            finally
+            {
+                devicesSyncRunning = false;
+                if (!IsDisposed)
+                    mbtn_DevicesSync.Enabled = true;
+            }
         }
 
         /// <summary>Fills the grid, one row per device (Tag = its CARE device id), and summarises them by modality.</summary>
@@ -1605,9 +1662,9 @@ namespace Plexus_DICOM_Enabler
             }
         }
 
-        private void mbtn_DevicesRefresh_Click(object sender, EventArgs e)
+        private void mbtn_DevicesSync_Click(object sender, EventArgs e)
         {
-            LoadDevices();
+            SyncDevices("Sync button");
         }
 
         // care_from_date is sent to the CARE worklist API as entered, in this format

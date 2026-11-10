@@ -82,8 +82,9 @@ DEALLOCATE PREPARE care_device_modality_index_stmt;
 
 -- The DICOM devices (modality machines such as CT or X-Ray) connected to the selected DICOM Enabler,
 -- one row per CARE device id, from GET .../external/modalities/?dicom_enabler={id}. Refreshed by the
--- Devices tab: rows are inserted or updated with CARE's latest values, and the enabler's rows CARE no
--- longer lists are deleted. details is the device's full JSON as CARE returned it (from GET
+-- Devices tab's Sync and by Start Service(s), only once the user confirms the changes found: rows are
+-- inserted or updated with CARE's latest values, and the enabler's rows CARE no longer lists are deleted.
+-- details is the device's full JSON as CARE returned it (from GET
 -- .../external/modalities/{device_id}/ while it is unassigned, else its list entry), shown when the
 -- device is clicked; the other columns are its summary.
 CREATE TABLE IF NOT EXISTS `care_devices` (
@@ -204,9 +205,9 @@ CREATE TABLE IF NOT EXISTS `care_sync_upload` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Integration settings for this enabler's facility, one row per setting, edited in the
--- Configuration tab. Start Services fills each blank setting with its default (the App.config
+-- Configuration tab. Start Services offers to fill each blank setting with its default (the App.config
 -- value baked in at build time, or the built-in default) so the stored values are shown and can be
--- changed. A value still blank means the service uses that default. facility_id has no default:
+-- changed; it is stored only if the user confirms. A value still blank means the service uses that default. facility_id has no default:
 -- the user must enter it, and the services are not started until it is set. API keys and tokens
 -- stay in App.config.
 CREATE TABLE IF NOT EXISTS `care_config` (

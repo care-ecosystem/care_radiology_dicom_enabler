@@ -155,7 +155,10 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="cls_CareSync.cs" />
     <Compile Include="cls_ConfigDefaults.cs" />
+    <Compile Include="cls_ConfirmDialog.cs" />
+    <Compile Include="cls_GeneralLog.cs" />
     <Compile Include="Forms\frm_LoginScreen.cs">
       <SubType>Form</SubType>
     </Compile>

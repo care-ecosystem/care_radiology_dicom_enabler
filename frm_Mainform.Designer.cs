@@ -102,9 +102,11 @@ namespace Plexus_DICOM_Enabler
             this.rtb_SCPLog = new System.Windows.Forms.RichTextBox();
             this.tp_SCULog = new System.Windows.Forms.TabPage();
             this.rtb_SCULog = new System.Windows.Forms.RichTextBox();
+            this.tp_GeneralLog = new System.Windows.Forms.TabPage();
+            this.rtb_GeneralLog = new System.Windows.Forms.RichTextBox();
             this.tbp_Configuration = new System.Windows.Forms.TabPage();
             this.tbp_Devices = new System.Windows.Forms.TabPage();
-            this.mbtn_DevicesRefresh = new MaterialSkin.Controls.MaterialButton();
+            this.mbtn_DevicesSync = new MaterialSkin.Controls.MaterialButton();
             this.lbl_DevicesEnabler = new MaterialSkin.Controls.MaterialLabel();
             this.dgv_Devices = new System.Windows.Forms.DataGridView();
             this.col_DeviceName = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -169,6 +171,7 @@ namespace Plexus_DICOM_Enabler
             this.tp_MWLLog.SuspendLayout();
             this.tp_SCPLog.SuspendLayout();
             this.tp_SCULog.SuspendLayout();
+            this.tp_GeneralLog.SuspendLayout();
             this.tbp_Configuration.SuspendLayout();
             this.grpb_CareSettings.SuspendLayout();
             this.grpb_UploadSettings.SuspendLayout();
@@ -1041,6 +1044,7 @@ namespace Plexus_DICOM_Enabler
             this.tbc_Logs.Controls.Add(this.tp_MWLLog);
             this.tbc_Logs.Controls.Add(this.tp_SCPLog);
             this.tbc_Logs.Controls.Add(this.tp_SCULog);
+            this.tbc_Logs.Controls.Add(this.tp_GeneralLog);
             this.tbc_Logs.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tbc_Logs.Location = new System.Drawing.Point(80, 2);
             this.tbc_Logs.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
@@ -1114,6 +1118,28 @@ namespace Plexus_DICOM_Enabler
             this.rtb_SCULog.TabIndex = 0;
             this.rtb_SCULog.Text = "";
             //
+            // tp_GeneralLog
+            //
+            this.tp_GeneralLog.Controls.Add(this.rtb_GeneralLog);
+            this.tp_GeneralLog.Location = new System.Drawing.Point(4, 25);
+            this.tp_GeneralLog.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
+            this.tp_GeneralLog.Name = "tp_GeneralLog";
+            this.tp_GeneralLog.Size = new System.Drawing.Size(939, 728);
+            this.tp_GeneralLog.TabIndex = 3;
+            this.tp_GeneralLog.Text = "General";
+            this.tp_GeneralLog.UseVisualStyleBackColor = true;
+            //
+            // rtb_GeneralLog
+            //
+            this.rtb_GeneralLog.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.rtb_GeneralLog.Location = new System.Drawing.Point(0, 0);
+            this.rtb_GeneralLog.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
+            this.rtb_GeneralLog.Name = "rtb_GeneralLog";
+            this.rtb_GeneralLog.ReadOnly = true;
+            this.rtb_GeneralLog.Size = new System.Drawing.Size(939, 728);
+            this.rtb_GeneralLog.TabIndex = 0;
+            this.rtb_GeneralLog.Text = "";
+            //
             // tbp_Configuration
             //
             this.tbp_Configuration.AutoScroll = true;
@@ -1131,7 +1157,7 @@ namespace Plexus_DICOM_Enabler
             //
             // tbp_Devices
             //
-            this.tbp_Devices.Controls.Add(this.mbtn_DevicesRefresh);
+            this.tbp_Devices.Controls.Add(this.mbtn_DevicesSync);
             this.tbp_Devices.Controls.Add(this.lbl_DevicesEnabler);
             this.tbp_Devices.Controls.Add(this.dgv_Devices);
             this.tbp_Devices.Controls.Add(this.lbl_DevicesStatus);
@@ -1145,25 +1171,25 @@ namespace Plexus_DICOM_Enabler
             this.tbp_Devices.Text = "Devices";
             this.tbp_Devices.UseVisualStyleBackColor = true;
             //
-            // mbtn_DevicesRefresh
+            // mbtn_DevicesSync
             //
-            this.mbtn_DevicesRefresh.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-            this.mbtn_DevicesRefresh.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
-            this.mbtn_DevicesRefresh.Depth = 0;
-            this.mbtn_DevicesRefresh.HighEmphasis = true;
-            this.mbtn_DevicesRefresh.Icon = null;
-            this.mbtn_DevicesRefresh.Location = new System.Drawing.Point(81, 14);
-            this.mbtn_DevicesRefresh.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
-            this.mbtn_DevicesRefresh.MouseState = MaterialSkin.MouseState.HOVER;
-            this.mbtn_DevicesRefresh.Name = "mbtn_DevicesRefresh";
-            this.mbtn_DevicesRefresh.NoAccentTextColor = System.Drawing.Color.Empty;
-            this.mbtn_DevicesRefresh.Size = new System.Drawing.Size(84, 36);
-            this.mbtn_DevicesRefresh.TabIndex = 0;
-            this.mbtn_DevicesRefresh.Text = "Refresh";
-            this.mbtn_DevicesRefresh.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
-            this.mbtn_DevicesRefresh.UseAccentColor = false;
-            this.mbtn_DevicesRefresh.UseVisualStyleBackColor = true;
-            this.mbtn_DevicesRefresh.Click += new System.EventHandler(this.mbtn_DevicesRefresh_Click);
+            this.mbtn_DevicesSync.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.mbtn_DevicesSync.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this.mbtn_DevicesSync.Depth = 0;
+            this.mbtn_DevicesSync.HighEmphasis = true;
+            this.mbtn_DevicesSync.Icon = null;
+            this.mbtn_DevicesSync.Location = new System.Drawing.Point(81, 14);
+            this.mbtn_DevicesSync.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
+            this.mbtn_DevicesSync.MouseState = MaterialSkin.MouseState.HOVER;
+            this.mbtn_DevicesSync.Name = "mbtn_DevicesSync";
+            this.mbtn_DevicesSync.NoAccentTextColor = System.Drawing.Color.Empty;
+            this.mbtn_DevicesSync.Size = new System.Drawing.Size(84, 36);
+            this.mbtn_DevicesSync.TabIndex = 0;
+            this.mbtn_DevicesSync.Text = "Sync";
+            this.mbtn_DevicesSync.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
+            this.mbtn_DevicesSync.UseAccentColor = false;
+            this.mbtn_DevicesSync.UseVisualStyleBackColor = true;
+            this.mbtn_DevicesSync.Click += new System.EventHandler(this.mbtn_DevicesSync_Click);
             //
             // lbl_DevicesEnabler
             //
@@ -1883,6 +1909,7 @@ namespace Plexus_DICOM_Enabler
             this.tp_MWLLog.ResumeLayout(false);
             this.tp_SCPLog.ResumeLayout(false);
             this.tp_SCULog.ResumeLayout(false);
+            this.tp_GeneralLog.ResumeLayout(false);
             this.grpb_CareSettings.ResumeLayout(false);
             this.grpb_CareSettings.PerformLayout();
             this.grpb_UploadSettings.ResumeLayout(false);
@@ -1947,6 +1974,8 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.TabPage tp_SCPLog;
         private System.Windows.Forms.TabPage tp_SCULog;
         private System.Windows.Forms.RichTextBox rtb_SCULog;
+        private System.Windows.Forms.TabPage tp_GeneralLog;
+        private System.Windows.Forms.RichTextBox rtb_GeneralLog;
         private System.Windows.Forms.RichTextBox rtb_SCPLog;
         private MaterialSkin.Controls.MaterialCheckbox mtchkb_CheckServer;
         private System.Windows.Forms.DataGridViewTextBoxColumn pk;
@@ -1978,7 +2007,7 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.TabPage tbp_Configuration;
         private MaterialSkin.Controls.MaterialButton mbtn_SaveConfig;
         private System.Windows.Forms.TabPage tbp_Devices;
-        private MaterialSkin.Controls.MaterialButton mbtn_DevicesRefresh;
+        private MaterialSkin.Controls.MaterialButton mbtn_DevicesSync;
         private MaterialSkin.Controls.MaterialLabel lbl_DevicesEnabler;
         private System.Windows.Forms.DataGridView dgv_Devices;
         private System.Windows.Forms.DataGridViewTextBoxColumn col_DeviceName;

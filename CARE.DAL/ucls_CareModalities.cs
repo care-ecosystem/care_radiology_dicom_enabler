@@ -124,6 +124,7 @@ namespace Plexus.Common.Database
             if (page.results == null)
                 page.results = new List<CareModality>();
             page.results.RemoveAll(m => m == null);
+            writeToLog($"CARE Modalities API returned {page.results.Count} device(s) from offset {Math.Max(0, offset)} (count={page.count})", true);
             return true;
         }
 
