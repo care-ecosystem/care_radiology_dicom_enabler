@@ -339,7 +339,7 @@ namespace Plexus.Common.Database
         /// Returns false when the call fails or CARE rejects it; error then says why (it is also logged).
         /// </summary>
         public static bool TryUpdateAssignmentStatus(string modalitiesURL, string token, string deviceId, string assignmentStatus,
-                                                     Action<string, bool> writeToLog, out string error)
+                                                     Action<string, bool> writeToLog, out string error, TimeSpan? timeout = null)
         {
             if (!ValidateDeviceId(deviceId, writeToLog, out error))
                 return false;
@@ -353,7 +353,7 @@ namespace Plexus.Common.Database
             string requestUrl = BuildDeviceURL(modalitiesURL, deviceId, "status/");
             string payload = JsonConvert.SerializeObject(new { assignment_status = assignmentStatus });
             var patch = new HttpMethod("PATCH");
-            if (!TrySend(patch, requestUrl, token, payload, writeToLog, out _, out error))
+            if (!TrySend(patch, requestUrl, token, payload, writeToLog, out _, out error, timeout))
                 return false;
 
             writeToLog($"CARE Modalities API set assignment_status of {deviceId} to {assignmentStatus}", true);
@@ -367,9 +367,13 @@ namespace Plexus.Common.Database
         /// The devices are skipped when the enabler cannot be set (CARE unreachable or rejecting the call).
         /// Returns false when the enabler or any device could not be set; summary says what was done either way.
         /// Nothing is done (true) when no Facility Id or DICOM Enabler is saved.
+        /// requestTimeout / deadline (while Windows shuts down): each call gets at most requestTimeout, the
+        /// enabler goes first, and the devices left when the deadline passes are skipped (they are set to
+        /// assigned again when the service starts).
         /// </summary>
         public static bool TrySetEnablerAssignment(ucls_DAL dal, string baseUrl, string token, string modalitiesPath, string assignmentStatus,
-                                                   Action<string, bool> writeToLog, out string summary)
+                                                   Action<string, bool> writeToLog, out string summary,
+                                                   TimeSpan? requestTimeout = null, DateTime? deadline = null)
         {
             string errorString = string.Empty;
             string facilityId = dal.GetConfigValue("facility_id", string.Empty, ref errorString).Trim();
@@ -394,7 +398,7 @@ namespace Plexus.Common.Database
             }
             string modalitiesURL = BuildModalitiesURL(baseUrl, modalitiesPath, facilityId);
 
-            if (!TryUpdateAssignmentStatus(modalitiesURL, token, enablerId, assignmentStatus, writeToLog, out string error))
+            if (!TryUpdateAssignmentStatus(modalitiesURL, token, enablerId, assignmentStatus, writeToLog, out string error, requestTimeout))
             {
                 summary = $"DICOM Enabler {enablerId} and its devices not set to {assignmentStatus} in CARE: {error}";
                 writeToLog(summary, false);
@@ -407,7 +411,12 @@ namespace Plexus.Common.Database
                 failed.Add("the saved devices could not be read: " + errorString);
             foreach (CareDeviceRecord device in devices.Where(d => !string.IsNullOrWhiteSpace(d.DeviceId)))
             {
-                if (TryUpdateAssignmentStatus(modalitiesURL, token, device.DeviceId, assignmentStatus, writeToLog, out error))
+                if (deadline.HasValue && DateTime.UtcNow >= deadline.Value)
+                {
+                    failed.Add("the remaining device(s): out of time (Windows is shutting down)");
+                    break;
+                }
+                if (TryUpdateAssignmentStatus(modalitiesURL, token, device.DeviceId, assignmentStatus, writeToLog, out error, requestTimeout))
                     done.Add(device.DeviceId);
                 else
                     failed.Add($"device {device.DeviceName ?? device.DeviceId}: {error}");
@@ -455,8 +464,12 @@ namespace Plexus.Common.Database
         /// jsonBody is set. Returns false with error set (and logged) when CARE cannot be reached or
         /// does not answer with a success status.
         /// </summary>
+        /// <remarks>
+        /// timeout: a shorter limit than the client's 30 seconds for this request (e.g. while Windows shuts
+        /// down); the network check (gateway / internet pings) is then skipped on failure, as it takes time.
+        /// </remarks>
         private static bool TrySend(HttpMethod method, string requestUrl, string token, string jsonBody, Action<string, bool> writeToLog,
-                                    out string responseBody, out string error)
+                                    out string responseBody, out string error, TimeSpan? timeout = null)
         {
             responseBody = null;
             error = null;
@@ -469,21 +482,26 @@ namespace Plexus.Common.Database
                 request.Headers.Add("Authorization", token ?? string.Empty);
                 if (jsonBody != null)
                     request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
-                response = httpClient.SendAsync(request).GetAwaiter().GetResult();
-                responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                using (var cancel = timeout.HasValue ? new System.Threading.CancellationTokenSource(timeout.Value) : new System.Threading.CancellationTokenSource())
+                {
+                    response = httpClient.SendAsync(request, cancel.Token).GetAwaiter().GetResult();
+                    responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                }
             }
             catch (TaskCanceledException)
             {
-                // HttpClient reports its timeout as a cancelled task
-                error = $"CARE did not answer within {(int)httpClient.Timeout.TotalSeconds} seconds ({DescribeHost(requestUrl)}). " +
-                        ucls_NetworkCheck.Describe() + ". Try again later.";
+                // HttpClient reports its timeout (and the shorter one given here) as a cancelled task
+                double seconds = Math.Min(timeout?.TotalSeconds ?? double.MaxValue, httpClient.Timeout.TotalSeconds);
+                error = $"CARE did not answer within {seconds:0.#} seconds ({DescribeHost(requestUrl)}). " +
+                        (timeout.HasValue ? string.Empty : ucls_NetworkCheck.Describe() + ". ") + "Try again later.";
                 writeToLog(error, false);
                 return false;
             }
             catch (HttpRequestException ex)
             {
                 string reason = ex.InnerException?.Message ?? ex.Message;
-                error = $"Could not connect to CARE ({DescribeHost(requestUrl)}): {reason}. {ucls_NetworkCheck.Describe()}.";
+                error = $"Could not connect to CARE ({DescribeHost(requestUrl)}): {reason}." +
+                        (timeout.HasValue ? string.Empty : " " + ucls_NetworkCheck.Describe() + ".");
                 writeToLog(error, false);
                 return false;
             }
