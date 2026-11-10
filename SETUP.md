@@ -30,7 +30,6 @@ Update the following configuration values:
 
 * `careBaseUrl`
 * `careToken`
-* `careModality`
 
 Ensure all values are valid for the target environment before proceeding.
 
@@ -65,7 +64,7 @@ After the services are started successfully:
 
 ![][image2]
 
-**Step 3:** To configure the CARE API settings, open the App Config page in the CARE\_MWL\_Service project and update the valid careBaseUrl, careToken, and careModality values.
+**Step 3:** To configure the CARE API settings, open the App Config page in the CARE\_MWL\_Service project and update the valid careBaseUrl and careToken values.
 
 ![][image3]
 

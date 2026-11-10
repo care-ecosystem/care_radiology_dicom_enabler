@@ -155,7 +155,13 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="cls_CareSync.cs" />
     <Compile Include="cls_ConfigDefaults.cs" />
+    <Compile Include="cls_ConfirmDialog.cs" />
+    <Compile Include="cls_Spinner.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="cls_AppLog.cs" />
     <Compile Include="Forms\frm_LoginScreen.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -243,6 +249,7 @@
     <Content Include="Images\aboutus.png" />
     <None Include="Images\delete.ico" />
     <None Include="Images\delete.png" />
+    <None Include="Images\devices.png" />
     <Content Include="Images\landing.png" />
     <Content Include="Images\Login.JPG" />
     <Content Include="Images\scusetting.png" />

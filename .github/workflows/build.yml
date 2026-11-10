@@ -9,7 +9,6 @@ name: Build CARE DICOM Enabler
 #   CARE Server Settings (baked into EXE):
 #     - CARE Server URL
 #     - CARE API Token
-#     - DICOM Modality Filter
 #     - Scheduled Station AE Title
 #     - Worklist From Date
 #     - Max Upload Failures
@@ -30,12 +29,10 @@ name: Build CARE DICOM Enabler
 #     CARE_API_TOKEN   the radiology plugin API token
 #
 #   Variables tab (appear in the artifact filename, so not secrets):
-#     CARE_MODALITY    optional, e.g. CT   (leave unset for all modalities)
-#     CARE_SCHEDULED_AET  optional, e.g. OEC9800  (Scheduled Station AE Title in worklist items; App.config default OEC9800)
 #     CARE_FROM_DATE   optional, e.g. 2025-01-01 08:00:00
 #     CARE_BACKEND     optional, 0=List 1=Database 2=CARE Server
 #     CARE_MAX_UPLOAD_RETRIES   optional, e.g. 10  (upload retries before FailedSCP)
-#     CARE_WORKLIST_REFRESH_START     optional, e.g. 30  (seconds after start before the first worklist fetch)
+#     CARE_WORKLIST_REFRESH_START     optional, e.g. 5   (seconds after start before the first worklist fetch)
 #     CARE_WORKLIST_REFRESH_INTERVAL  optional, e.g. 30  (seconds between worklist fetches)
 
 on:
@@ -84,16 +81,6 @@ on:
         required: false
         default: ''
         type: string
-      care_modality:
-        description: 'DICOM Modality Filter (baked into EXE)'
-        required: false
-        default: ''
-        type: string
-      care_scheduled_aet:
-        description: 'Scheduled Station AE Title in worklist items, max 16 chars (baked into EXE; default OEC9800)'
-        required: false
-        default: ''
-        type: string
       care_from_date:
         description: 'Worklist From Date (baked into EXE)'
         required: false
@@ -138,8 +125,6 @@ jobs:
       CARE_API_TOKEN: ${{ inputs.care_api_token  != '' && inputs.care_api_token  || secrets.CARE_API_TOKEN }}
       # Non-sensitive -> Variables. These end up in the artifact filename, and a
       # masked secret would render there as "***", so they must not be secrets.
-      CARE_MODALITY:  ${{ inputs.care_modality   != '' && inputs.care_modality   || vars.CARE_MODALITY }}
-      CARE_SCHEDULED_AET: ${{ inputs.care_scheduled_aet != '' && inputs.care_scheduled_aet || vars.CARE_SCHEDULED_AET }}
       CARE_FROM_DATE: ${{ inputs.care_from_date  != '' && inputs.care_from_date  || vars.CARE_FROM_DATE }}
       CARE_BACKEND:   ${{ inputs.care_backend    != '' && inputs.care_backend    || vars.CARE_BACKEND }}
       CARE_MAX_UPLOAD_RETRIES:  ${{ inputs.max_upload_retries  != '' && inputs.max_upload_retries  || vars.CARE_MAX_UPLOAD_RETRIES }}
@@ -168,8 +153,6 @@ jobs:
         run: |
           $serverUrl = "$env:CARE_BASE_URL"
           $apiToken  = "$env:CARE_API_TOKEN"
-          $modality  = "$env:CARE_MODALITY"
-          $scheduledAet = "$env:CARE_SCHEDULED_AET".Trim()
           $fromDate  = "$env:CARE_FROM_DATE"
           $backend   = "$env:CARE_BACKEND"
           $maxRetries  = "$env:CARE_MAX_UPLOAD_RETRIES"
@@ -188,13 +171,7 @@ jobs:
             exit 1
           }
 
-          # DICOM AE title (AE VR): at most 16 characters, no backslash or control characters.
-          if ($scheduledAet -and ($scheduledAet.Length -gt 16 -or $scheduledAet -match '[\\\x00-\x1F\x7F]')) {
-            Write-Error "Scheduled Station AE Title must be at most 16 characters with no backslash or control characters, got '$scheduledAet'"
-            exit 1
-          }
-
-          if (-not ($serverUrl -or $apiToken -or $modality -or $scheduledAet -or $fromDate -or $backend -or $maxRetries -or $refreshStart -or $refreshInterval)) {
+          if (-not ($serverUrl -or $apiToken -or $fromDate -or $backend -or $maxRetries -or $refreshStart -or $refreshInterval)) {
             Write-Output "No CARE settings supplied - keeping App.config defaults."
             exit 0
           }
@@ -246,20 +223,17 @@ jobs:
             backend      = $backend
             careBaseUrl  = $serverUrl
             careToken    = $apiToken
-            careModality = $modality
-            careScheduledAET = $scheduledAet
             careFromDate = $fromDate
             worklistRefreshStartSeconds    = $refreshStart
             worklistRefreshIntervalSeconds = $refreshInterval
           }
 
           # DICOM upload, and the worklist refresh done when an uploaded file's
-          # accession number is not in care_worklist (same modality / from date as the MWL service)
+          # accession number is not in care_worklist (same from date as the MWL service)
           Update-ConfigFile "CARE_SCU_Service\App.config" @{
             careBackendURL    = $serverUrl
             staticAPIKey      = $apiToken
             maxUploadRetries  = $maxRetries
-            careModality      = $modality
             careFromDate      = $fromDate
           }
 
@@ -307,9 +281,7 @@ jobs:
           $parallel  = "${{ inputs.parallel_build }}"
           $artifact  = "${{ inputs.upload_artifact }}"
           $serverUrl = "$env:CARE_BASE_URL"
-          $modality  = "$env:CARE_MODALITY"
           $backend   = "$env:CARE_BACKEND"
-          $scheduledAet = "$env:CARE_SCHEDULED_AET".Trim()
 
           Write-Output "Build Configuration:"
           Write-Output "  - Configuration: $config"
@@ -317,7 +289,7 @@ jobs:
           Write-Output "  - Parallel Build: $(if ($parallel -eq 'true' -or $parallel -eq '') { 'Enabled' } else { 'Disabled' })"
           Write-Output "  - Upload Artifact: $(if ($artifact -eq 'true' -or $artifact -eq '') { 'Yes' } else { 'No' })"
 
-          if ($serverUrl -ne '' -or $modality -ne '' -or $backend -ne '' -or $scheduledAet -ne '') {
+          if ($serverUrl -ne '' -or $backend -ne '') {
             Write-Output ""
             Write-Output "CARE Server Settings (baked into EXE):"
             if ($backend -ne '') {
@@ -325,12 +297,6 @@ jobs:
             }
             if ($serverUrl -ne '') {
               Write-Output "  - Server URL: $serverUrl"
-            }
-            if ($modality -ne '') {
-              Write-Output "  - Modality: $modality"
-            }
-            if ($scheduledAet -ne '') {
-              Write-Output "  - Scheduled Station AE Title: $scheduledAet"
             }
           } else {
             Write-Output ""
@@ -405,15 +371,11 @@ jobs:
           # driven by the repository secret/var defaults is labelled the same way
           # as one driven by a manual input.
           $serverUrl = "$env:CARE_BASE_URL"
-          $modality  = "$env:CARE_MODALITY"
           $backend   = "$env:CARE_BACKEND"
 
           $suffix = ""
-          if ($serverUrl -ne '' -or $modality -ne '' -or $backend -ne '') {
+          if ($serverUrl -ne '' -or $backend -ne '') {
             $suffix = "-custom"
-            if ($modality -ne '') {
-              $suffix += "-$modality"
-            }
             if ($backend -eq '2') {
               $suffix += "-CARE"
             } elseif ($backend -eq '1') {

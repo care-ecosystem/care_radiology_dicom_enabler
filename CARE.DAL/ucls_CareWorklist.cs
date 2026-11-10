@@ -19,16 +19,24 @@ namespace Plexus.Common.Database
         public const int PageSize = 14;
 
         /// <summary>
+        /// Fetches every page of a DICOM Enabler's worklist created from fromDate until now: only the
+        /// facility's requests scheduled in the rooms of the enabler's DICOM devices, each listing only
+        /// its devices (device={dicomEnablerId}). dicomEnablerId is required - the whole facility's
+        /// worklist is never fetched. It is not filtered by modality: the modality a device queries with
+        /// is matched when it sends C-FIND, against the modality of the devices each request is on.
         /// </summary>
-        public static CareWorklistResponse FetchWorklist(string baseUrl, string token, string modality, string fromDate, string facilityId, Action<string, bool> writeToLog)
+        public static CareWorklistResponse FetchWorklist(string baseUrl, string token, string fromDate, string facilityId, string dicomEnablerId, Action<string, bool> writeToLog)
         {
+            if (string.IsNullOrWhiteSpace(dicomEnablerId))
+                throw new ArgumentException("The CARE worklist is only fetched for a DICOM Enabler: dicomEnablerId is required.", nameof(dicomEnablerId));
+
             // Fixed for every page so the date window does not move while paging
             string toDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             var all = new CareWorklistResponse { status = "success", results = new List<CareWorklistResult>() };
             int offset = 0;
             while (true)
             {
-                string responseBody = GetCareWorklistDetailsAsync(baseUrl, token, modality, fromDate, toDate, facilityId, offset, writeToLog).GetAwaiter().GetResult();
+                string responseBody = GetCareWorklistDetailsAsync(baseUrl, token, fromDate, toDate, facilityId, dicomEnablerId, offset, writeToLog).GetAwaiter().GetResult();
                 CareWorklistResponse page = JsonConvert.DeserializeObject<CareWorklistResponse>(responseBody);
                 if (!IsSuccess(page))
                     return page;
@@ -60,29 +68,21 @@ namespace Plexus.Common.Database
         }
 
         /// <summary>
-        /// The accession number for a worklist result: service_request.accession_number, or when
-        /// that is empty, the last two dash-separated parts of the service request id joined together.
+        /// The accession number of a worklist result: service_request.accession_number, trimmed. CARE
+        /// always sends one; null when it is missing, and the entry is then not added to the worklist.
         /// </summary>
         public static string GetAccessionNumber(CareWorklistResult item)
         {
-            string acc_servicerequestid = item.service_request?.id ?? string.Empty;
-
-            string[] parts = acc_servicerequestid.Split('-');
-
-            string result = parts.Length >= 2 ? parts[parts.Length - 2] + parts[parts.Length - 1] : acc_servicerequestid;
-
-            string accNum = item.service_request?.accession_number ?? string.Empty;
-
-            return string.IsNullOrWhiteSpace(accNum) ? result : accNum;
+            return NullIfBlank(item?.service_request?.accession_number);
         }
 
         /// <summary>
         /// Maps a worklist result to a care_worklist record. The facility ID is the Configuration tab
-        /// value the worklist was fetched with, not a value from the response. The modality is the
-        /// name of the first location in the response, or the modality the worklist was fetched with
-        /// when the response has no location name.
+        /// value the worklist was fetched with, not a value from the response. The modality is that of
+        /// the first DICOM device in the response's locations; with none it is left blank, and saving
+        /// keeps the modality already stored for the service request.
         /// </summary>
-        public static CareWorklistRecord ToCareWorklistRecord(CareWorklistResult item, string accessionNumber, string facilityId, string modality)
+        public static CareWorklistRecord ToCareWorklistRecord(CareWorklistResult item, string accessionNumber, string facilityId)
         {
             CareServiceRequest sr = item.service_request;
             return new CareWorklistRecord
@@ -92,8 +92,11 @@ namespace Plexus.Common.Database
                 ServiceRequestName = sr?.name,
                 ServiceRequestDate = sr?.date?.ToLocalTime(),
                 ServiceRequestBodySite = sr?.body_site,
+                ServiceRequestBodySiteId = sr?.body_site_id,
+                ServiceRequestReferringPhysician = NullIfBlank(sr?.referring_physician),
                 ServiceRequestDescription = sr?.description,
-                ServiceRequestModality = NullIfBlank(item.locations?.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l?.name))?.name) ?? NullIfBlank(modality),
+                ServiceRequestModality = NullIfBlank(item.locations?.Where(l => l?.devices != null).SelectMany(l => l.devices)
+                                                         .FirstOrDefault(d => !string.IsNullOrWhiteSpace(d?.modality))?.modality),
                 ServiceRequestProcedureId = sr?.procedure_id,
                 ServiceRequestPriority = sr?.priority,
                 ServiceRequestTechnicianInstruction = sr?.technician_instruction,
@@ -135,7 +138,9 @@ namespace Plexus.Common.Database
                         LocationId = location.id,
                         LocationName = location.name,
                         DeviceId = device?.id,
-                        DeviceName = device?.name
+                        DeviceName = device?.name,
+                        DeviceAeTitle = NullIfBlank(device?.ae_title),
+                        DeviceModality = NullIfBlank(device?.modality)?.ToUpperInvariant()
                     });
                 }
             }
@@ -148,14 +153,23 @@ namespace Plexus.Common.Database
         }
 
         /// <summary>
-        /// Fetches the worklist for a facility and saves it with SyncCareWorklist. Returns false when
-        /// the API call fails, CARE does not report success, or saving fails; the reason is logged.
+        /// Fetches the DICOM Enabler's worklist (device filter) and saves it with SyncCareWorklist. Every
+        /// refresh - the MWL service's periodic one, the one when a C-FIND matches no row, and the SCU
+        /// service's - goes through here. Returns false without calling CARE when no DICOM Enabler is
+        /// selected in the Configuration tab, and when the API call fails, CARE does not report success,
+        /// or saving fails; the reason is logged.
         /// </summary>
-        public static bool RefreshCareWorklist(ucls_DAL objDal, string baseUrl, string token, string modality, string fromDate, string facilityId, Action<string, bool> writeToLog)
+        public static bool RefreshCareWorklist(ucls_DAL objDal, string baseUrl, string token, string fromDate, string facilityId, string dicomEnablerId, Action<string, bool> writeToLog)
         {
+            if (string.IsNullOrWhiteSpace(dicomEnablerId))
+            {
+                writeToLog("Not calling the CARE worklist API: no DICOM Enabler is selected in the Configuration tab. " +
+                           "The worklist is only fetched for a DICOM Enabler (device filter) - select one and save it.", false);
+                return false;
+            }
             try
             {
-                CareWorklistResponse careResponse = FetchWorklist(baseUrl, token, modality, fromDate, facilityId, writeToLog);
+                CareWorklistResponse careResponse = FetchWorklist(baseUrl, token, fromDate, facilityId, dicomEnablerId, writeToLog);
                 if (!IsSuccess(careResponse))
                 {
                     writeToLog($"CARE worklist API did not report success (status={careResponse?.status ?? "none"}) - care_worklist not updated", false);
@@ -163,16 +177,31 @@ namespace Plexus.Common.Database
                 }
 
                 List<CareWorklistRecord> careRecords = new List<CareWorklistRecord>();
-                if (careResponse.results != null)
+                // An accession number identifies one service request; care_worklist keeps one row per accession number
+                var keptByAccession = new Dictionary<string, CareServiceRequest>(StringComparer.OrdinalIgnoreCase);
+                foreach (CareWorklistResult item in careResponse.results ?? new List<CareWorklistResult>())
                 {
-                    foreach (CareWorklistResult item in careResponse.results)
-                        careRecords.Add(ToCareWorklistRecord(item, GetAccessionNumber(item), facilityId, modality));
+                    CareServiceRequest sr = item?.service_request;
+                    string accessionNumber = GetAccessionNumber(item);
+                    if (accessionNumber == null)
+                    {
+                        writeToLog($"Worklist entry skipped: service request {sr?.id} ({sr?.name}) has no accession_number in CARE", false);
+                        continue;
+                    }
+                    if (keptByAccession.TryGetValue(accessionNumber, out CareServiceRequest kept))
+                    {
+                        writeToLog($"Duplicate accession_number {accessionNumber} in the CARE worklist: service request {sr?.id} ({sr?.name}) skipped, " +
+                                   $"{kept?.id} ({kept?.name}) kept. Each service request needs its own accession number in CARE.", false);
+                        continue;
+                    }
+                    keptByAccession[accessionNumber] = sr;
+                    careRecords.Add(ToCareWorklistRecord(item, accessionNumber, facilityId));
                 }
 
                 string errorString = string.Empty;
                 int insertedCount = 0;
                 int completedCount = 0;
-                if (!objDal.SyncCareWorklist(careRecords, facilityId, modality, ref insertedCount, ref completedCount, ref errorString))
+                if (!objDal.SyncCareWorklist(careRecords, facilityId, ref insertedCount, ref completedCount, ref errorString))
                 {
                     writeToLog(errorString, false);
                     return false;
@@ -189,7 +218,7 @@ namespace Plexus.Common.Database
 
         /// <summary>Fetches one page (PageSize results from offset) of the facility's worklist.</summary>
         /// <param name="facilityId">Facility ID (UUID) the worklist is fetched for. Required.</param>
-        private static async Task<string> GetCareWorklistDetailsAsync(string baseUrl, string token, string modality, string fromDate, string toDate, string facilityId, int offset, Action<string, bool> writeToLog)
+        private static async Task<string> GetCareWorklistDetailsAsync(string baseUrl, string token, string fromDate, string toDate, string facilityId, string dicomEnablerId, int offset, Action<string, bool> writeToLog)
         {
             string responseBody = string.Empty;
             bool responseReceived = false;
@@ -201,8 +230,7 @@ namespace Plexus.Common.Database
                                     "?limit=" + PageSize +
                                     "&offset=" + offset;
 
-                if (!string.IsNullOrWhiteSpace(modality))
-                    requestUrl += "&modality=" + Uri.EscapeDataString(modality.Trim());
+                requestUrl += "&device=" + Uri.EscapeDataString(dicomEnablerId.Trim());
                 if (!string.IsNullOrWhiteSpace(fromDate))
                     requestUrl += "&created_date_after=" + Uri.EscapeDataString(fromDate.Trim());
                 requestUrl += "&created_date_before=" + Uri.EscapeDataString(toDate);
@@ -259,7 +287,7 @@ namespace Plexus.Common.Database
         /// Caps a logged response body so an HTML error page cannot flood the log file, which
         /// rolls at 5 KB per part.
         /// </summary>
-        private static string Truncate(string value, int maxLength)
+        internal static string Truncate(string value, int maxLength)
         {
             if (string.IsNullOrEmpty(value)) return "(empty)";
             value = value.Trim();
@@ -270,7 +298,7 @@ namespace Plexus.Common.Database
         /// Describes the configured token without writing it to the log: its length plus a short
         /// SHA-256 fingerprint, which is enough to compare against the server's own secret.
         /// </summary>
-        private static string DescribeToken(string token)
+        internal static string DescribeToken(string token)
         {
             if (string.IsNullOrEmpty(token)) return "(not configured)";
 
@@ -305,12 +333,14 @@ namespace Plexus.Common.Database
         public string name { get; set; }
         public string description { get; set; }
         public string body_site { get; set; }
+        public string body_site_id { get; set; }
         public string procedure_id { get; set; }
         public string priority { get; set; }
         public string technician_instruction { get; set; }
         public string patient_instruction { get; set; }
         public DateTime? date { get; set; }
         public string accession_number { get; set; }
+        public string referring_physician { get; set; }
     }
 
     public class CareLocation
@@ -320,10 +350,16 @@ namespace Plexus.Common.Database
         public List<CareDevice> devices { get; set; }
     }
 
+    /// <summary>
+    /// A DICOM device (care_type: dicom) in a worklist location. ae_title is its Scheduled Station AE
+    /// Title (0040,0001) in the worklist, not the AE title a modality calls in with.
+    /// </summary>
     public class CareDevice
     {
         public string id { get; set; }
         public string name { get; set; }
+        public string ae_title { get; set; }
+        public string modality { get; set; }
     }
 
     public class CareFacility

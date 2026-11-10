@@ -181,6 +181,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Model\IMppsSource.cs" />
+    <Compile Include="ServicePreshutdown.cs" />
     <Compile Include="Model\IWorklistItemsSource.cs" />
     <Compile Include="Model\MppsHandler.cs" />
     <Compile Include="Model\ReturnJSON.cs" />

@@ -47,7 +47,18 @@ namespace Worklist_SCP.Model
 
         public string HospitalName { get; set; }
 
+        /// <summary>
+        /// Scheduled Station AE Title (0040,0001) returned when the C-FIND does not ask for one: the
+        /// first of ScheduledAETs, or empty when there are none (a CARE item) - there is no fixed one.
+        /// </summary>
         public string ScheduledAET { get; set; }
+
+        /// <summary>
+        /// The Scheduled Station AE Titles of the DICOM devices the request is scheduled on in CARE
+        /// (each device's ae_title). A C-FIND asking for one of them matches the item and gets it back.
+        /// Empty when CARE gave none, or for the List / Database backends, which match ScheduledAET instead.
+        /// </summary>
+        public System.Collections.Generic.List<string> ScheduledAETs { get; set; } = new System.Collections.Generic.List<string>();
 
         public string ServiceRequestId { get; set; }
 

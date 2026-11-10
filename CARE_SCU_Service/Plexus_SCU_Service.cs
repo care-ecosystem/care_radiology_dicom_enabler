@@ -914,8 +914,8 @@ namespace Plexus_SCU_Service
         }
 
         // Fetches the worklist for the Facility ID in the Configuration tab and saves it to care_worklist,
-        // the same way the MWL service's periodic refresh does. The modality and from date must match the
-        // MWL service's (set them in care_config so both read the same values): the sync marks scheduled
+        // the same way the MWL service's periodic refresh does. The from date must match the MWL
+        // service's (set it in care_config so both read the same value): the sync marks scheduled
         // rows missing from the response COMPLETED. Returns false when care_worklist was not refreshed.
         private bool RefreshCareWorklist()
         {
@@ -939,9 +939,10 @@ namespace Plexus_SCU_Service
                     objDAL,
                     (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).TrimEnd('/'),
                     ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty,
-                    GetConfigSetting("care_modality", "careModality"),
                     GetConfigSetting("care_from_date", "careFromDate"),
                     facilityId,
+                    // The DICOM Enabler's worklist, as the MWL service fetches it (blank: nothing is fetched)
+                    GetConfigSetting("dicom_enabler_id", null).Trim(),
                     // The worklist API's progress lines belong to the MWL log; keep only its errors here,
                     // since they explain why an upload is kept for retry
                     (message, isInfo) => { if (!isInfo) WriteToLog(message, false); });

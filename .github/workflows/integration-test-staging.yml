@@ -31,9 +31,14 @@ name: Integration Test - CARE Server
 #     CARE_BASE_URL      e.g. https://care.example.org   (may also be a secret)
 #     CARE_FACILITY_ID   dedicated test facility UUID
 #     CARE_PATIENT_ID    test patient UUID in that facility
+#     CARE_DICOM_ENABLER_ID  DICOM Enabler (care_type dicom-enabler) of that facility the enabler is
+#                        set to; the worklist is only fetched for it (device filter). Its DICOM device
+#                        registered as CARE_MODALITY must be in the rooms the test's requests use, with
+#                        ae_title CARECITEST (the Scheduled Station AE Title the test queries with)
 #   Variables (optional)
 #     CARE_ENCOUNTER_ID          reuse this encounter (default: patient's in-progress one, or new)
-#     CARE_MODALITY              device registered_name the enabler serves (default CT)
+#     CARE_MODALITY              device registered_name the enabler serves (default CT); the test's
+#                                C-FIND queries with it (the enabler itself no longer filters by modality)
 #     CARE_ACTIVITY_DEFINITIONS  comma-separated AD slugs to use (default: all active imaging ADs)
 #     CARE_SERVER_TIMEZONE       Windows time zone of the CARE server (default India Standard Time)
 #     SCAN_COMPLETED_WAIT_SECONDS  seconds after a study's last upload before COMPLETED is sent (default 15)
@@ -121,6 +126,7 @@ jobs:
       CARE_PASSWORD:             ${{ secrets.CARE_PASSWORD }}
       CARE_FACILITY_ID:          ${{ inputs.care_facility_id || vars.CARE_FACILITY_ID }}
       CARE_PATIENT_ID:           ${{ inputs.care_patient_id || vars.CARE_PATIENT_ID }}
+      CARE_DICOM_ENABLER_ID:     ${{ vars.CARE_DICOM_ENABLER_ID }}
       CARE_ENCOUNTER_ID:         ${{ vars.CARE_ENCOUNTER_ID }}
       CARE_MODALITY:             ${{ inputs.care_modality || vars.CARE_MODALITY || 'CT' }}
       CARE_ACTIVITY_DEFINITIONS: ${{ inputs.care_activity_definitions || vars.CARE_ACTIVITY_DEFINITIONS }}
@@ -144,7 +150,7 @@ jobs:
       - name: Check target configuration
         shell: pwsh
         run: |
-          $required = 'CARE_BASE_URL','CARE_API_TOKEN','CARE_USERNAME','CARE_PASSWORD','CARE_FACILITY_ID','CARE_PATIENT_ID'
+          $required = 'CARE_BASE_URL','CARE_API_TOKEN','CARE_USERNAME','CARE_PASSWORD','CARE_FACILITY_ID','CARE_PATIENT_ID','CARE_DICOM_ENABLER_ID'
           $missing = $required | Where-Object { -not [Environment]::GetEnvironmentVariable($_) }
           if ($missing) {
             Write-Error "Environment '${{ inputs.environment || 'staging' }}' is missing: $($missing -join ', '). See the header of this workflow."
@@ -156,6 +162,7 @@ jobs:
           Write-Output "Target       : $env:CARE_BASE_URL"
           Write-Output "Facility     : $env:CARE_FACILITY_ID"
           Write-Output "Patient      : $env:CARE_PATIENT_ID"
+          Write-Output "DICOM Enabler: $env:CARE_DICOM_ENABLER_ID"
           Write-Output "Modality     : $env:CARE_MODALITY"
           Write-Output "Scan statuses: IN_PROGRESS / COMPLETED / CANCELLED (completed after $env:SCAN_COMPLETED_WAIT_SECONDS s)"
           Write-Output "Ports        : MWL $env:MWL_PORT, Store $env:STORE_PORT"
@@ -198,9 +205,7 @@ jobs:
             careBaseUrl            = $env:CARE_BASE_URL
             careToken              = $env:CARE_API_TOKEN
             careFacilityId         = $env:CARE_FACILITY_ID
-            careModality           = $env:CARE_MODALITY
             careFromDate           = $env:CARE_FROM_DATE
-            careScheduledAET       = $env:CALLING_AET
           }
           # DICOM upload + scan status
           Set-AppSettings "CARE_SCU_Service\App.config" @{
@@ -280,10 +285,11 @@ jobs:
           # Configuration tab settings. The MWL service and the SCU service (which refreshes the
           # worklist when an upload's accession number is unknown) both read these, falling back to
           # their own App.config when blank, so set them here once for both.
+          # dicom_enabler_id: the worklist is only fetched for a DICOM Enabler (device filter)
           $settings = [ordered]@{
-            facility_id    = $env:CARE_FACILITY_ID
-            care_modality  = $env:CARE_MODALITY
-            care_from_date = $env:CARE_FROM_DATE
+            facility_id      = $env:CARE_FACILITY_ID
+            dicom_enabler_id = $env:CARE_DICOM_ENABLER_ID
+            care_from_date   = $env:CARE_FROM_DATE
           }
           foreach ($key in $settings.Keys) {
             $sql = "UPDATE plexus_mi2.care_config SET config_value = '$($settings[$key])' WHERE config_key = '$key';"

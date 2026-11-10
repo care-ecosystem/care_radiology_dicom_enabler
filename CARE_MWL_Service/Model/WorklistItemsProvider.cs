@@ -49,7 +49,7 @@ namespace Worklist_SCP.Model
                 ProcedureID = "200001",
                 ProcedureStepID = "200002",
                 StudyUID = "1.2.34.567890.1234567890.1",
-                ScheduledAET = "OEC9800",
+                ScheduledAET = string.Empty,
                 ReferringPhysician = "Karthick^Bal^Md",
                 ExamDateAndTime = DateTime.Now
             };
@@ -72,7 +72,7 @@ namespace Worklist_SCP.Model
                 ProcedureID = "200003",
                 ProcedureStepID = "200004",
                 StudyUID = "1.2.34.567890.1234567890.2",
-                ScheduledAET = "OEC9800",
+                ScheduledAET = string.Empty,
                 ReferringPhysician = "Karthick^Bal^Md",
                 ExamDateAndTime = DateTime.Now
             };
@@ -95,7 +95,7 @@ namespace Worklist_SCP.Model
                 ProcedureID = "200005",
                 ProcedureStepID = "200006",
                 StudyUID = "1.2.34.567890.1234567890.3",
-                ScheduledAET = "OEC9800",
+                ScheduledAET = string.Empty,
                 ReferringPhysician = "Peter^John^Md",
                 ExamDateAndTime = DateTime.Now
             };
@@ -185,8 +185,7 @@ namespace Worklist_SCP.Model
         /// Builds the worklist shared with modalities from the SCHEDULED care_worklist rows for a
         /// facility, limited to the given modality (the one the device queried with); with none given,
         /// every modality is returned (C-FIND does not call this without one, the periodic refresh
-        /// does to cache every scheduled item). The Configuration tab modality is not used here - it only
-        /// applies to the CARE API call. Reads only the local table - the CARE API is called by
+        /// does to cache every scheduled item). Reads only the local table - the CARE API is called by
         /// RefreshCareWorklistFromApi.
         /// </summary>
         public List<WorklistItem> GetCareWorklistItemsFromDB(string facilityId, string modality = null)
@@ -207,7 +206,12 @@ namespace Worklist_SCP.Model
                 }
 
                 foreach (CareWorklistRecord record in records)
-                    objWorkListItems.Add(ToWorklistItem(record));
+                    objWorkListItems.Add(ToWorklistItem(record, modality));
+
+                // Without a device AE title the item matches no C-FIND that asks for a Scheduled Station AE Title
+                var withoutAeTitle = objWorkListItems.Where(item => item.ScheduledAETs.Count == 0).Select(item => item.AccessionNumber).ToList();
+                if (withoutAeTitle.Count > 0)
+                    objReadWriteLog.WriteToLog($"care_worklist: {withoutAeTitle.Count} item(s) are scheduled on no DICOM device with an AE title in CARE, so they have no Scheduled Station AE Title: {string.Join(", ", withoutAeTitle)}. Set the ae_title of the DICOM devices in CARE.", false);
 
                 objReadWriteLog.WriteToLog($"care_worklist: {objWorkListItems.Count} scheduled item(s) for Facility ID {facilityId}, Modality {(string.IsNullOrWhiteSpace(modality) ? "(all)" : modality)}", true);
             }
@@ -224,8 +228,8 @@ namespace Worklist_SCP.Model
 
         /// <summary>
         /// Calls the CARE worklist API for a facility and saves the response to care_worklist with
-        /// SyncCareWorklist, limited to the modality set in the Configuration tab (care_modality, or
-        /// App.config careModality when blank; blank in both fetches every modality). Returns false
+        /// SyncCareWorklist. Every modality is fetched: the modality a device queries with is matched
+        /// when it sends C-FIND (GetCareWorklistItemsFromDB). Returns false
         /// when no Facility ID is given, the call fails, CARE does not report success, or saving
         /// fails; the reason is logged.
         /// </summary>
@@ -239,6 +243,10 @@ namespace Worklist_SCP.Model
                 return false;
             }
 
+            // The DICOM Enabler selected in the Configuration tab: CARE returns only its worklist (the
+            // requests scheduled in the rooms of its DICOM devices). Without one nothing is fetched.
+            string dicomEnablerId = WorklistServer.GetConfigSetting("dicom_enabler_id", null).Trim();
+
             ucls_DAL objDal = null;
             try
             {
@@ -247,9 +255,9 @@ namespace Worklist_SCP.Model
                     objDal,
                     ConfigurationManager.AppSettings["careBaseUrl"] ?? string.Empty,
                     ConfigurationManager.AppSettings["careToken"] ?? string.Empty,
-                    WorklistServer.GetConfigSetting("care_modality", "careModality"),
                     WorklistServer.GetConfigSetting("care_from_date", "careFromDate"),
                     facilityId,
+                    dicomEnablerId,
                     objReadWriteLog.WriteToLog);
             }
             catch (Exception ex)
@@ -266,9 +274,11 @@ namespace Worklist_SCP.Model
 
         /// <summary>
         /// Maps one care_worklist row (with its patient and service request) to the worklist item
-        /// returned in C-FIND responses.
+        /// returned in C-FIND responses. requestedModality is the modality the device queried with:
+        /// the row was read because it is scheduled on a DICOM device of that modality, so the item
+        /// carries it. Without one, the request's own modality is used.
         /// </summary>
-        private static WorklistItem ToWorklistItem(CareWorklistRecord record)
+        private static WorklistItem ToWorklistItem(CareWorklistRecord record, string requestedModality)
         {
             WorklistItem mwlItem = new WorklistItem();
             mwlItem.AccessionNumber = record.AccessionNumber ?? string.Empty;
@@ -302,9 +312,10 @@ namespace Worklist_SCP.Model
             else
                 mwlItem.DateOfBirth = DateTime.Now;
 
-            // CARE sends the location name (e.g. "CT Scan"); Modality (0008,0060) is a CS value,
+            // The modality of the DICOM device it is scheduled on. Modality (0008,0060) is a CS value,
             // which allows only uppercase letters, digits, space and underscore.
-            mwlItem.Modality = (record.ServiceRequestModality ?? string.Empty).Trim().ToUpperInvariant();
+            mwlItem.Modality = (string.IsNullOrWhiteSpace(requestedModality) ? record.ServiceRequestModality ?? string.Empty : requestedModality)
+                               .Trim().ToUpperInvariant();
             mwlItem.ExamDescription = record.ServiceRequestName ?? string.Empty;
             mwlItem.HospitalName = record.FacilityName ?? "CARE";
             mwlItem.FacilityId = record.FacilityId ?? string.Empty;
@@ -318,9 +329,17 @@ namespace Worklist_SCP.Model
             // Modalities copy this onto every image they take for the order, so it must be the same on
             // every C-FIND - derived from the order rather than generated per query.
             mwlItem.StudyUID = DeriveStudyUidFromAccessionNumber(mwlItem.FacilityId, mwlItem.AccessionNumber);
-            mwlItem.ScheduledAET = ConfigurationManager.AppSettings["careScheduledAET"]?.ToString() ?? "OEC9800";
-            // The CARE worklist API does not return who created the service request
-            mwlItem.ReferringPhysician = string.Empty;
+            // Scheduled Station AE Title (0040,0001): the ae_title of each DICOM device the request is
+            // scheduled on, from CARE - there is no fixed AE title for the DICOM Enabler. An AE title is
+            // at most 16 characters, so a longer one is left out. With none the item has no AE title.
+            mwlItem.ScheduledAETs = (record.DeviceAeTitles ?? new List<string>())
+                .Select(aet => aet.Trim())
+                .Where(aet => aet.Length > 0 && aet.Length <= 16)
+                .Distinct()
+                .ToList();
+            mwlItem.ScheduledAET = mwlItem.ScheduledAETs.FirstOrDefault() ?? string.Empty;
+            // Who raised the service request in CARE
+            mwlItem.ReferringPhysician = record.ServiceRequestReferringPhysician ?? string.Empty;
             mwlItem.TechnicianInstruction = record.ServiceRequestTechnicianInstruction ?? string.Empty;
             mwlItem.PatientInstruction = record.ServiceRequestPatientInstruction ?? string.Empty;
             mwlItem.Priority = NormalizePriority(record.ServiceRequestPriority);
@@ -402,7 +421,7 @@ namespace Worklist_SCP.Model
                             mwlItem.ProcedureID = "200003";
                             mwlItem.ProcedureStepID = "200004";
                             mwlItem.StudyUID = string.Empty;
-                            mwlItem.ScheduledAET = "OEC9800";
+                            mwlItem.ScheduledAET = string.Empty;
                             mwlItem.ReferringPhysician = string.Empty;
                             if (appointment.AppointmentDate != null && appointment.AppointmentDate != string.Empty)
                                 mwlItem.ExamDateAndTime = Convert.ToDateTime(appointment.AppointmentDate);
