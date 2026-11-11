@@ -1,5 +1,7 @@
 # Plexus_DICOM_Enabler
 
+[![Build CARE DICOM Enabler](https://github.com/care-ecosystem/care_radiology_dicom_enabler/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/care-ecosystem/care_radiology_dicom_enabler/actions/workflows/build.yml)
+
 Application was built on Visual Studio 2019
 
 Open Plexus_DICOM_Enabler.sln and build each of the project. 
