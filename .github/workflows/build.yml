@@ -23,8 +23,9 @@ name: Build CARE DICOM Enabler
 #   3. App.config committed value
 #
 # Environments (Settings > Environments):
-#   staging   used by push/PR to main and by manual runs. Holds the shared
-#             staging server as secrets/vars.
+#   staging   used by push/PR to main, manual runs, and plain vX.Y.Z tags
+#             (e.g. v0.0.1 -> staging release). Holds the shared staging
+#             server as secrets/vars.
 #   <state>   used when a tag named <state>-vX.Y.Z is pushed, e.g.
 #             jh-v1.0.0 -> environment "jh", ka-v1.0.0 -> environment "ka".
 #             Holds that state's CARE_BASE_URL, CARE_API_TOKEN and vars,
@@ -44,8 +45,9 @@ name: Build CARE DICOM Enabler
 #     CARE_WORKLIST_REFRESH_START     optional, e.g. 5   (seconds after start before the first worklist fetch)
 #     CARE_WORKLIST_REFRESH_INTERVAL  optional, e.g. 30  (seconds between worklist fetches)
 #
-# Releasing for a state:
-#   git tag jh-v1.0.0 && git push origin jh-v1.0.0
+# Releasing:
+#   git tag v0.0.1    && git push origin v0.0.1      -> staging release
+#   git tag jh-v1.0.0 && git push origin jh-v1.0.0   -> Jharkhand release
 #   -> builds in environment "jh" and publishes a (draft) GitHub Release
 #      with CARE_DICOM_Enabler-jh-v1.0.0.zip attached. Anyone can download:
 #      https://github.com/<owner>/<repo>/releases/download/jh-v1.0.0/CARE_DICOM_Enabler-jh-v1.0.0.zip
@@ -55,7 +57,8 @@ on:
     branches:
       - main
     tags:
-      - '*-v*'   # <environment>-vX.Y.Z, e.g. jh-v1.0.0, ka-v1.0.0, govtstaging-v0.0.1
+      - 'v[0-9]*'   # vX.Y.Z, e.g. v0.0.1 -> release built in "staging"
+      - '*-v*'      # <environment>-vX.Y.Z, e.g. jh-v1.0.0, govtstaging-v0.0.1
   pull_request:
     branches:
       - main
@@ -134,32 +137,36 @@ permissions:
   contents: write
 
 jobs:
-  # Work out which environment a run belongs to. A tag jh-v1.0.0 selects
-  # environment "jh"; everything else runs in "staging".
+  # Work out which environment a run belongs to:
+  #   push/PR to main, manual runs  -> staging
+  #   tag vX.Y.Z                    -> staging   (staging release)
+  #   tag <environment>-vX.Y.Z      -> <environment>, e.g. jh-v1.0.0 -> jh
   prep:
     runs-on: ubuntu-latest
     outputs:
-      state: ${{ steps.state.outputs.state }}
+      environment: ${{ steps.env.outputs.environment }}
     steps:
-      - id: state
+      - id: env
         shell: bash
         run: |
           if [ "$GITHUB_REF_TYPE" != "tag" ]; then
-            echo "state=" >> "$GITHUB_OUTPUT"
-            exit 0
+            env_name=staging
+          elif [[ "$GITHUB_REF_NAME" =~ ^v[0-9] ]]; then
+            env_name=staging
+          else
+            env_name="${GITHUB_REF_NAME%%-v*}"
+            if [[ ! "$env_name" =~ ^[a-z][a-z0-9_-]{1,39}$ ]]; then
+              echo "::error::Tag '$GITHUB_REF_NAME' must look like vX.Y.Z or <environment>-vX.Y.Z, e.g. v0.0.1 or jh-v1.0.0"
+              exit 1
+            fi
           fi
-          state="${GITHUB_REF_NAME%%-v*}"
-          if [[ ! "$state" =~ ^[a-z][a-z0-9_-]{1,39}$ ]]; then
-            echo "::error::Tag '$GITHUB_REF_NAME' must look like <state>-vX.Y.Z, e.g. jh-v1.0.0"
-            exit 1
-          fi
-          echo "Tag $GITHUB_REF_NAME -> environment '$state'"
-          echo "state=$state" >> "$GITHUB_OUTPUT"
+          echo "$GITHUB_REF_TYPE $GITHUB_REF_NAME -> environment '$env_name'"
+          echo "environment=$env_name" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prep
     runs-on: windows-latest
-    environment: ${{ github.ref_type == 'tag' && needs.prep.outputs.state || 'staging' }}
+    environment: ${{ needs.prep.outputs.environment }}
 
     # Resolve CARE settings once: manual input wins, then environment secret/var.
     # Reading these through env (rather than inline ${{ }} in the script) keeps
