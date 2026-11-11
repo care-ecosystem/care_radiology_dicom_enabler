@@ -55,6 +55,20 @@ namespace Worklist_SCP
         // The connecting device, for error logs: AE title once the association is requested, IP and port always
         private string Device => RemoteDeviceInfo.DescribeConnection(Association, _remoteHost, _remotePort);
 
+        // A device that goes silent while it is its turn (e.g. it never got a reply) would keep the
+        // association open until the service stops: it is aborted after DeviceIdleTimeout instead
+        private static readonly TimeSpan DeviceIdleTimeout = TimeSpan.FromSeconds(60);
+        private static readonly TimeSpan IdleCheckInterval = TimeSpan.FromSeconds(5);
+        private readonly object _idleLock = new object();
+        private System.Threading.Timer _idleTimer;
+        private bool _waitingForDevice;
+        private DateTime _waitingSinceUtc;
+        private string _waitingAfter;
+        private int _requestsInProgress;
+        private bool _connectionClosed;
+        // Set when a C-ECHO is answered, cleared once the reply has been written to the network
+        private volatile bool _echoReplyPending;
+
 
         public WorklistService(INetworkStream stream, Encoding fallbackEncoding, FellowOakDicom.Log.ILogger log, DicomServiceDependencies dependencies)
             : base(stream, fallbackEncoding, log, dependencies)
@@ -62,6 +76,109 @@ namespace Worklist_SCP
             fileLogger = GetFileLogger();
             RemoteDeviceInfo.GetRemoteEndpoint(stream, out _remoteHost, out _remotePort);
             fileLogger.Information($"[CONN] Connection opened from IP={_remoteHost} Port={_remotePort}");
+            WaitForDevice("the connection was opened (no association request yet)");
+            _idleTimer = new System.Threading.Timer(state => CheckDeviceIdle(), null, IdleCheckInterval, IdleCheckInterval);
+        }
+
+        /// <summary>It is now the device's turn: it should send its next request or release the association.</summary>
+        private void WaitForDevice(string after)
+        {
+            lock (_idleLock)
+            {
+                _waitingForDevice = true;
+                _waitingSinceUtc = DateTime.UtcNow;
+                _waitingAfter = after;
+            }
+        }
+
+        /// <summary>A request arrived from the device; the service is busy with it until it is answered.</summary>
+        private void RequestStarted()
+        {
+            lock (_idleLock)
+            {
+                _waitingForDevice = false;
+                _requestsInProgress++;
+            }
+        }
+
+        private void RequestFinished()
+        {
+            lock (_idleLock)
+            {
+                if (_requestsInProgress > 0)
+                    _requestsInProgress--;
+            }
+        }
+
+        private void StopIdleTimer()
+        {
+            System.Threading.Timer timer;
+            lock (_idleLock)
+            {
+                _connectionClosed = true;
+                timer = _idleTimer;
+                _idleTimer = null;
+            }
+            timer?.Dispose();
+        }
+
+        /// <summary>
+        /// Aborts the association when the device has sent nothing for DeviceIdleTimeout while it was its
+        /// turn, logging what it was last sent, then closes the connection.
+        /// </summary>
+        private void CheckDeviceIdle()
+        {
+            TimeSpan idle;
+            string after;
+            lock (_idleLock)
+            {
+                if (_connectionClosed || !_waitingForDevice || _requestsInProgress > 0)
+                    return;
+                idle = DateTime.UtcNow - _waitingSinceUtc;
+                if (idle < DeviceIdleTimeout)
+                    return;
+                after = _waitingAfter;
+            }
+            StopIdleTimer();
+            fileLogger?.Warning($"[CONN] Device {Device} sent nothing for {idle.TotalSeconds:0}s after {after} - aborting the association and closing the connection. " +
+                "If the device reported a failure, it did not receive or did not accept that reply.");
+            try
+            {
+                if (IsConnected)
+                    SendAbortAsync(DicomAbortSource.ServiceProvider, DicomAbortReason.NotSpecified).Wait(TimeSpan.FromSeconds(5));
+            }
+            catch (Exception ex)
+            {
+                fileLogger?.Warning($"[CONN] Sending the abort to device {Device} failed: {ex.GetBaseException().Message}");
+            }
+            try
+            {
+                Dispose();
+            }
+            catch (Exception ex)
+            {
+                fileLogger?.Warning($"[CONN] Closing the connection with device {Device} failed: {ex.GetBaseException().Message}");
+            }
+        }
+
+        /// <summary>Called by fo-dicom once every queued reply has been written to the network.</summary>
+        protected override Task OnSendQueueEmptyAsync()
+        {
+            if (_echoReplyPending)
+            {
+                _echoReplyPending = false;
+                fileLogger?.Information($"[C-ECHO] Success reply sent to device {Device} - waiting for it to release the association");
+                RequestFinished();
+                WaitForDevice("the C-ECHO reply");
+            }
+            return base.OnSendQueueEmptyAsync();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                StopIdleTimer();
+            base.Dispose(disposing);
         }
 
         private Serilog.ILogger GetFileLogger()
@@ -75,6 +192,9 @@ namespace Worklist_SCP
         {
             // The calling AE was checked against the Server List when the association was accepted.
             fileLogger?.Information($"[C-ECHO] Request from device: {RemoteDeviceInfo.Describe(Association)}");
+            RequestStarted();
+            // OnSendQueueEmptyAsync logs once the reply is written to the network
+            _echoReplyPending = true;
             return Task.FromResult(new DicomCEchoResponse(request, DicomStatus.Success));
         }
 
@@ -86,6 +206,7 @@ namespace Worklist_SCP
             fileLogger.Information($"Received C-FIND request from AE {Association.CallingAE} with IP: {Association.RemoteHost}");
             fileLogger.Information($"[C-FIND] Worklist requested by device: {RemoteDeviceInfo.Describe(Association)}");
             fileLogger.Information($"[C-FIND] Query keys: {RemoteDeviceInfo.DescribeQuery(request.Dataset)}");
+            RequestStarted();
             List<string> accessionNos = new List<string>();
 
             // An exception here would make fo-dicom drop the association, so the device would only see
@@ -103,6 +224,8 @@ namespace Worklist_SCP
             if (results == null)
             {
                 yield return new DicomCFindResponse(request, DicomStatus.ProcessingFailure);
+                RequestFinished();
+                WaitForDevice("the C-FIND failure reply");
                 yield break;
             }
 
@@ -122,7 +245,8 @@ namespace Worklist_SCP
             else
                 fileLogger.Information($" C-FIND completed successfully: returned {returnedItemsCount} worklist items to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
             yield return new DicomCFindResponse(request, DicomStatus.Success);
-            //}
+            RequestFinished();
+            WaitForDevice($"the C-FIND replies ({returnedItemsCount} worklist item(s))");
         }
 
 
@@ -322,6 +446,7 @@ namespace Worklist_SCP
         /// <param name="exception"></param>
         public void OnConnectionClosed(Exception exception)
         {
+            StopIdleTimer();
             Clean();
             if (exception != null)
             {
@@ -338,6 +463,7 @@ namespace Worklist_SCP
 
         public void OnReceiveAbort(DicomAbortSource source, DicomAbortReason reason)
         {
+            StopIdleTimer();
             //log the abort reason
             //Logger.Error($"Received abort from {source}, reason is {reason}");
             fileLogger.Error($"Received abort from {source}, reason is {reason} - device {Device}");
@@ -346,6 +472,8 @@ namespace Worklist_SCP
 
         public Task OnReceiveAssociationReleaseRequestAsync()
         {
+            // Released: the device closes the connection next
+            StopIdleTimer();
             Clean();
             fileLogger?.Information($"[ASSOC] Release request from device {Device}");
             return SendAssociationReleaseResponseAsync();
@@ -402,6 +530,7 @@ namespace Worklist_SCP
             }
 
             fileLogger?.Information($"[ASSOC] Accepted association from AE={association.CallingAE}");
+            WaitForDevice("the association was accepted");
             return SendAssociationAcceptAsync(association);
         }
 
@@ -419,6 +548,21 @@ namespace Worklist_SCP
         /// folder on its timer and uploads to the CARE backend, so nothing further is needed here.
         /// </summary>
         public async Task<DicomCStoreResponse> OnCStoreRequestAsync(DicomCStoreRequest request)
+        {
+            RequestStarted();
+            try
+            {
+                return await ProcessCStoreAsync(request);
+            }
+            finally
+            {
+                RequestFinished();
+                WaitForDevice("the C-STORE reply");
+            }
+        }
+
+
+        private async Task<DicomCStoreResponse> ProcessCStoreAsync(DicomCStoreRequest request)
         {
             // GetSingleValue throws on a missing or empty tag, and an exception here makes fo-dicom drop the
             // association, so the sender sees "connection closed" instead of a DICOM error status.
@@ -487,6 +631,7 @@ namespace Worklist_SCP
 
         public async Task<DicomNCreateResponse> OnNCreateRequestAsync(DicomNCreateRequest request)
         {
+            RequestStarted();
             // An exception here would make fo-dicom drop the association, so the device would only see
             // "connection closed": log it with the device and answer with a DICOM failure status instead
             try
@@ -497,6 +642,11 @@ namespace Worklist_SCP
             {
                 fileLogger?.Error($"[MPPS][N-CREATE] Processing the N-CREATE from device {Device} failed with exception : {ex.Message} - returning a failure status");
                 return new DicomNCreateResponse(request, DicomStatus.ProcessingFailure);
+            }
+            finally
+            {
+                RequestFinished();
+                WaitForDevice("the N-CREATE reply");
             }
         }
 
@@ -545,6 +695,7 @@ namespace Worklist_SCP
 
         public async Task<DicomNSetResponse> OnNSetRequestAsync(DicomNSetRequest request)
         {
+            RequestStarted();
             // An exception here would make fo-dicom drop the association, so the device would only see
             // "connection closed": log it with the device and answer with a DICOM failure status instead
             try
@@ -555,6 +706,11 @@ namespace Worklist_SCP
             {
                 fileLogger?.Error($"[MPPS][N-SET] Processing the N-SET from device {Device} failed with exception : {ex.Message} - returning a failure status");
                 return new DicomNSetResponse(request, DicomStatus.ProcessingFailure);
+            }
+            finally
+            {
+                RequestFinished();
+                WaitForDevice("the N-SET reply");
             }
         }
 

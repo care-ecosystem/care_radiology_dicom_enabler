@@ -300,7 +300,10 @@ namespace Plexus_DICOM_Enabler.UserControls
             }
             catch(Exception ex)
             {
-                MessageBox.Show("Error Staring Services with exception : " + ex.Message);
+                string reason = ex.InnerException != null && ex.InnerException.Message != ex.Message
+                    ? Environment.NewLine + Environment.NewLine + "Reason: " + ex.InnerException.Message
+                    : string.Empty;
+                MessageBox.Show("Error Starting Services with exception : " + ex.Message + reason);
             }
             finally
             {
