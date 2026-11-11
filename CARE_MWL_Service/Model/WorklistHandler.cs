@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Serilog.Events;
 
 namespace Worklist_SCP.Model
 {
@@ -14,7 +15,12 @@ namespace Worklist_SCP.Model
     public static class WorklistHandler
     {
 
-        public static IEnumerable<DicomDataset> FilterWorklistItems(DicomDataset request, List<WorklistItem> allWorklistItems)
+        /// <param name="log">
+        /// Told about everything that is not sent to the device: items that do not match the query, an
+        /// item left out because a CARE value is not valid DICOM (the other items are still returned),
+        /// values sent empty or replaced, and requested keys this server does not return. Optional.
+        /// </param>
+        public static IEnumerable<DicomDataset> FilterWorklistItems(DicomDataset request, List<WorklistItem> allWorklistItems, Action<LogEventLevel, string> log = null)
         {
             var exams = allWorklistItems.AsQueryable();
 
@@ -89,91 +95,182 @@ namespace Worklist_SCP.Model
 
             var results = exams.ToList();
 
-            //  Parsing result
+            // Scheduled items the query keys filtered out
+            if (log != null && allWorklistItems != null && results.Count < allWorklistItems.Count)
+            {
+                var notMatching = allWorklistItems.Except(results).ToList();
+                log(LogEventLevel.Information, $"{notMatching.Count} of {allWorklistItems.Count} scheduled item(s) not sent: they do not match the query keys. " +
+                    string.Join("; ", notMatching.Select(DescribeMatchFields)));
+            }
+
+            bool unsupportedKeysLogged = false;
             foreach (var result in results)
             {
-                var resultingSPS = new DicomDataset();
-                var resultDataset = new DicomDataset();
-                var resultingSPSSequence = new DicomSequence(DicomTag.ScheduledProcedureStepSequence, resultingSPS);
-
-                if (procedureStep != null)
+                // fo-dicom rejects a value its VR does not allow (e.g. too long); that item is skipped
+                // instead of failing the whole C-FIND
+                DicomDataset resultDataset;
+                try
                 {
-                    resultDataset.Add(resultingSPSSequence);
+                    resultDataset = BuildResultDataset(request, procedureStep, requestedScheduledAET, result, log);
+                }
+                catch (Exception ex)
+                {
+                    log?.Invoke(LogEventLevel.Error, $"Worklist item NOT SENT: {ex.Message}. Item: {Describe(result)}");
+                    continue;
                 }
 
-                // add results to "main" dataset
-                AddIfExistsInRequest(resultDataset, request, DicomTag.AccessionNumber, result.AccessionNumber);    // T2
-                AddIfExistsInRequest(resultDataset, request, DicomTag.InstitutionName, result.HospitalName);
-                AddIfExistsInRequest(resultDataset, request, DicomTag.ReferringPhysicianName, result.ReferringPhysician); // T2
-
-                AddIfExistsInRequest(resultDataset, request, DicomTag.PatientName, result.Surname + "^" + result.Forename + "^^" + result.Title); //T1
-                AddIfExistsInRequest(resultDataset, request, DicomTag.PatientID, result.PatientID); // T1
-                AddIfExistsInRequest(resultDataset, request, DicomTag.PatientBirthDate, result.DateOfBirth); // T2
-                AddIfExistsInRequest(resultDataset, request, DicomTag.PatientSex, result.Sex); //T2
-
-                // Modalities put this on every image of the study, so it comes from the worklist item
-                // (stable per order) rather than DicomUID.Generate(), which would change on every C-FIND.
-                AddIfExistsInRequest(resultDataset, request, DicomTag.StudyInstanceUID, result.StudyUID); // T1
-
-                AddIfExistsInRequest(resultDataset, request, DicomTag.RequestingPhysician, result.ReferringPhysician); //T2
-                AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureDescription, result.ExamDescription); //T1C
-
-                AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureID, result.ProcedureID); // T1
-                AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureComments, result.PatientInstruction); // T3
-
-                // procedure_id is CARE's unique code identifying the type of exam ordered (e.g. "xray spine" = 1),
-                // distinct from RequestedProcedureID above (which identifies this specific order/request).
-                var requestedProcedureCode = new DicomDataset();
-                if (!string.IsNullOrWhiteSpace(result.ProcedureCode))
+                // Once per C-FIND: keys the device asked for that this server never returns
+                if (log != null && !unsupportedKeysLogged)
                 {
-                    requestedProcedureCode.AddOrUpdate(DicomTag.CodeValue, result.ProcedureCode);
-                    requestedProcedureCode.AddOrUpdate(DicomTag.CodingSchemeDesignator, "99CARE");
-                    requestedProcedureCode.AddOrUpdate(DicomTag.CodeMeaning, result.ExamDescription ?? string.Empty);
+                    unsupportedKeysLogged = true;
+                    LogUnsupportedKeys(request, procedureStep, resultDataset, log);
                 }
-                AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureCodeSequence, requestedProcedureCode); // T1C
-
-                // Scheduled Procedure Step sequence T1
-                // add results to procedure step dataset
-                // Return if requested
-                if (procedureStep != null)
-                {
-                    // The AE title the C-FIND asked for when it is one of the item's, else its first
-                    string scheduledAET = requestedScheduledAET != null && result.ScheduledAETs != null && result.ScheduledAETs.Contains(requestedScheduledAET)
-                        ? requestedScheduledAET
-                        : result.ScheduledAET;
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledStationAETitle, scheduledAET); // T1
-
-                    // Taken from the CARE service request date. Return key type 1 needs a value, so an
-                    // item without one is reported as scheduled now.
-                    var scheduledDateTime = result.ExamDateAndTime != default ? result.ExamDateAndTime : DateTime.Now;
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepStartDate, scheduledDateTime); // (0040,0002) T1
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepStartTime, scheduledDateTime); // (0040,0003) T1
-                    // A modality that is not a valid CS value (over 16 characters, or characters such as
-                    // "-") would throw and fail the whole C-FIND, so it is sent empty instead.
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.Modality, IsValidCodeString(result.Modality) ? result.Modality : string.Empty); // T1
-
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledPerformingPhysicianName, result.PerformingPhysician); //T2
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepDescription, result.ExamDescription); // T1C
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepID, result.ProcedureStepID); // T1
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledStationName, result.ExamRoom); //T2
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepLocation, result.ExamRoom); //T2
-                    AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.CommentsOnTheScheduledProcedureStep, result.TechnicianInstruction); //T3
-                }
-
-                // Put blanks in for unsupported fields which are type 2 (i.e. must have a value even if NULL)
-                // In a real server, you may wish to support some or all of these, but they are not commonly supported
-                AddIfExistsInRequest(resultDataset, request, DicomTag.ReferencedStudySequence, new DicomDataset());         // Ref//d Study Sequence
-                AddIfExistsInRequest(resultDataset, request, DicomTag.Priority, result.Priority);                     // Priority
-                AddIfExistsInRequest(resultDataset, request, DicomTag.PatientTransportArrangements, "");              // Transport Arrangements
-                AddIfExistsInRequest(resultDataset, request, DicomTag.AdmissionID, "");                               // Admission ID
-                AddIfExistsInRequest(resultDataset, request, DicomTag.CurrentPatientLocation, "");                    // Patient Location
-                AddIfExistsInRequest(resultDataset, request, DicomTag.ReferencedPatientSequence, new DicomDataset());       // Ref//d Patient Sequence
-                AddIfExistsInRequest(resultDataset, request, DicomTag.PatientWeight, "");                             // Weight
-                AddIfExistsInRequest(resultDataset, request, DicomTag.ConfidentialityConstraintOnPatientDataDescription, ""); // Confidentiality Constraint
 
                 // Send Reponse Back
                 yield return resultDataset;
             }
+        }
+
+
+        /// <summary>
+        /// Everything known about a worklist item, for the log (patient name and birth date are left out:
+        /// the accession number and service request identify the order in CARE).
+        /// </summary>
+        private static string Describe(WorklistItem item)
+        {
+            return $"AccessionNumber={item.AccessionNumber}, ServiceRequestId={item.ServiceRequestId}, PatientID={item.PatientID}, " +
+                   $"Modality={item.Modality}, ScheduledStationAETitles=[{string.Join("|", item.ScheduledAETs ?? new List<string>())}], " +
+                   $"ScheduledDateTime={(item.ExamDateAndTime != default ? item.ExamDateAndTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) : "(none)")}, " +
+                   $"ProcedureDescription={item.ExamDescription}, ProcedureCode={item.ProcedureCode}, RequestedProcedureID={item.ProcedureID}, " +
+                   $"ScheduledProcedureStepID={item.ProcedureStepID}, StudyInstanceUID={item.StudyUID}, Priority={item.Priority}, " +
+                   $"ReferringPhysician={item.ReferringPhysician}, Institution={item.HospitalName}";
+        }
+
+
+        /// <summary>The fields the query keys are matched on, for an item that did not match.</summary>
+        private static string DescribeMatchFields(WorklistItem item)
+        {
+            return $"{item.AccessionNumber} (ServiceRequestId={item.ServiceRequestId}, Modality={item.Modality}, " +
+                   $"ScheduledStationAETitles=[{string.Join("|", item.ScheduledAETs ?? new List<string>())}], " +
+                   $"ScheduledDateTime={(item.ExamDateAndTime != default ? item.ExamDateAndTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : "(none)")})";
+        }
+
+
+        /// <summary>Logs the keys in the query that are missing from the response: this server does not return them.</summary>
+        private static void LogUnsupportedKeys(DicomDataset request, DicomDataset procedureStep, DicomDataset response, Action<LogEventLevel, string> log)
+        {
+            var missing = request.Where(e => !response.Contains(e.Tag)).Select(e => e.Tag.ToString() + " " + e.Tag.DictionaryEntry.Name).ToList();
+            if (procedureStep != null && response.TryGetSequence(DicomTag.ScheduledProcedureStepSequence, out DicomSequence responseSps) && responseSps.Items.Count > 0)
+            {
+                var sps = responseSps.Items[0];
+                missing.AddRange(procedureStep.Where(e => !sps.Contains(e.Tag))
+                    .Select(e => "ScheduledProcedureStepSequence." + e.Tag.ToString() + " " + e.Tag.DictionaryEntry.Name));
+            }
+            if (missing.Count > 0)
+                log(LogEventLevel.Information, $"Query keys not returned (not supported by this server, so the device gets no value for them): {string.Join(", ", missing)}");
+        }
+
+
+        /// <summary>The C-FIND response dataset for one worklist item: the keys the query asked for.</summary>
+        private static DicomDataset BuildResultDataset(DicomDataset request, DicomDataset procedureStep, string requestedScheduledAET, WorklistItem result, Action<LogEventLevel, string> log)
+        {
+            var resultingSPS = new DicomDataset();
+            var resultDataset = new DicomDataset();
+            var resultingSPSSequence = new DicomSequence(DicomTag.ScheduledProcedureStepSequence, resultingSPS);
+
+            if (procedureStep != null)
+            {
+                resultDataset.Add(resultingSPSSequence);
+            }
+
+            // add results to "main" dataset
+            AddIfExistsInRequest(resultDataset, request, DicomTag.AccessionNumber, result.AccessionNumber);    // T2
+            AddIfExistsInRequest(resultDataset, request, DicomTag.InstitutionName, result.HospitalName);
+            AddIfExistsInRequest(resultDataset, request, DicomTag.ReferringPhysicianName, result.ReferringPhysician); // T2
+
+            AddIfExistsInRequest(resultDataset, request, DicomTag.PatientName, result.Surname + "^" + result.Forename + "^^" + result.Title); //T1
+            AddIfExistsInRequest(resultDataset, request, DicomTag.PatientID, result.PatientID); // T1
+            AddIfExistsInRequest(resultDataset, request, DicomTag.PatientBirthDate, result.DateOfBirth); // T2
+            AddIfExistsInRequest(resultDataset, request, DicomTag.PatientSex, result.Sex); //T2
+
+            // Modalities put this on every image of the study, so it comes from the worklist item
+            // (stable per order) rather than DicomUID.Generate(), which would change on every C-FIND.
+            AddIfExistsInRequest(resultDataset, request, DicomTag.StudyInstanceUID, result.StudyUID); // T1
+
+            AddIfExistsInRequest(resultDataset, request, DicomTag.RequestingPhysician, result.ReferringPhysician); //T2
+            AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureDescription, result.ExamDescription); //T1C
+
+            AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureID, result.ProcedureID); // T1
+            AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureComments, result.PatientInstruction); // T3
+
+            // procedure_id is CARE's unique code identifying the type of exam ordered (e.g. "xray spine" = 1),
+            // distinct from RequestedProcedureID above (which identifies this specific order/request).
+            // Built only when the query asks for it, so a code the device does not want cannot fail its item
+            var requestedProcedureCode = new DicomDataset();
+            if (request.Contains(DicomTag.RequestedProcedureCodeSequence) && !string.IsNullOrWhiteSpace(result.ProcedureCode))
+            {
+                // Code Value (0008,0100) is SH, at most 16 characters; a longer code (e.g. an 18-digit
+                // SNOMED CT id) goes in Long Code Value (0008,0119) instead, never both
+                string procedureCode = result.ProcedureCode.Trim();
+                if (procedureCode.Length > 16)
+                    log?.Invoke(LogEventLevel.Warning, $"Procedure code {procedureCode} ({procedureCode.Length} characters) not sent in Code Value (0008,0100), which allows 16: " +
+                        $"sent in Long Code Value (0008,0119) - a device that reads only Code Value gets no procedure code. AccessionNumber={result.AccessionNumber}, ServiceRequestId={result.ServiceRequestId}");
+                AddValue(requestedProcedureCode, procedureCode.Length <= 16 ? DicomTag.CodeValue : DicomTag.LongCodeValue, procedureCode);
+                AddValue(requestedProcedureCode, DicomTag.CodingSchemeDesignator, "99CARE");
+                AddValue(requestedProcedureCode, DicomTag.CodeMeaning, result.ExamDescription ?? string.Empty);
+            }
+            AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureCodeSequence, requestedProcedureCode); // T1C
+
+            // Scheduled Procedure Step sequence T1
+            // add results to procedure step dataset
+            // Return if requested
+            if (procedureStep != null)
+            {
+                // The AE title the C-FIND asked for when it is one of the item's, else its first
+                string scheduledAET = requestedScheduledAET != null && result.ScheduledAETs != null && result.ScheduledAETs.Contains(requestedScheduledAET)
+                    ? requestedScheduledAET
+                    : result.ScheduledAET;
+                if (procedureStep.Contains(DicomTag.ScheduledStationAETitle) && string.IsNullOrWhiteSpace(scheduledAET))
+                    log?.Invoke(LogEventLevel.Warning, $"Scheduled Station AE Title (0040,0001) sent empty: the item is scheduled on no DICOM device with an AE title in CARE. " +
+                        $"AccessionNumber={result.AccessionNumber}, ServiceRequestId={result.ServiceRequestId}");
+                AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledStationAETitle, scheduledAET); // T1
+
+                // Taken from the CARE service request date. Return key type 1 needs a value, so an
+                // item without one is reported as scheduled now.
+                var scheduledDateTime = result.ExamDateAndTime != default ? result.ExamDateAndTime : DateTime.Now;
+                if (result.ExamDateAndTime == default && (procedureStep.Contains(DicomTag.ScheduledProcedureStepStartDate) || procedureStep.Contains(DicomTag.ScheduledProcedureStepStartTime)))
+                    log?.Invoke(LogEventLevel.Warning, $"Scheduled Procedure Step Start Date/Time (0040,0002/0003) not in CARE (no service request date): sent as now, {scheduledDateTime:yyyy-MM-dd HH:mm:ss}. " +
+                        $"AccessionNumber={result.AccessionNumber}, ServiceRequestId={result.ServiceRequestId}");
+                AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepStartDate, scheduledDateTime); // (0040,0002) T1
+                AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepStartTime, scheduledDateTime); // (0040,0003) T1
+                // A modality that is not a valid CS value (over 16 characters, or characters such as
+                // "-") would throw and fail the whole C-FIND, so it is sent empty instead.
+                bool validModality = IsValidCodeString(result.Modality);
+                if (!validModality && procedureStep.Contains(DicomTag.Modality))
+                    log?.Invoke(LogEventLevel.Warning, $"Modality (0008,0060) \"{result.Modality}\" not sent (sent empty): a DICOM modality allows at most 16 uppercase letters, digits, spaces and underscores. " +
+                        $"AccessionNumber={result.AccessionNumber}, ServiceRequestId={result.ServiceRequestId}");
+                AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.Modality, validModality ? result.Modality : string.Empty); // T1
+
+                AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledPerformingPhysicianName, result.PerformingPhysician); //T2
+                AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepDescription, result.ExamDescription); // T1C
+                AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepID, result.ProcedureStepID); // T1
+                AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledStationName, result.ExamRoom); //T2
+                AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.ScheduledProcedureStepLocation, result.ExamRoom); //T2
+                AddIfExistsInRequest(resultingSPS, procedureStep, DicomTag.CommentsOnTheScheduledProcedureStep, result.TechnicianInstruction); //T3
+            }
+
+            // Put blanks in for unsupported fields which are type 2 (i.e. must have a value even if NULL)
+            // In a real server, you may wish to support some or all of these, but they are not commonly supported
+            AddIfExistsInRequest(resultDataset, request, DicomTag.ReferencedStudySequence, new DicomDataset());         // Ref//d Study Sequence
+            AddIfExistsInRequest(resultDataset, request, DicomTag.Priority, result.Priority);                     // Priority
+            AddIfExistsInRequest(resultDataset, request, DicomTag.PatientTransportArrangements, "");              // Transport Arrangements
+            AddIfExistsInRequest(resultDataset, request, DicomTag.AdmissionID, "");                               // Admission ID
+            AddIfExistsInRequest(resultDataset, request, DicomTag.CurrentPatientLocation, "");                    // Patient Location
+            AddIfExistsInRequest(resultDataset, request, DicomTag.ReferencedPatientSequence, new DicomDataset());       // Ref//d Patient Sequence
+            AddIfExistsInRequest(resultDataset, request, DicomTag.PatientWeight, "");                             // Weight
+            AddIfExistsInRequest(resultDataset, request, DicomTag.ConfidentialityConstraintOnPatientDataDescription, ""); // Confidentiality Constraint
+
+            return resultDataset;
         }
 
 
@@ -396,7 +493,21 @@ namespace Worklist_SCP.Model
                     value = default;
                 }
 
-                result.AddOrUpdate(tag, value);
+                AddValue(result, tag, value);
+            }
+        }
+
+
+        /// <summary>Adds a value; when DICOM does not allow it, the error names the tag and the value.</summary>
+        private static void AddValue<T>(DicomDataset dataset, DicomTag tag, T value)
+        {
+            try
+            {
+                dataset.AddOrUpdate(tag, value);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"{tag.DictionaryEntry.Name} {tag} value \"{value}\" is not valid DICOM ({ex.Message})", ex);
             }
         }
 

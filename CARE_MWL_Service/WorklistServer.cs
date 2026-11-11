@@ -71,7 +71,7 @@ namespace Worklist_SCP
                 AETitle = aet;
 
                 new DicomSetupBuilder()
-                    .RegisterServices(s => s.AddFellowOakDicom().AddLogManager<ConsoleLogManager>())
+                    .RegisterServices(s => s.AddFellowOakDicom().AddLogManager<FoDicomLogManager>())
                     .Build();
                 _server = DicomServerFactory.Create<WorklistService>(port);
                 // The worklist source is first queried worklist_refresh_start_seconds after start, then every
