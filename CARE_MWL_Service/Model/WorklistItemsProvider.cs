@@ -206,7 +206,14 @@ namespace Worklist_SCP.Model
                 }
 
                 foreach (CareWorklistRecord record in records)
+                {
                     objWorkListItems.Add(ToWorklistItem(record, modality));
+                    // An AE title is at most 16 characters: a longer one is never sent as Scheduled Station AE Title
+                    var tooLong = (record.DeviceAeTitles ?? new List<string>()).Select(aet => aet.Trim()).Where(aet => aet.Length > 16).Distinct().ToList();
+                    if (tooLong.Count > 0)
+                        objReadWriteLog.WriteToLog($"care_worklist: AccessionNumber={record.AccessionNumber} (service request {record.ServiceRequestId}): device AE title(s) {string.Join(", ", tooLong.Select(aet => $"\"{aet}\" ({aet.Length} characters)"))} " +
+                            "not sent as Scheduled Station AE Title (0040,0001), which allows 16 characters. Shorten the ae_title of the DICOM device in CARE.", false);
+                }
 
                 // Without a device AE title the item matches no C-FIND that asks for a Scheduled Station AE Title
                 var withoutAeTitle = objWorkListItems.Where(item => item.ScheduledAETs.Count == 0).Select(item => item.AccessionNumber).ToList();

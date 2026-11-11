@@ -295,14 +295,14 @@ namespace Worklist_SCP
                     var itemsSource = CreateItemsSourceService;
                     fileLogger.Information($"Fetching Records from care_worklist for Facility ID {facilityId}, Modality {requestedModality} (from the C-FIND)");
                     var careWorklistItems = itemsSource.GetCareWorklistItemsFromDB(facilityId, requestedModality);
-                    results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems).ToList();
+                    results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems, LogWorklistItem).ToList();
                     if (results.Count == 0)
                     {
                         fileLogger.Information($"No care_worklist item matches the C-FIND from AE {Association.CallingAE} ({careWorklistItems.Count} scheduled) - refreshing care_worklist from the CARE worklist API");
                         if (itemsSource.RefreshCareWorklistFromApi(facilityId))
                         {
                             careWorklistItems = itemsSource.GetCareWorklistItemsFromDB(facilityId, requestedModality);
-                            results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems).ToList();
+                            results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems, LogWorklistItem).ToList();
                         }
                         else
                         {
@@ -315,7 +315,20 @@ namespace Worklist_SCP
 
             }
 
-            return results ?? WorklistHandler.FilterWorklistItems(request.Dataset, WorklistServer.CurrentWorklistItems).ToList();
+            return results ?? WorklistHandler.FilterWorklistItems(request.Dataset, WorklistServer.CurrentWorklistItems, LogWorklistItem).ToList();
+        }
+
+
+        /// <summary>
+        /// What WorklistHandler did not send to the device for this C-FIND: items that did not match, an item
+        /// left out because a CARE value is not valid DICOM, values sent empty or replaced, unsupported keys.
+        /// </summary>
+        private void LogWorklistItem(Serilog.Events.LogEventLevel level, string message)
+        {
+            string text = $"[C-FIND] {message} - device {Device}";
+            if (level == Serilog.Events.LogEventLevel.Error)
+                text += ". The other items are still sent; fix the value in CARE.";
+            fileLogger?.Write(level, text);
         }
 
 
