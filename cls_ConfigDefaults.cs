@@ -1,7 +1,8 @@
-using Plexus.Common.Database;
+﻿using Plexus.Common.Database;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace Plexus_DICOM_Enabler.Forms
 {
@@ -17,7 +18,6 @@ namespace Plexus_DICOM_Enabler.Forms
         public static readonly string[] ConfigKeys =
         {
             "facility_id",
-            "care_modality",
             "care_from_date",
             "scu_poll_interval_seconds",
             "worklist_refresh_start_seconds",
@@ -29,18 +29,30 @@ namespace Plexus_DICOM_Enabler.Forms
         };
 
         /// <summary>
-        /// Stores the default of each blank Configuration tab setting in care_config. facility_id has no default.
+        /// The defaults Start Service(s) offers to store (with ucls_DAL.FillBlankConfig, once the user confirms):
+        /// each Configuration tab setting that is blank in care_config and has a default, with that default.
+        /// facility_id has no default. Null when care_config cannot be read (errorString is set).
         /// </summary>
-        public static bool ApplyDefaults(ucls_DAL objDAL, ref string errorString)
+        public static Dictionary<string, string> GetBlankDefaults(ucls_DAL objDAL, ref string errorString)
         {
-            var configDefaults = new Dictionary<string, string>();
+            System.Data.DataSet config = objDAL.LoadConfig(ref errorString);
+            if (config == null || config.Tables.Count == 0)
+                return null;
+            var current = new Dictionary<string, string>();
+            foreach (System.Data.DataRow row in config.Tables[0].Rows)
+                current[row["config_key"].ToString()] = row["config_value"]?.ToString() ?? string.Empty;
+
+            var defaults = new Dictionary<string, string>();
             foreach (string configKey in ConfigKeys)
             {
-                string value = GetConfigDefault(configKey);
-                if (!string.IsNullOrWhiteSpace(value))
-                    configDefaults[configKey] = value;
+                // Only settings whose care_config row exists and is blank: FillBlankConfig changes nothing else
+                if (!current.TryGetValue(configKey, out string value) || !string.IsNullOrWhiteSpace(value))
+                    continue;
+                string configDefault = GetConfigDefault(configKey);
+                if (!string.IsNullOrWhiteSpace(configDefault))
+                    defaults[configKey] = configDefault;
             }
-            return objDAL.FillBlankConfig(configDefaults, ref errorString);
+            return defaults;
         }
 
         /// <summary>
@@ -52,12 +64,10 @@ namespace Plexus_DICOM_Enabler.Forms
         {
             switch (configKey)
             {
-                case "care_modality":
-                    return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careModality"), ReadServiceSetting("CARE_SCU_Service", "careModality"));
                 case "care_from_date":
                     return CombineServiceDefaults(ReadServiceSetting("CARE_MWL_Service", "careFromDate"), ReadServiceSetting("CARE_SCU_Service", "careFromDate"));
                 case "worklist_refresh_start_seconds":
-                    return WholeNumberOrDefault(ReadServiceSetting("CARE_MWL_Service", "worklistRefreshStartSeconds"), 30, 0);
+                    return WholeNumberOrDefault(ReadServiceSetting("CARE_MWL_Service", "worklistRefreshStartSeconds"), 5, 0);
                 case "worklist_refresh_interval_seconds":
                     return WholeNumberOrDefault(ReadServiceSetting("CARE_MWL_Service", "worklistRefreshIntervalSeconds"), 30, 1);
                 case "scu_poll_interval_seconds":
@@ -72,6 +82,113 @@ namespace Plexus_DICOM_Enabler.Forms
                     return "2";
                 default:
                     return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// The DICOM Enabler selected in the Configuration tab (care_config dicom_enabler_id), as saved in
+        /// care_devices with its DICOM endpoints. Null with errorString empty when none is selected or its
+        /// row is missing; null with errorString set when the database cannot be read.
+        /// </summary>
+        public static CareDeviceRecord GetSavedEnabler(ucls_DAL objDAL, ref string errorString)
+        {
+            string enablerId = objDAL.GetConfigValue("dicom_enabler_id", string.Empty, ref errorString).Trim();
+            if (!string.IsNullOrEmpty(errorString) || enablerId == string.Empty)
+                return null;
+            return objDAL.GetCareDevice(enablerId, ref errorString);
+        }
+
+        /// <summary>
+        /// </summary>
+        public static readonly string[] DicomEndpointKeys = { "mwlaetitle", "mwlhost", "mwlport", "sscpaetitle", "sscphost", "sscpport" };
+
+        /// <summary>
+        /// </summary>
+        public static bool TryGetDicomEndpointSettings(CareDeviceRecord enabler, out Dictionary<string, string> settings, ref string errorString)
+        {
+            settings = null;
+            if (!ucls_CareModalities.TryGetDicomEndpoints(enabler, out CareDicomEndpoint modalityScp, out CareDicomEndpoint storeScp, out string error))
+            {
+                errorString = error;
+                return false;
+            }
+            settings = new Dictionary<string, string>
+            {
+                { "mwlaetitle", modalityScp.ae_title.Trim() },
+                { "mwlhost", (modalityScp.host ?? string.Empty).Trim() },
+                { "mwlport", modalityScp.port.Value.ToString() },
+                { "sscpaetitle", storeScp.ae_title.Trim() },
+                { "sscphost", (storeScp.host ?? string.Empty).Trim() },
+                { "sscpport", storeScp.port.Value.ToString() },
+            };
+            return true;
+        }
+
+        /// <summary>
+        /// Writes the DICOM Enabler's endpoints to cfg/common.cfg, where the MWL and Store SCP services read
+        /// them when they start.
+        /// </summary>
+        public static bool ApplyDicomEndpointSettings(CareDeviceRecord enabler, Dictionary<string, string> changes, ref string errorString)
+        {
+            return UpdateDicomEndpointSettings(enabler, changes, true, ref errorString);
+        }
+
+        /// <summary>
+        /// The changes ApplyDicomEndpointSettings would make to cfg/common.cfg, without making them:
+        /// changes gets "key: old -> new" for each value that differs from the DICOM Enabler's endpoints.
+        /// </summary>
+        public static bool CheckDicomEndpointSettings(CareDeviceRecord enabler, Dictionary<string, string> changes, ref string errorString)
+        {
+            return UpdateDicomEndpointSettings(enabler, changes, false, ref errorString);
+        }
+
+        private static bool UpdateDicomEndpointSettings(CareDeviceRecord enabler, Dictionary<string, string> changes, bool write, ref string errorString)
+        {
+            if (!TryGetDicomEndpointSettings(enabler, out Dictionary<string, string> settings, ref errorString))
+            {
+                if (write)
+                    cls_AppLog.Error("SCP SETTINGS", "The Modality SCP and Store SCP settings cannot be set from the DICOM Enabler: " + errorString);
+                return false;
+            }
+            try
+            {
+                string cfgPath = Path.Combine(Global._applicationPath, "cfg", "common.cfg");
+                var configDoc = new System.Xml.XmlDocument();
+                configDoc.Load(cfgPath);
+                System.Xml.XmlNode root = configDoc.SelectSingleNode("/configurations");
+                if (root == null)
+                {
+                    errorString = cfgPath + " has no <configurations> element.";
+                    return false;
+                }
+
+                bool changed = false;
+                foreach (string key in DicomEndpointKeys)
+                {
+                    System.Xml.XmlNode node = root.SelectSingleNode(key);
+                    string oldValue = node?.InnerText.Trim() ?? string.Empty;
+                    if (oldValue == settings[key])
+                        continue;
+                    // An older common.cfg may not have the element (e.g. no mwlhost): add it
+                    if (node == null)
+                        node = root.AppendChild(configDoc.CreateElement(key));
+                    node.InnerText = settings[key];
+                    changes[key] = $"{key}: {(oldValue == string.Empty ? "(blank)" : oldValue)} -> {settings[key]}";
+                    changed = true;
+                }
+                if (changed && write)
+                {
+                    configDoc.Save(cfgPath);
+                    foreach (string key in DicomEndpointKeys.Where(changes.ContainsKey))
+                        cls_AppLog.Info("SCP SETTINGS", "From the DICOM Enabler's endpoints in CARE - " + changes[key]);
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errorString = (write ? "Writing the DICOM Enabler's endpoints to" : "Reading") + " cfg/common.cfg failed: " + ex.Message;
+                cls_AppLog.Error("SCP SETTINGS", errorString);
+                return false;
             }
         }
 

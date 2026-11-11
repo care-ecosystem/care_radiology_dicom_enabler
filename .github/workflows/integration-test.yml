@@ -33,7 +33,6 @@ jobs:
           ($s | Where-Object key -eq "backend").value      = "3"
           ($s | Where-Object key -eq "careBaseUrl").value  = "http://localhost:9000"
           ($s | Where-Object key -eq "careToken").value    = "ci-test-static-api-key"
-          ($s | Where-Object key -eq "careModality").value = ""
           $xml.Save((Resolve-Path "CARE_MWL_Service\App.config").Path)
           Write-Output "MWL App.config patched"
 

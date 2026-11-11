@@ -36,9 +36,11 @@ class Config:
     password: str = field(default_factory=lambda: _env("CARE_PASSWORD", required=True), repr=False)
     facility_id: str = field(default_factory=lambda: _env("CARE_FACILITY_ID", required=True))
     patient_id: str = field(default_factory=lambda: _env("CARE_PATIENT_ID", required=True))
+    # DICOM Enabler the enabler is set to: the worklist is fetched only for it (device={id})
+    dicom_enabler_id: str = field(default_factory=lambda: _env("CARE_DICOM_ENABLER_ID", required=True))
     # Optional: reuse a specific encounter; otherwise an active one is found or created.
     encounter_id: str = field(default_factory=lambda: _env("CARE_ENCOUNTER_ID"))
-    # Device the enabler serves: Device.registered_name in CARE, and the worklist modality filter.
+    # Device the enabler serves: Device.registered_name in CARE, and the modality the test's C-FIND queries with.
     modality: str = field(default_factory=lambda: _env("CARE_MODALITY", "CT"))
     # Optional comma-separated activity definition slugs to restrict which imaging ADs are used.
     activity_definitions: str = field(default_factory=lambda: _env("CARE_ACTIVITY_DEFINITIONS", ""))

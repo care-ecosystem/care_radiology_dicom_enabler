@@ -273,6 +273,10 @@ namespace Plexus_DICOM_Enabler.UserControls
                     // Only the CARE services read care_config and need the Facility Id
                     if (!ApplyDefaults())
                         return;
+                    // Check CARE for changes to the DICOM Enabler, its devices and the SCP settings first;
+                    // any change is applied only once the user confirms it
+                    if (!SyncWithCareBeforeStart())
+                        return;
 
                     //StartStopService("Plexus_Auth_Service", true);
 
@@ -296,7 +300,10 @@ namespace Plexus_DICOM_Enabler.UserControls
             }
             catch(Exception ex)
             {
-                MessageBox.Show("Error Staring Services with exception : " + ex.Message);
+                string reason = ex.InnerException != null && ex.InnerException.Message != ex.Message
+                    ? Environment.NewLine + Environment.NewLine + "Reason: " + ex.InnerException.Message
+                    : string.Empty;
+                MessageBox.Show("Error Starting Services with exception : " + ex.Message + reason);
             }
             finally
             {
@@ -307,9 +314,9 @@ namespace Plexus_DICOM_Enabler.UserControls
         }
 
         /// <summary>
-        /// Stores the default configuration in the database before the CARE services start, so the
-        /// Configuration tab shows it. Returns false, after telling the user why, when it cannot
-        /// be stored or no Facility Id has been entered, as the services cannot work without it.
+        /// Before the CARE services start: offers to store the defaults of the blank Configuration tab
+        /// settings (only once the user confirms), and checks that a Facility Id and a DICOM Enabler are
+        /// saved. Returns false, after telling the user why, when the services must not start.
         /// </summary>
         private bool ApplyDefaults()
         {
@@ -317,10 +324,33 @@ namespace Plexus_DICOM_Enabler.UserControls
             ucls_DAL objDAL = new ucls_DAL(Global._applicationPath);
             try
             {
-                if (!cls_ConfigDefaults.ApplyDefaults(objDAL, ref errorString))
+                Dictionary<string, string> defaults = cls_ConfigDefaults.GetBlankDefaults(objDAL, ref errorString);
+                if (defaults == null)
                 {
-                    MessageBox.Show("Error storing the default configuration : " + errorString);
+                    MessageBox.Show("Error reading the configuration : " + errorString);
                     return false;
+                }
+                if (defaults.Count > 0)
+                {
+                    DialogResult answer = cls_ConfirmDialog.Show(FindForm(), "Start Services - default settings",
+                        "These settings are blank, so the services will use their defaults. Store the defaults in the database so the Configuration tab shows them?",
+                        defaults.Select(d => $"{d.Key}: {d.Value}"),
+                        ("Store defaults", DialogResult.Yes), ("Don't store", DialogResult.No), ("Cancel", DialogResult.Cancel));
+                    if (answer == DialogResult.Cancel)
+                        return false;
+                    if (answer == DialogResult.Yes)
+                    {
+                        if (!objDAL.FillBlankConfig(defaults, ref errorString))
+                        {
+                            MessageBox.Show("Error storing the default configuration : " + errorString);
+                            return false;
+                        }
+                        cls_AppLog.Info("CONFIG", "Defaults stored for the blank settings: " + string.Join("; ", defaults.Select(d => $"{d.Key}: {d.Value}")));
+                    }
+                    else
+                    {
+                        cls_AppLog.Info("CONFIG", "Defaults not stored - declined by the user; the services use them for the blank settings");
+                    }
                 }
 
                 string facilityId = objDAL.GetConfigValue("facility_id", string.Empty, ref errorString);
@@ -331,8 +361,22 @@ namespace Plexus_DICOM_Enabler.UserControls
                 }
                 if (string.IsNullOrWhiteSpace(facilityId))
                 {
-                    MessageBox.Show("Please enter the Facility Id in the Configuration tab and save it before starting the services. " +
-                        "The default configuration has been stored there.");
+                    MessageBox.Show("Please enter the Facility Id in the Configuration tab and save it before starting the services.");
+                    return false;
+                }
+
+                // The MWL and Store SCP services listen only with the selected DICOM Enabler's endpoints from CARE
+                CareDeviceRecord enabler = cls_ConfigDefaults.GetSavedEnabler(objDAL, ref errorString);
+                if (!string.IsNullOrEmpty(errorString))
+                {
+                    MessageBox.Show("Error reading the DICOM Enabler : " + errorString);
+                    return false;
+                }
+                if (enabler == null)
+                {
+                    cls_AppLog.Warning("SERVICES", "Services not started: no DICOM Enabler is selected in the Configuration tab");
+                    MessageBox.Show("Please select a DICOM Enabler in the Configuration tab and save it before starting the services. " +
+                        "The Modality SCP and Store SCP settings come from its DICOM endpoints in CARE.");
                     return false;
                 }
             }
@@ -341,6 +385,83 @@ namespace Plexus_DICOM_Enabler.UserControls
                 objDAL.Dispose();
             }
             return true;
+        }
+
+        /// <summary>
+        /// Calls the CARE Modalities APIs and checks for new DICOM devices, changes to the saved ones and to the
+        /// DICOM Enabler, and Modality SCP / Store SCP settings that differ from the enabler's endpoints. When
+        /// there are changes the user chooses to apply them and start, start without them, or cancel. Returns
+        /// whether to start the services.
+        /// </summary>
+        private bool SyncWithCareBeforeStart()
+        {
+            CareSyncCheck check = System.Threading.Tasks.Task.Run(() => cls_CareSync.Check("Start Service(s)")).GetAwaiter().GetResult();
+
+            if (!check.Checked)
+            {
+                if (MessageBox.Show(FindForm(), "Could not check CARE for changes: " + check.Error + Environment.NewLine + Environment.NewLine +
+                                    "Start the services with the saved devices and settings?",
+                                    "Start Services", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                    return false;
+                cls_AppLog.Warning("SERVICES", "Starting the services without checking CARE: " + check.Error);
+                // The SCP settings must still be the saved DICOM Enabler's endpoints
+                return ApplySavedEndpoints();
+            }
+
+            if (!check.HasChanges)
+            {
+                if (check.Warnings.Count > 0 &&
+                    cls_ConfirmDialog.Show(FindForm(), "Start Services", "CARE has no changes to apply, but:", check.Warnings,
+                                           ("Start", DialogResult.Yes), ("Cancel", DialogResult.Cancel)) != DialogResult.Yes)
+                    return false;
+                return true;
+            }
+
+            DialogResult answer = cls_ConfirmDialog.Show(FindForm(), "Start Services - changes in CARE",
+                "CARE has these changes for this DICOM Enabler. Nothing has been changed yet. Update the saved devices and settings before starting the services?",
+                check.Describe(),
+                ("Update and start", DialogResult.Yes), ("Start without updating", DialogResult.No), ("Cancel", DialogResult.Cancel));
+            if (answer == DialogResult.Cancel)
+            {
+                cls_CareSync.LogDeclined(check, "Start Service(s) cancelled");
+                return false;
+            }
+            if (answer == DialogResult.No)
+            {
+                cls_CareSync.LogDeclined(check, "Start Service(s)");
+                return true;
+            }
+
+            if (!cls_CareSync.Apply(check, new Dictionary<string, string>(), out string applyError))
+                return MessageBox.Show(FindForm(), "Not every change from CARE was saved: " + applyError + Environment.NewLine + Environment.NewLine +
+                                       "Start the services anyway?", "Start Services", MessageBoxButtons.YesNo, MessageBoxIcon.Error) == DialogResult.Yes;
+            return true;
+        }
+
+        /// <summary>
+        /// Writes the saved DICOM Enabler's endpoints to cfg/common.cfg (they are the only source of the
+        /// Modality SCP / Store SCP settings). Returns false, after telling the user why, when they cannot be.
+        /// </summary>
+        private bool ApplySavedEndpoints()
+        {
+            string errorString = string.Empty;
+            ucls_DAL objDAL = new ucls_DAL(Global._applicationPath);
+            try
+            {
+                CareDeviceRecord enabler = cls_ConfigDefaults.GetSavedEnabler(objDAL, ref errorString);
+                if (string.IsNullOrEmpty(errorString) && enabler == null)
+                    errorString = "No DICOM Enabler is saved. Select one in the Configuration tab and save it.";
+                if (string.IsNullOrEmpty(errorString) &&
+                    cls_ConfigDefaults.ApplyDicomEndpointSettings(enabler, new Dictionary<string, string>(), ref errorString))
+                    return true;
+            }
+            finally
+            {
+                objDAL.Dispose();
+            }
+            cls_AppLog.Error("SERVICES", "Services not started: " + errorString);
+            MessageBox.Show("The Modality SCP and Store SCP settings could not be set from the DICOM Enabler : " + errorString);
+            return false;
         }
 
         /// <summary>
