@@ -18,27 +18,44 @@ name: Build CARE DICOM Enabler
 #
 # CARE settings resolve in this order (first non-empty wins):
 #   1. workflow_dispatch input   - one-off override for a manual run
-#   2. repository secret / var   - the standing default
+#   2. environment secret / var  - the standing default for the environment
+#                                  the run executes in (see below)
 #   3. App.config committed value
 #
-# Configure the standing defaults once under
-# Settings > Secrets and variables > Actions.
+# Environments (Settings > Environments):
+#   staging   used by push/PR to main and by manual runs. Holds the shared
+#             staging server as secrets/vars.
+#   <state>   used when a tag named <state>-vX.Y.Z is pushed, e.g.
+#             jh-v1.0.0 -> environment "jh", ka-v1.0.0 -> environment "ka".
+#             Holds that state's CARE_BASE_URL, CARE_API_TOKEN and vars,
+#             which are baked into the build the same way as staging.
+#             NOTE: tag builds are published as GitHub Releases. On a public
+#             repo anyone can download the zip and read the baked token from
+#             the .exe.config files, so treat these tokens as rotatable.
 #
-#   Secrets tab (masked in logs):
+#   Secrets (masked in logs):
 #     CARE_BASE_URL    e.g. https://care.example.org
 #     CARE_API_TOKEN   the radiology plugin API token
 #
-#   Variables tab (appear in the artifact filename, so not secrets):
+#   Variables (appear in the artifact filename, so not secrets):
 #     CARE_FROM_DATE   optional, e.g. 2025-01-01 08:00:00
 #     CARE_BACKEND     optional, 0=List 1=Database 2=CARE Server
 #     CARE_MAX_UPLOAD_RETRIES   optional, e.g. 10  (upload retries before FailedSCP)
 #     CARE_WORKLIST_REFRESH_START     optional, e.g. 5   (seconds after start before the first worklist fetch)
 #     CARE_WORKLIST_REFRESH_INTERVAL  optional, e.g. 30  (seconds between worklist fetches)
+#
+# Releasing for a state:
+#   git tag jh-v1.0.0 && git push origin jh-v1.0.0
+#   -> builds in environment "jh" and publishes a (draft) GitHub Release
+#      with CARE_DICOM_Enabler-jh-v1.0.0.zip attached. Anyone can download:
+#      https://github.com/<owner>/<repo>/releases/download/jh-v1.0.0/CARE_DICOM_Enabler-jh-v1.0.0.zip
 
 on:
   push:
     branches:
       - main
+    tags:
+      - '*-v*'   # <environment>-vX.Y.Z, e.g. jh-v1.0.0, ka-v1.0.0, govtstaging-v0.0.1
   pull_request:
     branches:
       - main
@@ -112,11 +129,39 @@ on:
         default: ''
         type: string
 
-jobs:
-  build:
-    runs-on: windows-latest
+# Needed so GITHUB_TOKEN can create the GitHub Release on tag builds.
+permissions:
+  contents: write
 
-    # Resolve CARE settings once: manual input wins, then repository secret/var.
+jobs:
+  # Work out which environment a run belongs to. A tag jh-v1.0.0 selects
+  # environment "jh"; everything else runs in "staging".
+  prep:
+    runs-on: ubuntu-latest
+    outputs:
+      state: ${{ steps.state.outputs.state }}
+    steps:
+      - id: state
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "state=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          state="${GITHUB_REF_NAME%%-v*}"
+          if [[ ! "$state" =~ ^[a-z][a-z0-9_-]{1,39}$ ]]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' must look like <state>-vX.Y.Z, e.g. jh-v1.0.0"
+            exit 1
+          fi
+          echo "Tag $GITHUB_REF_NAME -> environment '$state'"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prep
+    runs-on: windows-latest
+    environment: ${{ github.ref_type == 'tag' && needs.prep.outputs.state || 'staging' }}
+
+    # Resolve CARE settings once: manual input wins, then environment secret/var.
     # Reading these through env (rather than inline ${{ }} in the script) keeps
     # GitHub's secret masking intact and avoids shell injection.
     env:
@@ -284,6 +329,7 @@ jobs:
           $backend   = "$env:CARE_BACKEND"
 
           Write-Output "Build Configuration:"
+          Write-Output "  - Trigger: ${{ github.event_name }} (${{ github.ref_name }})"
           Write-Output "  - Configuration: $config"
           Write-Output "  - Platform: $platform"
           Write-Output "  - Parallel Build: $(if ($parallel -eq 'true' -or $parallel -eq '') { 'Enabled' } else { 'Disabled' })"
@@ -408,3 +454,34 @@ jobs:
           name: ${{ env.ARTIFACT_NAME }}
           path: bin\${{ inputs.build_configuration || 'Release' }}\
           if-no-files-found: error
+
+      # Tag builds (jh-v1.0.0, ka-v1.0.0, ...) are also published as a GitHub
+      # Release so a state can download without a GitHub account. Release
+      # assets must be a file, so the build folder is zipped first.
+      - name: Zip release build
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $config = "${{ inputs.build_configuration || 'Release' }}"
+          $zip = "CARE_DICOM_Enabler-$($env:GITHUB_REF_NAME).zip"
+          Compress-Archive -Path "bin\$config\*" -DestinationPath $zip -Force
+          echo "RELEASE_ZIP=$zip" >> $env:GITHUB_ENV
+          Write-Output "Release asset: $zip"
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $zip = $env:RELEASE_ZIP
+
+          # --draft: the release is created but stays hidden until you press
+          # Publish on GitHub, so the zip can be checked first. Remove the flag
+          # once you are happy for state releases to go live automatically.
+          gh release create $tag $zip --title $tag --generate-notes --draft
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "gh release create failed (release may already exist) - replacing the asset on the existing release."
+            gh release upload $tag $zip --clobber
+          }
