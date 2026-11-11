@@ -55,7 +55,7 @@ on:
     branches:
       - main
     tags:
-      - '*-v*'   # <state>-vX.Y.Z, e.g. jh-v1.0.0, ka-v1.0.0
+      - '*-v*'   # <environment>-vX.Y.Z, e.g. jh-v1.0.0, ka-v1.0.0, govtstaging-v0.0.1
   pull_request:
     branches:
       - main
@@ -149,7 +149,7 @@ jobs:
             exit 0
           fi
           state="${GITHUB_REF_NAME%%-v*}"
-          if [[ ! "$state" =~ ^[a-z]{2,10}$ ]]; then
+          if [[ ! "$state" =~ ^[a-z][a-z0-9_-]{1,39}$ ]]; then
             echo "::error::Tag '$GITHUB_REF_NAME' must look like <state>-vX.Y.Z, e.g. jh-v1.0.0"
             exit 1
           fi
