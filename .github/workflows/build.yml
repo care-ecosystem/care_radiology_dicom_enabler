@@ -64,7 +64,7 @@ on:
       - main
     tags:
       - 'v[0-9]*'   # vX.Y.Z, e.g. v0.0.1 -> release built in "staging"
-      - '*-v*'      # <environment>-vX.Y.Z, e.g. jh-v1.0.0, govtstaging-v0.0.1
+      - '*-v[0-9]*' # <environment>-vX.Y.Z, e.g. jh-v1.0.0, govtstaging-v0.0.1, jk-v1.2.0-beta.1
   pull_request:
     branches:
       - main
@@ -151,12 +151,14 @@ jobs:
             env_name=staging
           elif [[ "$GITHUB_REF_NAME" =~ ^v[0-9] ]]; then
             env_name=staging
+          elif [[ "$GITHUB_REF_NAME" =~ ^([a-z][a-z0-9_-]{1,39})-v[0-9] ]]; then
+            # Everything before the last "-v<digit>", so "dev-vellore-v1.0.0"
+            # still resolves to "dev-vellore". Pre-release suffixes
+            # (jk-v1.2.0-beta.1) are fine: they come after the version.
+            env_name="${BASH_REMATCH[1]}"
           else
-            env_name="${GITHUB_REF_NAME%%-v*}"
-            if [[ ! "$env_name" =~ ^[a-z][a-z0-9_-]{1,39}$ ]]; then
-              echo "::error::Tag '$GITHUB_REF_NAME' must look like vX.Y.Z or <environment>-vX.Y.Z, e.g. v0.0.1 or jh-v1.0.0"
-              exit 1
-            fi
+            echo "::error::Tag '$GITHUB_REF_NAME' must look like vX.Y.Z or <environment>-vX.Y.Z, e.g. v0.0.1 or jh-v1.0.0"
+            exit 1
           fi
           echo "$GITHUB_REF_TYPE $GITHUB_REF_NAME -> environment '$env_name'"
           echo "environment=$env_name" >> "$GITHUB_OUTPUT"
@@ -546,10 +548,19 @@ jobs:
           $tag = $env:GITHUB_REF_NAME
           $zip = $env:RELEASE_ZIP
 
+          # alpha / beta / rc tags are marked pre-release, so the
+          # releases/latest/download/... link keeps pointing at the last
+          # stable build for that environment.
+          $extra = @()
+          if ($tag -match '-(alpha|beta|rc)') {
+            $extra += '--prerelease'
+            Write-Output "Pre-release tag detected: $tag"
+          }
+
           # --draft: the release is created but stays hidden until you press
           # Publish on GitHub, so the zip can be checked first. Remove the flag
           # once you are happy for state releases to go live automatically.
-          gh release create $tag $zip --title $tag --generate-notes --draft
+          gh release create $tag $zip --title $tag --generate-notes --draft @extra
           if ($LASTEXITCODE -ne 0) {
             Write-Output "gh release create failed (release may already exist) - replacing the asset on the existing release."
             gh release upload $tag $zip --clobber
