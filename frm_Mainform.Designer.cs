@@ -185,14 +185,15 @@ namespace Plexus_DICOM_Enabler
             this.imgList_Icons.Images.SetKeyName(6, "scusetting.png");
             this.imgList_Icons.Images.SetKeyName(7, "configuration.png");
             this.imgList_Icons.Images.Add("devices.png", global::CARE_DICOM_Enabler.Properties.Resources.devices);
-            // 
+            this.imgList_Icons.Images.Add("scuupload.png", global::CARE_DICOM_Enabler.Properties.Resources.scuupload);
+            //
             // mtc_Modules
-            // 
+            //
             this.mtc_Modules.Controls.Add(this.tbp_ServerManager);
+            this.mtc_Modules.Controls.Add(this.tbp_Configuration);
             this.mtc_Modules.Controls.Add(this.tbp_Settings);
             this.mtc_Modules.Controls.Add(this.tbp_SCUSettings);
             this.mtc_Modules.Controls.Add(this.tbp_ServerList);
-            this.mtc_Modules.Controls.Add(this.tbp_Configuration);
             this.mtc_Modules.Controls.Add(this.tbp_Devices);
             this.mtc_Modules.Controls.Add(this.tdp_ViewPatients);
             this.mtc_Modules.Controls.Add(this.tbp_ViewLog);
@@ -237,7 +238,7 @@ namespace Plexus_DICOM_Enabler
             this.tbp_Settings.Controls.Add(this.lbl_ScpSettingsSource);
             this.tbp_Settings.Controls.Add(this.groupBox1);
             this.tbp_Settings.Controls.Add(this.grpb_ModalitySCP);
-            this.tbp_Settings.ImageKey = "settings.png";
+            this.tbp_Settings.ImageKey = "configuration.png";
             this.tbp_Settings.Location = new System.Drawing.Point(4, 25);
             this.tbp_Settings.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.tbp_Settings.Name = "tbp_Settings";
@@ -490,7 +491,7 @@ namespace Plexus_DICOM_Enabler
             // 
             this.tbp_SCUSettings.Controls.Add(this.mbtn_SaveSCUSettings);
             this.tbp_SCUSettings.Controls.Add(this.grpb_StoreSCUSettings);
-            this.tbp_SCUSettings.ImageKey = "scusetting.png";
+            this.tbp_SCUSettings.ImageKey = "scuupload.png";
             this.tbp_SCUSettings.Location = new System.Drawing.Point(4, 25);
             this.tbp_SCUSettings.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.tbp_SCUSettings.Name = "tbp_SCUSettings";
@@ -1139,7 +1140,7 @@ namespace Plexus_DICOM_Enabler
             this.tbp_Configuration.Controls.Add(this.mbtn_SaveConfig);
             this.tbp_Configuration.Controls.Add(this.grpb_CareSettings);
             this.tbp_Configuration.Controls.Add(this.grpb_UploadSettings);
-            this.tbp_Configuration.ImageKey = "configuration.png";
+            this.tbp_Configuration.ImageKey = "settings.png";
             this.tbp_Configuration.Location = new System.Drawing.Point(4, 25);
             this.tbp_Configuration.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.tbp_Configuration.Name = "tbp_Configuration";
@@ -1337,7 +1338,7 @@ namespace Plexus_DICOM_Enabler
             this.mbtn_SaveConfig.Depth = 0;
             this.mbtn_SaveConfig.HighEmphasis = true;
             this.mbtn_SaveConfig.Icon = null;
-            this.mbtn_SaveConfig.Location = new System.Drawing.Point(912, 728);
+            this.mbtn_SaveConfig.Location = new System.Drawing.Point(912, 503);
             this.mbtn_SaveConfig.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
             this.mbtn_SaveConfig.MouseState = MaterialSkin.MouseState.HOVER;
             this.mbtn_SaveConfig.Name = "mbtn_SaveConfig";
