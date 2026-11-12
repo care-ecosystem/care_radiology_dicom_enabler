@@ -5,11 +5,19 @@ using Serilog.Sinks.File;
 namespace Plexus_MWL_Service.logs
 {
     /// <summary>
-    /// Zips a log file into logs/archive before Serilog's retention policy deletes it, so old logs
-    /// are kept compressed instead of lost.
+    /// Zips a log file into the archive folder beside it (archive/subfolder when one is given) before
+    /// Serilog's retention policy deletes it, so old logs are kept compressed instead of lost.
     /// </summary>
     public class ZipOnDeleteHooks : FileLifecycleHooks
     {
+        // Optional folder inside archive, e.g. "AppLog" for the App Log's parts
+        private readonly string _subfolder;
+
+        public ZipOnDeleteHooks(string subfolder = null)
+        {
+            _subfolder = subfolder;
+        }
+
         public override void OnFileDeleting(string path)
         {
             // Several loggers share the file, so another one may already have archived and deleted it
@@ -17,6 +25,8 @@ namespace Plexus_MWL_Service.logs
                 return;
 
             string archiveDirectory = Path.Combine(Path.GetDirectoryName(path), "archive");
+            if (!string.IsNullOrEmpty(_subfolder))
+                archiveDirectory = Path.Combine(archiveDirectory, _subfolder);
             Directory.CreateDirectory(archiveDirectory);
             // The last-write time keeps names unique when Serilog reuses a sequence number, and gives
             // loggers racing on the same file the same name, so only the first one creates the zip

@@ -109,6 +109,7 @@
     <Reference Include="System.ComponentModel" />
     <Reference Include="System.ComponentModel.DataAnnotations" />
     <Reference Include="System.Configuration" />
+    <Reference Include="System.IO.Compression" />
     <Reference Include="System.Configuration.Install" />
     <Reference Include="System.Core" />
     <Reference Include="System.Design" />
@@ -162,6 +163,9 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="cls_AppLog.cs" />
+    <Compile Include="CARE_MWL_Service\Logging\ZipOnDeleteHooks.cs">
+      <Link>Logging\ZipOnDeleteHooks.cs</Link>
+    </Compile>
     <Compile Include="Forms\frm_LoginScreen.cs">
       <SubType>Form</SubType>
     </Compile>
