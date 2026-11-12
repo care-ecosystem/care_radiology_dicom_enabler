@@ -47,6 +47,9 @@ namespace Plexus_DICOM_Enabler
             if (!checkServer)
                 mtc_Modules.TabPages.Remove(tbp_ServerList);
 
+            mtc_Modules.TabPages.Remove(tdp_ViewPatients);
+            mtc_Modules.TabPages.Remove(tbp_SCUSettings);
+
             var materialSkinManager = MaterialSkinManager.Instance;
             materialSkinManager.AddFormToManage(this);
             materialSkinManager.Theme = MaterialSkinManager.Themes.LIGHT;
@@ -900,28 +903,7 @@ namespace Plexus_DICOM_Enabler
                     return;
                 }
 
-                // Blank uses the default; otherwise a whole number of at least minValue, as the services require
-                var wholeNumberFields = new[]
-                {
-                    new { Key = "scu_poll_interval_seconds", Name = "Poll Interval (sec)", MinValue = 1 },
-                    new { Key = "worklist_refresh_start_seconds", Name = "Refresh Start (sec)", MinValue = 0 },
-                    new { Key = "worklist_refresh_interval_seconds", Name = "Refresh Interval (sec)", MinValue = 1 },
-                    new { Key = "max_upload_retries", Name = "Max Upload Retries", MinValue = 1 },
-                    new { Key = "upload_retry_delay_minutes", Name = "Retry Delay (min)", MinValue = 1 },
-                };
-                foreach (var field in wholeNumberFields)
-                {
-                    string value = values[field.Key];
-                    if (value != string.Empty && (!int.TryParse(value, out int number) || number < field.MinValue))
-                    {
-                        MessageBox.Show(this, field.Name + " must be a whole number of " + field.MinValue + " or more, or left blank to use the default.",
-                                         "Check " + field.Name, MessageBoxButtons.OK,
-                                         MessageBoxIcon.Error);
-                        return;
-                    }
-                }
-
-                // One entry per changed setting, e.g. "scu_poll_interval_seconds: 5 -> 10"
+                // One entry per changed setting, e.g. "scp_folder: C:\old -> C:\new"
                 var changes = new System.Collections.Generic.Dictionary<string, string>();
                 foreach (var value in values)
                 {
@@ -1916,15 +1898,6 @@ namespace Plexus_DICOM_Enabler
         }
 
         /// <summary>
-        /// Lets only digits be typed into the seconds and retry count fields
-        /// </summary>
-        private void mtxtb_WholeNumber_KeyPress(object sender, KeyPressEventArgs e)
-        {
-            if (!char.IsControl(e.KeyChar) && !char.IsDigit(e.KeyChar))
-                e.Handled = true;
-        }
-
-        /// <summary>
         /// Opens a calendar with a time picker and puts the selected date and time into From Date
         /// </summary>
         private void mtxtb_CareFromDate_TrailingIconClick(object sender, EventArgs e)
@@ -2064,7 +2037,9 @@ namespace Plexus_DICOM_Enabler
         }
 
         /// <summary>
-        /// The Configuration tab text box for each care_config key
+        /// The Configuration tab text box for each care_config key. The poll interval, worklist refresh
+        /// start/interval, max upload retries and retry delay are fixed for now, so they are not shown or
+        /// saved here; the services use their stored values or defaults.
         /// </summary>
         private System.Collections.Generic.Dictionary<string, MaterialTextBox> GetConfigFields()
         {
@@ -2072,11 +2047,6 @@ namespace Plexus_DICOM_Enabler
             {
                 { "facility_id", mtxtb_FacilityId },
                 { "care_from_date", mtxtb_CareFromDate },
-                { "scu_poll_interval_seconds", mtxtb_ScuPollInterval },
-                { "worklist_refresh_start_seconds", mtxtb_WorklistRefreshStart },
-                { "worklist_refresh_interval_seconds", mtxtb_WorklistRefreshInterval },
-                { "max_upload_retries", mtxtb_MaxUploadRetries },
-                { "upload_retry_delay_minutes", mtxtb_UploadRetryDelay },
                 { "scp_folder", mtxtb_ScpFolder },
                 { "failed_scp_folder", mtxtb_FailedScpFolder },
             };

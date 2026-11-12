@@ -134,16 +134,6 @@ namespace Plexus_DICOM_Enabler
             this.lbl_DicomEnablerBanner = new System.Windows.Forms.Label();
             this.spn_DicomEnablerRefresh = new Plexus_DICOM_Enabler.cls_Spinner();
             this.tt_DicomEnablerBanner = new System.Windows.Forms.ToolTip(this.components);
-            this.lbl_WorklistRefreshStart = new MaterialSkin.Controls.MaterialLabel();
-            this.mtxtb_WorklistRefreshStart = new MaterialSkin.Controls.MaterialTextBox();
-            this.lbl_WorklistRefreshInterval = new MaterialSkin.Controls.MaterialLabel();
-            this.mtxtb_WorklistRefreshInterval = new MaterialSkin.Controls.MaterialTextBox();
-            this.lbl_ScuPollInterval = new MaterialSkin.Controls.MaterialLabel();
-            this.mtxtb_ScuPollInterval = new MaterialSkin.Controls.MaterialTextBox();
-            this.lbl_MaxUploadRetries = new MaterialSkin.Controls.MaterialLabel();
-            this.mtxtb_MaxUploadRetries = new MaterialSkin.Controls.MaterialTextBox();
-            this.lbl_UploadRetryDelay = new MaterialSkin.Controls.MaterialLabel();
-            this.mtxtb_UploadRetryDelay = new MaterialSkin.Controls.MaterialTextBox();
             this.lbl_ScpFolder = new MaterialSkin.Controls.MaterialLabel();
             this.mtxtb_ScpFolder = new MaterialSkin.Controls.MaterialTextBox();
             this.lbl_FailedScpFolder = new MaterialSkin.Controls.MaterialLabel();
@@ -1515,79 +1505,8 @@ namespace Plexus_DICOM_Enabler
             this.lbl_DicomEnablerBanner.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.lbl_DicomEnablerBanner.Visible = false;
             //
-            //
-            // lbl_WorklistRefreshStart
-            //
-            this.lbl_WorklistRefreshStart.AutoSize = true;
-            this.lbl_WorklistRefreshStart.Depth = 0;
-            this.lbl_WorklistRefreshStart.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_WorklistRefreshStart.Location = new System.Drawing.Point(460, 50);
-            this.lbl_WorklistRefreshStart.MouseState = MaterialSkin.MouseState.HOVER;
-            this.lbl_WorklistRefreshStart.Name = "lbl_WorklistRefreshStart";
-            this.lbl_WorklistRefreshStart.TabIndex = 2;
-            this.lbl_WorklistRefreshStart.Text = "Refresh Start (sec)";
-            //
-            // mtxtb_WorklistRefreshStart
-            //
-            this.mtxtb_WorklistRefreshStart.AnimateReadOnly = false;
-            this.mtxtb_WorklistRefreshStart.BorderStyle = System.Windows.Forms.BorderStyle.None;
-            this.mtxtb_WorklistRefreshStart.Depth = 0;
-            this.mtxtb_WorklistRefreshStart.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
-            this.mtxtb_WorklistRefreshStart.LeadingIcon = null;
-            this.mtxtb_WorklistRefreshStart.Location = new System.Drawing.Point(660, 36);
-            this.mtxtb_WorklistRefreshStart.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.mtxtb_WorklistRefreshStart.MaxLength = 10;
-            this.mtxtb_WorklistRefreshStart.MouseState = MaterialSkin.MouseState.OUT;
-            this.mtxtb_WorklistRefreshStart.Multiline = false;
-            this.mtxtb_WorklistRefreshStart.Name = "mtxtb_WorklistRefreshStart";
-            this.mtxtb_WorklistRefreshStart.Size = new System.Drawing.Size(200, 50);
-            this.mtxtb_WorklistRefreshStart.TabIndex = 3;
-            this.mtxtb_WorklistRefreshStart.Text = "";
-            this.mtxtb_WorklistRefreshStart.TrailingIcon = null;
-            this.mtxtb_WorklistRefreshStart.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.mtxtb_WholeNumber_KeyPress);
-            //
-            // lbl_WorklistRefreshInterval
-            //
-            this.lbl_WorklistRefreshInterval.AutoSize = true;
-            this.lbl_WorklistRefreshInterval.Depth = 0;
-            this.lbl_WorklistRefreshInterval.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_WorklistRefreshInterval.Location = new System.Drawing.Point(20, 130);
-            this.lbl_WorklistRefreshInterval.MouseState = MaterialSkin.MouseState.HOVER;
-            this.lbl_WorklistRefreshInterval.Name = "lbl_WorklistRefreshInterval";
-            this.lbl_WorklistRefreshInterval.TabIndex = 4;
-            this.lbl_WorklistRefreshInterval.Text = "Refresh Interval (sec)";
-            //
-            // mtxtb_WorklistRefreshInterval
-            //
-            this.mtxtb_WorklistRefreshInterval.AnimateReadOnly = false;
-            this.mtxtb_WorklistRefreshInterval.BorderStyle = System.Windows.Forms.BorderStyle.None;
-            this.mtxtb_WorklistRefreshInterval.Depth = 0;
-            this.mtxtb_WorklistRefreshInterval.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
-            this.mtxtb_WorklistRefreshInterval.LeadingIcon = null;
-            this.mtxtb_WorklistRefreshInterval.Location = new System.Drawing.Point(230, 116);
-            this.mtxtb_WorklistRefreshInterval.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.mtxtb_WorklistRefreshInterval.MaxLength = 10;
-            this.mtxtb_WorklistRefreshInterval.MouseState = MaterialSkin.MouseState.OUT;
-            this.mtxtb_WorklistRefreshInterval.Multiline = false;
-            this.mtxtb_WorklistRefreshInterval.Name = "mtxtb_WorklistRefreshInterval";
-            this.mtxtb_WorklistRefreshInterval.Size = new System.Drawing.Size(200, 50);
-            this.mtxtb_WorklistRefreshInterval.TabIndex = 5;
-            this.mtxtb_WorklistRefreshInterval.Text = "";
-            this.mtxtb_WorklistRefreshInterval.TrailingIcon = null;
-            this.mtxtb_WorklistRefreshInterval.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.mtxtb_WholeNumber_KeyPress);
-            //
             // grpb_UploadSettings
             //
-            this.grpb_UploadSettings.Controls.Add(this.lbl_ScuPollInterval);
-            this.grpb_UploadSettings.Controls.Add(this.mtxtb_ScuPollInterval);
-            this.grpb_UploadSettings.Controls.Add(this.lbl_WorklistRefreshStart);
-            this.grpb_UploadSettings.Controls.Add(this.mtxtb_WorklistRefreshStart);
-            this.grpb_UploadSettings.Controls.Add(this.lbl_WorklistRefreshInterval);
-            this.grpb_UploadSettings.Controls.Add(this.mtxtb_WorklistRefreshInterval);
-            this.grpb_UploadSettings.Controls.Add(this.lbl_MaxUploadRetries);
-            this.grpb_UploadSettings.Controls.Add(this.mtxtb_MaxUploadRetries);
-            this.grpb_UploadSettings.Controls.Add(this.lbl_UploadRetryDelay);
-            this.grpb_UploadSettings.Controls.Add(this.mtxtb_UploadRetryDelay);
             this.grpb_UploadSettings.Controls.Add(this.lbl_ScpFolder);
             this.grpb_UploadSettings.Controls.Add(this.mtxtb_ScpFolder);
             this.grpb_UploadSettings.Controls.Add(this.lbl_FailedScpFolder);
@@ -1597,107 +1516,17 @@ namespace Plexus_DICOM_Enabler
             this.grpb_UploadSettings.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.grpb_UploadSettings.Name = "grpb_UploadSettings";
             this.grpb_UploadSettings.Padding = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.grpb_UploadSettings.Size = new System.Drawing.Size(896, 440);
+            this.grpb_UploadSettings.Size = new System.Drawing.Size(896, 200);
             this.grpb_UploadSettings.TabIndex = 1;
             this.grpb_UploadSettings.TabStop = false;
             this.grpb_UploadSettings.Text = "Service Settings";
-            //
-            // lbl_ScuPollInterval
-            //
-            this.lbl_ScuPollInterval.AutoSize = true;
-            this.lbl_ScuPollInterval.Depth = 0;
-            this.lbl_ScuPollInterval.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_ScuPollInterval.Location = new System.Drawing.Point(20, 50);
-            this.lbl_ScuPollInterval.MouseState = MaterialSkin.MouseState.HOVER;
-            this.lbl_ScuPollInterval.Name = "lbl_ScuPollInterval";
-            this.lbl_ScuPollInterval.TabIndex = 0;
-            this.lbl_ScuPollInterval.Text = "Poll Interval (sec)";
-            //
-            // mtxtb_ScuPollInterval
-            //
-            this.mtxtb_ScuPollInterval.AnimateReadOnly = false;
-            this.mtxtb_ScuPollInterval.BorderStyle = System.Windows.Forms.BorderStyle.None;
-            this.mtxtb_ScuPollInterval.Depth = 0;
-            this.mtxtb_ScuPollInterval.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
-            this.mtxtb_ScuPollInterval.LeadingIcon = null;
-            this.mtxtb_ScuPollInterval.Location = new System.Drawing.Point(230, 36);
-            this.mtxtb_ScuPollInterval.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.mtxtb_ScuPollInterval.MaxLength = 10;
-            this.mtxtb_ScuPollInterval.MouseState = MaterialSkin.MouseState.OUT;
-            this.mtxtb_ScuPollInterval.Multiline = false;
-            this.mtxtb_ScuPollInterval.Name = "mtxtb_ScuPollInterval";
-            this.mtxtb_ScuPollInterval.Size = new System.Drawing.Size(200, 50);
-            this.mtxtb_ScuPollInterval.TabIndex = 1;
-            this.mtxtb_ScuPollInterval.Text = "";
-            this.mtxtb_ScuPollInterval.TrailingIcon = null;
-            this.mtxtb_ScuPollInterval.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.mtxtb_WholeNumber_KeyPress);
-            //
-            // lbl_MaxUploadRetries
-            //
-            this.lbl_MaxUploadRetries.AutoSize = true;
-            this.lbl_MaxUploadRetries.Depth = 0;
-            this.lbl_MaxUploadRetries.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_MaxUploadRetries.Location = new System.Drawing.Point(460, 130);
-            this.lbl_MaxUploadRetries.MouseState = MaterialSkin.MouseState.HOVER;
-            this.lbl_MaxUploadRetries.Name = "lbl_MaxUploadRetries";
-            this.lbl_MaxUploadRetries.TabIndex = 6;
-            this.lbl_MaxUploadRetries.Text = "Max Upload Retries";
-            //
-            // mtxtb_MaxUploadRetries
-            //
-            this.mtxtb_MaxUploadRetries.AnimateReadOnly = false;
-            this.mtxtb_MaxUploadRetries.BorderStyle = System.Windows.Forms.BorderStyle.None;
-            this.mtxtb_MaxUploadRetries.Depth = 0;
-            this.mtxtb_MaxUploadRetries.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
-            this.mtxtb_MaxUploadRetries.LeadingIcon = null;
-            this.mtxtb_MaxUploadRetries.Location = new System.Drawing.Point(660, 116);
-            this.mtxtb_MaxUploadRetries.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.mtxtb_MaxUploadRetries.MaxLength = 10;
-            this.mtxtb_MaxUploadRetries.MouseState = MaterialSkin.MouseState.OUT;
-            this.mtxtb_MaxUploadRetries.Multiline = false;
-            this.mtxtb_MaxUploadRetries.Name = "mtxtb_MaxUploadRetries";
-            this.mtxtb_MaxUploadRetries.Size = new System.Drawing.Size(200, 50);
-            this.mtxtb_MaxUploadRetries.TabIndex = 7;
-            this.mtxtb_MaxUploadRetries.Text = "";
-            this.mtxtb_MaxUploadRetries.TrailingIcon = null;
-            this.mtxtb_MaxUploadRetries.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.mtxtb_WholeNumber_KeyPress);
-            //
-            // lbl_UploadRetryDelay
-            //
-            this.lbl_UploadRetryDelay.AutoSize = true;
-            this.lbl_UploadRetryDelay.Depth = 0;
-            this.lbl_UploadRetryDelay.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_UploadRetryDelay.Location = new System.Drawing.Point(20, 210);
-            this.lbl_UploadRetryDelay.MouseState = MaterialSkin.MouseState.HOVER;
-            this.lbl_UploadRetryDelay.Name = "lbl_UploadRetryDelay";
-            this.lbl_UploadRetryDelay.TabIndex = 8;
-            this.lbl_UploadRetryDelay.Text = "Retry Delay (min)";
-            //
-            // mtxtb_UploadRetryDelay
-            //
-            this.mtxtb_UploadRetryDelay.AnimateReadOnly = false;
-            this.mtxtb_UploadRetryDelay.BorderStyle = System.Windows.Forms.BorderStyle.None;
-            this.mtxtb_UploadRetryDelay.Depth = 0;
-            this.mtxtb_UploadRetryDelay.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
-            this.mtxtb_UploadRetryDelay.LeadingIcon = null;
-            this.mtxtb_UploadRetryDelay.Location = new System.Drawing.Point(230, 196);
-            this.mtxtb_UploadRetryDelay.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.mtxtb_UploadRetryDelay.MaxLength = 10;
-            this.mtxtb_UploadRetryDelay.MouseState = MaterialSkin.MouseState.OUT;
-            this.mtxtb_UploadRetryDelay.Multiline = false;
-            this.mtxtb_UploadRetryDelay.Name = "mtxtb_UploadRetryDelay";
-            this.mtxtb_UploadRetryDelay.Size = new System.Drawing.Size(200, 50);
-            this.mtxtb_UploadRetryDelay.TabIndex = 9;
-            this.mtxtb_UploadRetryDelay.Text = "";
-            this.mtxtb_UploadRetryDelay.TrailingIcon = null;
-            this.mtxtb_UploadRetryDelay.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.mtxtb_WholeNumber_KeyPress);
             //
             // lbl_ScpFolder
             //
             this.lbl_ScpFolder.AutoSize = true;
             this.lbl_ScpFolder.Depth = 0;
             this.lbl_ScpFolder.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_ScpFolder.Location = new System.Drawing.Point(20, 290);
+            this.lbl_ScpFolder.Location = new System.Drawing.Point(20, 50);
             this.lbl_ScpFolder.MouseState = MaterialSkin.MouseState.HOVER;
             this.lbl_ScpFolder.Name = "lbl_ScpFolder";
             this.lbl_ScpFolder.TabIndex = 10;
@@ -1710,7 +1539,7 @@ namespace Plexus_DICOM_Enabler
             this.mtxtb_ScpFolder.Depth = 0;
             this.mtxtb_ScpFolder.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
             this.mtxtb_ScpFolder.LeadingIcon = null;
-            this.mtxtb_ScpFolder.Location = new System.Drawing.Point(230, 276);
+            this.mtxtb_ScpFolder.Location = new System.Drawing.Point(230, 36);
             this.mtxtb_ScpFolder.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.mtxtb_ScpFolder.MaxLength = 255;
             this.mtxtb_ScpFolder.MouseState = MaterialSkin.MouseState.OUT;
@@ -1727,7 +1556,7 @@ namespace Plexus_DICOM_Enabler
             this.lbl_FailedScpFolder.AutoSize = true;
             this.lbl_FailedScpFolder.Depth = 0;
             this.lbl_FailedScpFolder.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_FailedScpFolder.Location = new System.Drawing.Point(20, 370);
+            this.lbl_FailedScpFolder.Location = new System.Drawing.Point(20, 130);
             this.lbl_FailedScpFolder.MouseState = MaterialSkin.MouseState.HOVER;
             this.lbl_FailedScpFolder.Name = "lbl_FailedScpFolder";
             this.lbl_FailedScpFolder.TabIndex = 12;
@@ -1740,7 +1569,7 @@ namespace Plexus_DICOM_Enabler
             this.mtxtb_FailedScpFolder.Depth = 0;
             this.mtxtb_FailedScpFolder.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
             this.mtxtb_FailedScpFolder.LeadingIcon = null;
-            this.mtxtb_FailedScpFolder.Location = new System.Drawing.Point(230, 356);
+            this.mtxtb_FailedScpFolder.Location = new System.Drawing.Point(230, 116);
             this.mtxtb_FailedScpFolder.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.mtxtb_FailedScpFolder.MaxLength = 255;
             this.mtxtb_FailedScpFolder.MouseState = MaterialSkin.MouseState.OUT;
@@ -2015,16 +1844,6 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.Label lbl_DicomEnablerBanner;
         private Plexus_DICOM_Enabler.cls_Spinner spn_DicomEnablerRefresh;
         private System.Windows.Forms.ToolTip tt_DicomEnablerBanner;
-        private MaterialSkin.Controls.MaterialLabel lbl_WorklistRefreshStart;
-        private MaterialSkin.Controls.MaterialTextBox mtxtb_WorklistRefreshStart;
-        private MaterialSkin.Controls.MaterialLabel lbl_WorklistRefreshInterval;
-        private MaterialSkin.Controls.MaterialTextBox mtxtb_WorklistRefreshInterval;
-        private MaterialSkin.Controls.MaterialLabel lbl_ScuPollInterval;
-        private MaterialSkin.Controls.MaterialTextBox mtxtb_ScuPollInterval;
-        private MaterialSkin.Controls.MaterialLabel lbl_MaxUploadRetries;
-        private MaterialSkin.Controls.MaterialTextBox mtxtb_MaxUploadRetries;
-        private MaterialSkin.Controls.MaterialLabel lbl_UploadRetryDelay;
-        private MaterialSkin.Controls.MaterialTextBox mtxtb_UploadRetryDelay;
         private MaterialSkin.Controls.MaterialLabel lbl_ScpFolder;
         private MaterialSkin.Controls.MaterialTextBox mtxtb_ScpFolder;
         private MaterialSkin.Controls.MaterialLabel lbl_FailedScpFolder;
