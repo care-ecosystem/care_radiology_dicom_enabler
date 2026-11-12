@@ -18,7 +18,6 @@ namespace Plexus_MWL_Service.logs
     public static class AppLog
     {
         private const string FileName = "App";
-        private const string ArchiveFolder = "AppLog";
         private const string DateFormat = "yyyy-MM-dd";
         private static readonly string LogsDirectory = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "logs");
         private static readonly object Lock = new object();
@@ -49,9 +48,8 @@ namespace Plexus_MWL_Service.logs
                             .WriteTo.File(logPath,
                                 rollOnFileSizeLimit: true,
                                 fileSizeLimitBytes: 10 * 1024 * 1024,
-                                retainedFileCountLimit: 3,
-                                shared: true,
-                                hooks: new ZipOnDeleteHooks(ArchiveFolder))
+                                retainedFileCountLimit: null,
+                                shared: true)
                             .CreateLogger();
                     }
                     // Written as a plain value so braces in a message (e.g. a JSON error body) are not

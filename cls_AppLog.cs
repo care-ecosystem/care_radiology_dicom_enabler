@@ -4,7 +4,6 @@ using System.Windows.Forms;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
-using Plexus_MWL_Service.logs;
 
 namespace Plexus_DICOM_Enabler
 {
@@ -20,8 +19,6 @@ namespace Plexus_DICOM_Enabler
     {
         /// <summary>File name prefix; the log viewer finds the parts as App*.txt.</summary>
         public const string FileName = "App";
-        /// <summary>Folder inside the day's archive folder that the older parts are zipped into.</summary>
-        private const string ArchiveFolder = "AppLog";
 
         private const string DateFormat = "yyyy-MM-dd";
         private static readonly object Lock = new object();
@@ -64,9 +61,8 @@ namespace Plexus_DICOM_Enabler
                             .WriteTo.File(logPath,
                                 rollOnFileSizeLimit: true,
                                 fileSizeLimitBytes: 10 * 1024 * 1024,
-                                retainedFileCountLimit: 3,
-                                shared: true,
-                                hooks: new ZipOnDeleteHooks(ArchiveFolder))
+                                retainedFileCountLimit: null,
+                                shared: true)
                             .CreateLogger();
                     }
                     // Written as a plain value so braces in a message (e.g. a JSON error body) are not
