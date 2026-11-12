@@ -153,7 +153,7 @@ namespace Plexus.Common.Database
             else if (!string.IsNullOrWhiteSpace(assignmentStatus) && assignmentStatus.Trim() != AssignmentUnassigned && assignmentStatus.Trim() != AssignmentAssigned)
                 error = $"assignment_status must be {AssignmentUnassigned} or {AssignmentAssigned}, not '{assignmentStatus}'.";
             else if (!string.IsNullOrWhiteSpace(dicomEnablerId) && !Guid.TryParse(dicomEnablerId.Trim(), out _))
-                error = $"dicom_enabler must be a DICOM Enabler id (UUID), not '{dicomEnablerId}'.";
+                error = $"device_id must be a DICOM Enabler id (UUID), not '{dicomEnablerId}'.";
             if (error == null)
                 return true;
             writeToLog("CARE Modalities API not called: " + error, false);
@@ -167,7 +167,7 @@ namespace Plexus.Common.Database
             if (string.IsNullOrWhiteSpace(dicomEnablerId))
             {
                 modalities = null;
-                error = "dicom_enabler is required to list the DICOM devices connected to a DICOM Enabler.";
+                error = "device_id (the DICOM Enabler) is required to list the DICOM devices connected to a DICOM Enabler.";
                 writeToLog("CARE Modalities API not called: " + error, false);
                 return false;
             }
@@ -184,7 +184,7 @@ namespace Plexus.Common.Database
             if (!string.IsNullOrWhiteSpace(assignmentStatus))
                 requestUrl += "&assignment_status=" + Uri.EscapeDataString(assignmentStatus.Trim());
             if (!string.IsNullOrWhiteSpace(dicomEnablerId))
-                requestUrl += "&dicom_enabler=" + Uri.EscapeDataString(dicomEnablerId.Trim());
+                requestUrl += "&device_id=" + Uri.EscapeDataString(dicomEnablerId.Trim());
             return requestUrl;
         }
 

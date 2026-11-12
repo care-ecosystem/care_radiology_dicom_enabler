@@ -847,7 +847,7 @@ namespace Plexus_DICOM_Enabler
                 savedEnabler = string.IsNullOrWhiteSpace(savedEnablerId) ? null : objDAL.GetCareDevice(savedEnablerId.Trim(), ref enablerError);
                 selectedDicomEnabler = string.IsNullOrWhiteSpace(savedEnablerId)
                     ? null
-                    : new DicomEnablerItem(savedEnablerId.Trim(), savedEnabler?.DeviceName, savedEnabler?.LocationName, savedEnabler?.Ip);
+                    : new DicomEnablerItem(savedEnablerId.Trim(), savedEnabler?.DeviceName, savedEnabler?.Ip);
 
                 // A blank setting (services not started yet) shows its default, which Save stores in care_config
                 foreach (var field in fields)
@@ -1168,21 +1168,18 @@ namespace Plexus_DICOM_Enabler
         /// </summary>
         private sealed class DicomEnablerItem
         {
-            public static readonly DicomEnablerItem None = new DicomEnablerItem(null, null, null, null);
+            public static readonly DicomEnablerItem None = new DicomEnablerItem(null, null, null);
             private const string Tick = "\u2714 ";
 
-            public DicomEnablerItem(string id, string name, string locationName, string ip)
+            public DicomEnablerItem(string id, string name, string ip)
             {
                 Id = id;
                 Name = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
-                LocationName = string.IsNullOrWhiteSpace(locationName) ? null : locationName.Trim();
-                Detail = DescribeDicomEnabler(LocationName, ip);
+                Detail = string.IsNullOrWhiteSpace(ip) ? null : ip.Trim();
             }
 
             public string Id { get; }
             public string Name { get; }
-            // The enabler's location in CARE, shown in the read-only Location field
-            public string LocationName { get; }
             public string Detail { get; }
             // The DICOM Enabler saved in care_config
             public bool IsSaved { get; set; }
@@ -1198,17 +1195,6 @@ namespace Plexus_DICOM_Enabler
                     text = Tick + text;
                 return text;
             }
-        }
-
-        /// <summary>The "location, IP" shown after an enabler's name.</summary>
-        private static string DescribeDicomEnabler(string locationName, string ip)
-        {
-            var details = new List<string>();
-            if (!string.IsNullOrWhiteSpace(locationName))
-                details.Add(locationName.Trim());
-            if (!string.IsNullOrWhiteSpace(ip))
-                details.Add(ip.Trim());
-            return string.Join(", ", details);
         }
 
         /// <summary>
@@ -1322,7 +1308,7 @@ namespace Plexus_DICOM_Enabler
                     if (string.IsNullOrWhiteSpace(enabler.id) ||
                         items.Any(item => string.Equals(item.Id, enabler.id.Trim(), StringComparison.OrdinalIgnoreCase)))
                         continue;
-                    items.Add(new DicomEnablerItem(enabler.id.Trim(), enabler.device_name, enabler.location?.name, enabler.ip));
+                    items.Add(new DicomEnablerItem(enabler.id.Trim(), enabler.device_name, enabler.ip));
                 }
 
                 // The saved enabler is assigned, so CARE does not list it: add it first, from its care_devices row
@@ -1334,7 +1320,6 @@ namespace Plexus_DICOM_Enabler
                         bool haveRecord = string.Equals(savedEnabler?.DeviceId, savedEnablerId, StringComparison.OrdinalIgnoreCase);
                         saved = new DicomEnablerItem(savedEnablerId,
                                                      haveRecord ? savedEnabler.DeviceName : null,
-                                                     haveRecord ? savedEnabler.LocationName : null,
                                                      haveRecord ? savedEnabler.Ip : null);
                         items.Insert(0, saved);
                     }
@@ -1351,7 +1336,6 @@ namespace Plexus_DICOM_Enabler
                     mcb_DicomEnabler.Items.Add(item);
                 mcb_DicomEnabler.SelectedItem = toSelect;
                 selectedDicomEnabler = toSelect.Id == null ? null : toSelect;
-                ShowDicomEnablerLocation();
             }
             finally
             {
@@ -1382,15 +1366,6 @@ namespace Plexus_DICOM_Enabler
                 return;
             var item = mcb_DicomEnabler.SelectedItem as DicomEnablerItem;
             selectedDicomEnabler = item == null || item.Id == null ? null : item;
-            ShowDicomEnablerLocation();
-        }
-
-        /// <summary>Shows the selected DICOM Enabler's location in the read-only Location field.</summary>
-        private void ShowDicomEnablerLocation()
-        {
-            mtxtb_DicomEnablerLocation.Text = selectedDicomEnabler == null
-                ? string.Empty
-                : selectedDicomEnabler.LocationName ?? "Not set in CARE";
         }
 
         private void mcb_DicomEnabler_DropDown(object sender, EventArgs e)

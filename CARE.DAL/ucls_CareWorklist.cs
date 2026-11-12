@@ -21,7 +21,7 @@ namespace Plexus.Common.Database
         /// <summary>
         /// Fetches every page of a DICOM Enabler's worklist created from fromDate until now: only the
         /// facility's requests scheduled in the rooms of the enabler's DICOM devices, each listing only
-        /// its devices (device={dicomEnablerId}). dicomEnablerId is required - the whole facility's
+        /// its devices (device_id={dicomEnablerId}). dicomEnablerId is required - the whole facility's
         /// worklist is never fetched. It is not filtered by modality: the modality a device queries with
         /// is matched when it sends C-FIND, against the modality of the devices each request is on.
         /// </summary>
@@ -230,7 +230,7 @@ namespace Plexus.Common.Database
                                     "?limit=" + PageSize +
                                     "&offset=" + offset;
 
-                requestUrl += "&device=" + Uri.EscapeDataString(dicomEnablerId.Trim());
+                requestUrl += "&device_id=" + Uri.EscapeDataString(dicomEnablerId.Trim());
                 if (!string.IsNullOrWhiteSpace(fromDate))
                     requestUrl += "&created_date_after=" + Uri.EscapeDataString(fromDate.Trim());
                 requestUrl += "&created_date_before=" + Uri.EscapeDataString(toDate);

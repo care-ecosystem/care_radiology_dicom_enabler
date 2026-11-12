@@ -36,7 +36,7 @@ class Config:
     password: str = field(default_factory=lambda: _env("CARE_PASSWORD", required=True), repr=False)
     facility_id: str = field(default_factory=lambda: _env("CARE_FACILITY_ID", required=True))
     patient_id: str = field(default_factory=lambda: _env("CARE_PATIENT_ID", required=True))
-    # DICOM Enabler the enabler is set to: the worklist is fetched only for it (device={id})
+    # DICOM Enabler the enabler is set to: the worklist is fetched only for it (device_id={id})
     dicom_enabler_id: str = field(default_factory=lambda: _env("CARE_DICOM_ENABLER_ID", required=True))
     # Optional: reuse a specific encounter; otherwise an active one is found or created.
     encounter_id: str = field(default_factory=lambda: _env("CARE_ENCOUNTER_ID"))

@@ -134,8 +134,6 @@ namespace Plexus_DICOM_Enabler
             this.lbl_DicomEnablerBanner = new System.Windows.Forms.Label();
             this.spn_DicomEnablerRefresh = new Plexus_DICOM_Enabler.cls_Spinner();
             this.tt_DicomEnablerBanner = new System.Windows.Forms.ToolTip(this.components);
-            this.lbl_DicomEnablerLocation = new MaterialSkin.Controls.MaterialLabel();
-            this.mtxtb_DicomEnablerLocation = new MaterialSkin.Controls.MaterialTextBox();
             this.lbl_WorklistRefreshStart = new MaterialSkin.Controls.MaterialLabel();
             this.mtxtb_WorklistRefreshStart = new MaterialSkin.Controls.MaterialTextBox();
             this.lbl_WorklistRefreshInterval = new MaterialSkin.Controls.MaterialLabel();
@@ -1372,14 +1370,12 @@ namespace Plexus_DICOM_Enabler
             this.grpb_CareSettings.Controls.Add(this.mbtn_DicomEnablerRefresh);
             this.grpb_CareSettings.Controls.Add(this.lbl_DicomEnablerBanner);
             this.grpb_CareSettings.Controls.Add(this.spn_DicomEnablerRefresh);
-            this.grpb_CareSettings.Controls.Add(this.lbl_DicomEnablerLocation);
-            this.grpb_CareSettings.Controls.Add(this.mtxtb_DicomEnablerLocation);
             this.grpb_CareSettings.Font = new System.Drawing.Font("Microsoft Tai Le", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.grpb_CareSettings.Location = new System.Drawing.Point(80, 14);
             this.grpb_CareSettings.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.grpb_CareSettings.Name = "grpb_CareSettings";
             this.grpb_CareSettings.Padding = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.grpb_CareSettings.Size = new System.Drawing.Size(896, 300);
+            this.grpb_CareSettings.Size = new System.Drawing.Size(896, 230);
             this.grpb_CareSettings.TabIndex = 0;
             this.grpb_CareSettings.TabStop = false;
             this.grpb_CareSettings.Text = "CARE Settings";
@@ -1519,37 +1515,6 @@ namespace Plexus_DICOM_Enabler
             this.lbl_DicomEnablerBanner.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.lbl_DicomEnablerBanner.Visible = false;
             //
-            // lbl_DicomEnablerLocation
-            //
-            this.lbl_DicomEnablerLocation.AutoSize = true;
-            this.lbl_DicomEnablerLocation.Depth = 0;
-            this.lbl_DicomEnablerLocation.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_DicomEnablerLocation.Location = new System.Drawing.Point(20, 230);
-            this.lbl_DicomEnablerLocation.MouseState = MaterialSkin.MouseState.HOVER;
-            this.lbl_DicomEnablerLocation.Name = "lbl_DicomEnablerLocation";
-            this.lbl_DicomEnablerLocation.TabIndex = 11;
-            this.lbl_DicomEnablerLocation.Text = "Location";
-            //
-            // mtxtb_DicomEnablerLocation
-            //
-            this.mtxtb_DicomEnablerLocation.AnimateReadOnly = false;
-            this.mtxtb_DicomEnablerLocation.BorderStyle = System.Windows.Forms.BorderStyle.None;
-            this.mtxtb_DicomEnablerLocation.Depth = 0;
-            this.mtxtb_DicomEnablerLocation.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
-            this.mtxtb_DicomEnablerLocation.LeadingIcon = null;
-            this.mtxtb_DicomEnablerLocation.Location = new System.Drawing.Point(230, 216);
-            this.mtxtb_DicomEnablerLocation.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.mtxtb_DicomEnablerLocation.MaxLength = 200;
-            this.mtxtb_DicomEnablerLocation.MouseState = MaterialSkin.MouseState.OUT;
-            this.mtxtb_DicomEnablerLocation.Multiline = false;
-            this.mtxtb_DicomEnablerLocation.Name = "mtxtb_DicomEnablerLocation";
-            this.mtxtb_DicomEnablerLocation.Size = new System.Drawing.Size(520, 50);
-            this.mtxtb_DicomEnablerLocation.TabIndex = 12;
-            this.mtxtb_DicomEnablerLocation.TabStop = false;
-            this.mtxtb_DicomEnablerLocation.ReadOnly = true;
-            this.mtxtb_DicomEnablerLocation.Text = "";
-            this.mtxtb_DicomEnablerLocation.TrailingIcon = null;
-            //
             //
             // lbl_WorklistRefreshStart
             //
@@ -1628,7 +1593,7 @@ namespace Plexus_DICOM_Enabler
             this.grpb_UploadSettings.Controls.Add(this.lbl_FailedScpFolder);
             this.grpb_UploadSettings.Controls.Add(this.mtxtb_FailedScpFolder);
             this.grpb_UploadSettings.Font = new System.Drawing.Font("Microsoft Tai Le", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.grpb_UploadSettings.Location = new System.Drawing.Point(80, 326);
+            this.grpb_UploadSettings.Location = new System.Drawing.Point(80, 256);
             this.grpb_UploadSettings.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.grpb_UploadSettings.Name = "grpb_UploadSettings";
             this.grpb_UploadSettings.Padding = new System.Windows.Forms.Padding(3, 2, 3, 2);
@@ -2050,8 +2015,6 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.Label lbl_DicomEnablerBanner;
         private Plexus_DICOM_Enabler.cls_Spinner spn_DicomEnablerRefresh;
         private System.Windows.Forms.ToolTip tt_DicomEnablerBanner;
-        private MaterialSkin.Controls.MaterialLabel lbl_DicomEnablerLocation;
-        private MaterialSkin.Controls.MaterialTextBox mtxtb_DicomEnablerLocation;
         private MaterialSkin.Controls.MaterialLabel lbl_WorklistRefreshStart;
         private MaterialSkin.Controls.MaterialTextBox mtxtb_WorklistRefreshStart;
         private MaterialSkin.Controls.MaterialLabel lbl_WorklistRefreshInterval;
