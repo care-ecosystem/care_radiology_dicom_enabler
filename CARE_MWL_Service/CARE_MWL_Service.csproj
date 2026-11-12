@@ -188,6 +188,7 @@
     <Compile Include="Model\WorklistHandler.cs" />
     <Compile Include="Model\WorklistItem.cs" />
     <Compile Include="Logging\ucls_ReadWriteLog.cs" />
+    <Compile Include="Logging\AppLog.cs" />
     <Compile Include="Logging\DailyFolderSink.cs" />
     <Compile Include="Logging\FoDicomLogManager.cs" />
     <Compile Include="Logging\RemoteDeviceInfo.cs" />

@@ -99,7 +99,7 @@ DEALLOCATE PREPARE care_device_modality_index_stmt;
 --    .../external/modalities/{device_id}/ when it is selected, with its DICOM endpoints in the
 --    store_scp_* and modality_scp_* columns - the only source of the Modality SCP / Store SCP settings;
 --  - its DICOM devices (device_type dicom, dicom_enabler_id = the enabler), from GET
---    .../external/modalities/?dicom_enabler={id}, with their machine in modality / ae_title (the
+--    .../external/modalities/?device_id={id}, with their machine in modality / ae_title (the
 --    Scheduled Station AE Title) / ip.
 -- Refreshed by the Devices tab's Sync and by Start Service(s), only once the user confirms the changes
 -- found: rows are inserted or updated with CARE's latest values, and the enabler's device rows CARE no

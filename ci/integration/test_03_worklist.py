@@ -100,7 +100,7 @@ def test_device_worklist_returns_only_relevant_service_requests(cfg, dicom, ctx,
     # periodic refresh, so allow one refresh interval for it.
     # The enabler fetches its DICOM Enabler's worklist (device filter) for every modality; the
     # C-FIND's modality is matched from care_worklist
-    logs.wait_for("mwl", rf"CARE Worklist URL: .*/facility/{cfg.facility_id}/external/worklist/\?limit=\d+&offset=\d+&device={cfg.dicom_enabler_id}&", timeout=45)
+    logs.wait_for("mwl", rf"CARE Worklist URL: .*/facility/{cfg.facility_id}/external/worklist/\?limit=\d+&offset=\d+&device_id={cfg.dicom_enabler_id}&", timeout=45)
     logs.wait_for("mwl", r"care_worklist synced: \d+ new row\(s\) inserted", timeout=45)
     logs.assert_absent("mwl", r"CARE worklist API did not report success|"
                               r"Refreshing care_worklist from the CARE worklist API failed|"

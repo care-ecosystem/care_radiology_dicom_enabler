@@ -1,4 +1,4 @@
-﻿
+
 
 using System;
 using System.Configuration;
@@ -25,6 +25,15 @@ namespace Plexus_MWL_Service
         private static readonly TimeSpan ShutdownRequestTimeout = TimeSpan.FromSeconds(5);
         // Set when Windows is shutting down: the unassign is then quick (short timeouts, a deadline)
         private volatile bool _windowsShuttingDown;
+        // The "assigned" calls started by OnStart. OnStop cancels them and waits for them to end before
+        // sending "unassigned", so a late "assigned" cannot overwrite it in CARE or care_devices.
+        private System.Threading.Tasks.Task _assignTask;
+        private System.Threading.CancellationTokenSource _assignCancel;
+        // How long OnStop waits for the cancelled "assigned" calls (the DB update after them) to end
+        private static readonly TimeSpan AssignStopWait = TimeSpan.FromSeconds(15);
+        private static readonly TimeSpan ShutdownAssignStopWait = TimeSpan.FromSeconds(3);
+        // The App Log area of the assignment lines, written when the service starts and stops
+        private const string AssignmentArea = "ASSIGNMENT";
 
         public PlexusMWLService()
         {
@@ -59,7 +68,10 @@ namespace Plexus_MWL_Service
                 _fileLogger.Information($"Starting MWL DICOM server on port {mwlPort}, AET={mwlAet}, backend={backend}");
                 WorklistServer.Start(Convert.ToInt32(mwlPort), mwlAet, backend);
                 _fileLogger.Information("WorklistServer.Start completed.");
-                System.Threading.Tasks.Task.Run(() => SetAssignmentInCare(ucls_CareModalities.AssignmentAssigned, null, null));
+                _assignCancel?.Dispose();
+                _assignCancel = new System.Threading.CancellationTokenSource();
+                System.Threading.CancellationToken assignToken = _assignCancel.Token;
+                _assignTask = System.Threading.Tasks.Task.Run(() => SetAssignmentInCare(ucls_CareModalities.AssignmentAssigned, null, null, assignToken));
             }
             catch (Exception ex)
             {
@@ -80,6 +92,7 @@ namespace Plexus_MWL_Service
             }
             if (_windowsShuttingDown)
             {
+                StopStartupAssignment(ShutdownAssignStopWait);
                 // Quick: the enabler first, 5 seconds per call, and the devices only while time is left
                 // (they are set to assigned again when the service starts)
                 SetAssignmentInCare(ucls_CareModalities.AssignmentUnassigned, ShutdownRequestTimeout, DateTime.UtcNow + ShutdownUnassignTime);
@@ -87,7 +100,31 @@ namespace Plexus_MWL_Service
             else
             {
                 RequestAdditionalTime(60000);
+                StopStartupAssignment(AssignStopWait);
                 SetAssignmentInCare(ucls_CareModalities.AssignmentUnassigned, null, null);
+            }
+        }
+
+        /// <summary>
+        /// Cancels the "assigned" calls OnStart started, if they are still running, and waits up to maxWait for
+        /// them to end, so the "unassigned" that follows is sent last. Never throws.
+        /// </summary>
+        private void StopStartupAssignment(TimeSpan maxWait)
+        {
+            System.Threading.Tasks.Task task = _assignTask;
+            if (task == null || task.IsCompleted)
+                return;
+            try
+            {
+                AppLog.Info(AssignmentArea, "The MWL SCP Service is stopping while the DICOM Enabler is still being set to assigned in CARE: cancelling that first.");
+                _assignCancel?.Cancel();
+                if (!task.Wait(maxWait))
+                    AppLog.Warning(AssignmentArea, $"Setting the DICOM Enabler to assigned did not end within {maxWait.TotalSeconds:0}s of being cancelled; " +
+                                                   "sending unassigned anyway - check the DICOM Enabler's assignment in CARE if it still shows assigned.");
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error(AssignmentArea, "Cancelling the assigned calls failed with exception " + ex.GetBaseException().Message);
             }
         }
 
@@ -117,10 +154,12 @@ namespace Plexus_MWL_Service
 
         /// <summary>
         /// PATCHes the saved DICOM Enabler and its saved devices to assignmentStatus in CARE (see
-        /// ucls_CareModalities.TrySetEnablerAssignment), logging to ModalitySCP.txt. requestTimeout and
-        /// deadline limit it while Windows shuts down (null otherwise). Never throws.
+        /// ucls_CareModalities.TrySetEnablerAssignment), logging to the App Log (App.txt). requestTimeout and
+        /// deadline limit it while Windows shuts down (null otherwise); cancellationToken stops it when the
+        /// service stops first. Never throws.
         /// </summary>
-        private static void SetAssignmentInCare(string assignmentStatus, TimeSpan? requestTimeout, DateTime? deadline)
+        private static void SetAssignmentInCare(string assignmentStatus, TimeSpan? requestTimeout, DateTime? deadline,
+                                                System.Threading.CancellationToken cancellationToken = default)
         {
             ucls_DAL dal = null;
             try
@@ -134,15 +173,15 @@ namespace Plexus_MWL_Service
                     (message, success) =>
                     {
                         if (success)
-                            _fileLogger.Information("[ASSIGNMENT] " + message);
+                            AppLog.Info(AssignmentArea, message);
                         else
-                            _fileLogger.Error("[ASSIGNMENT] " + message);
+                            AppLog.Error(AssignmentArea, message);
                     },
-                    out _, requestTimeout, deadline);
+                    out _, requestTimeout, deadline, cancellationToken);
             }
             catch (Exception ex)
             {
-                _fileLogger.Error($"[ASSIGNMENT] Setting the DICOM Enabler to {assignmentStatus} in CARE failed with exception {ex.Message}");
+                AppLog.Error(AssignmentArea, $"Setting the DICOM Enabler to {assignmentStatus} in CARE failed with exception {ex.Message}");
             }
             finally
             {

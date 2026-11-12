@@ -5,8 +5,6 @@ using Serilog.Sinks.File;
 namespace Plexus_MWL_Service.logs
 {
     /// <summary>
-    /// Zips a log file into logs/archive before Serilog's retention policy deletes it, so old logs
-    /// are kept compressed instead of lost.
     /// </summary>
     public class ZipOnDeleteHooks : FileLifecycleHooks
     {

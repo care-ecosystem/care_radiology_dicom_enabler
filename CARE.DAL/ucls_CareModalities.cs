@@ -153,7 +153,7 @@ namespace Plexus.Common.Database
             else if (!string.IsNullOrWhiteSpace(assignmentStatus) && assignmentStatus.Trim() != AssignmentUnassigned && assignmentStatus.Trim() != AssignmentAssigned)
                 error = $"assignment_status must be {AssignmentUnassigned} or {AssignmentAssigned}, not '{assignmentStatus}'.";
             else if (!string.IsNullOrWhiteSpace(dicomEnablerId) && !Guid.TryParse(dicomEnablerId.Trim(), out _))
-                error = $"dicom_enabler must be a DICOM Enabler id (UUID), not '{dicomEnablerId}'.";
+                error = $"device_id must be a DICOM Enabler id (UUID), not '{dicomEnablerId}'.";
             if (error == null)
                 return true;
             writeToLog("CARE Modalities API not called: " + error, false);
@@ -167,7 +167,7 @@ namespace Plexus.Common.Database
             if (string.IsNullOrWhiteSpace(dicomEnablerId))
             {
                 modalities = null;
-                error = "dicom_enabler is required to list the DICOM devices connected to a DICOM Enabler.";
+                error = "device_id (the DICOM Enabler) is required to list the DICOM devices connected to a DICOM Enabler.";
                 writeToLog("CARE Modalities API not called: " + error, false);
                 return false;
             }
@@ -184,7 +184,7 @@ namespace Plexus.Common.Database
             if (!string.IsNullOrWhiteSpace(assignmentStatus))
                 requestUrl += "&assignment_status=" + Uri.EscapeDataString(assignmentStatus.Trim());
             if (!string.IsNullOrWhiteSpace(dicomEnablerId))
-                requestUrl += "&dicom_enabler=" + Uri.EscapeDataString(dicomEnablerId.Trim());
+                requestUrl += "&device_id=" + Uri.EscapeDataString(dicomEnablerId.Trim());
             return requestUrl;
         }
 
@@ -339,7 +339,8 @@ namespace Plexus.Common.Database
         /// Returns false when the call fails or CARE rejects it; error then says why (it is also logged).
         /// </summary>
         public static bool TryUpdateAssignmentStatus(string modalitiesURL, string token, string deviceId, string assignmentStatus,
-                                                     Action<string, bool> writeToLog, out string error, TimeSpan? timeout = null)
+                                                     Action<string, bool> writeToLog, out string error, TimeSpan? timeout = null,
+                                                     System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken))
         {
             if (!ValidateDeviceId(deviceId, writeToLog, out error))
                 return false;
@@ -353,7 +354,7 @@ namespace Plexus.Common.Database
             string requestUrl = BuildDeviceURL(modalitiesURL, deviceId, "status/");
             string payload = JsonConvert.SerializeObject(new { assignment_status = assignmentStatus });
             var patch = new HttpMethod("PATCH");
-            if (!TrySend(patch, requestUrl, token, payload, writeToLog, out _, out error, timeout))
+            if (!TrySend(patch, requestUrl, token, payload, writeToLog, out _, out error, timeout, cancellationToken))
                 return false;
 
             writeToLog($"CARE Modalities API set assignment_status of {deviceId} to {assignmentStatus}", true);
@@ -370,10 +371,13 @@ namespace Plexus.Common.Database
         /// requestTimeout / deadline (while Windows shuts down): each call gets at most requestTimeout, the
         /// enabler goes first, and the devices left when the deadline passes are skipped (they are set to
         /// assigned again when the service starts).
+        /// cancellationToken (the service stopping while it is still assigning): the call in progress is
+        /// abandoned and the remaining devices are skipped; the ones already set are still saved in care_devices.
         /// </summary>
         public static bool TrySetEnablerAssignment(ucls_DAL dal, string baseUrl, string token, string modalitiesPath, string assignmentStatus,
                                                    Action<string, bool> writeToLog, out string summary,
-                                                   TimeSpan? requestTimeout = null, DateTime? deadline = null)
+                                                   TimeSpan? requestTimeout = null, DateTime? deadline = null,
+                                                   System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken))
         {
             string errorString = string.Empty;
             string facilityId = dal.GetConfigValue("facility_id", string.Empty, ref errorString).Trim();
@@ -398,7 +402,7 @@ namespace Plexus.Common.Database
             }
             string modalitiesURL = BuildModalitiesURL(baseUrl, modalitiesPath, facilityId);
 
-            if (!TryUpdateAssignmentStatus(modalitiesURL, token, enablerId, assignmentStatus, writeToLog, out string error, requestTimeout))
+            if (!TryUpdateAssignmentStatus(modalitiesURL, token, enablerId, assignmentStatus, writeToLog, out string error, requestTimeout, cancellationToken))
             {
                 summary = $"DICOM Enabler {enablerId} and its devices not set to {assignmentStatus} in CARE: {error}";
                 writeToLog(summary, false);
@@ -411,12 +415,17 @@ namespace Plexus.Common.Database
                 failed.Add("the saved devices could not be read: " + errorString);
             foreach (CareDeviceRecord device in devices.Where(d => !string.IsNullOrWhiteSpace(d.DeviceId)))
             {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    failed.Add("the remaining device(s): cancelled");
+                    break;
+                }
                 if (deadline.HasValue && DateTime.UtcNow >= deadline.Value)
                 {
                     failed.Add("the remaining device(s): out of time (Windows is shutting down)");
                     break;
                 }
-                if (TryUpdateAssignmentStatus(modalitiesURL, token, device.DeviceId, assignmentStatus, writeToLog, out error, requestTimeout))
+                if (TryUpdateAssignmentStatus(modalitiesURL, token, device.DeviceId, assignmentStatus, writeToLog, out error, requestTimeout, cancellationToken))
                     done.Add(device.DeviceId);
                 else
                     failed.Add($"device {device.DeviceName ?? device.DeviceId}: {error}");
@@ -469,10 +478,17 @@ namespace Plexus.Common.Database
         /// down); the network check (gateway / internet pings) is then skipped on failure, as it takes time.
         /// </remarks>
         private static bool TrySend(HttpMethod method, string requestUrl, string token, string jsonBody, Action<string, bool> writeToLog,
-                                    out string responseBody, out string error, TimeSpan? timeout = null)
+                                    out string responseBody, out string error, TimeSpan? timeout = null,
+                                    System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken))
         {
             responseBody = null;
             error = null;
+            if (cancellationToken.IsCancellationRequested)
+            {
+                error = $"{method} {requestUrl} not sent: cancelled";
+                writeToLog(error, false);
+                return false;
+            }
             writeToLog($"CARE Modalities API: {method} {requestUrl}", true);
 
             HttpResponseMessage response;
@@ -482,11 +498,19 @@ namespace Plexus.Common.Database
                 request.Headers.Add("Authorization", token ?? string.Empty);
                 if (jsonBody != null)
                     request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
-                using (var cancel = timeout.HasValue ? new System.Threading.CancellationTokenSource(timeout.Value) : new System.Threading.CancellationTokenSource())
+                using (var cancel = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                 {
+                    if (timeout.HasValue)
+                        cancel.CancelAfter(timeout.Value);
                     response = httpClient.SendAsync(request, cancel.Token).GetAwaiter().GetResult();
                     responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                error = $"{method} {requestUrl} cancelled before CARE answered";
+                writeToLog(error, false);
+                return false;
             }
             catch (TaskCanceledException)
             {

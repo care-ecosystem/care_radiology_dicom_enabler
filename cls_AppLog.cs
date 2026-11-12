@@ -54,12 +54,15 @@ namespace Plexus_DICOM_Enabler
                         logger?.Dispose();
                         loggerDate = today;
                         string logPath = Path.Combine(Application.StartupPath, "logs", today.ToString(DateFormat), FileName + ".txt");
+                        // shared: the MWL service writes its assignment lines to the same file (see
+                        // CARE_MWL_Service/Logging/AppLog.cs, which must keep the same settings)
                         logger = new LoggerConfiguration()
                             .MinimumLevel.Verbose()
                             .WriteTo.File(logPath,
                                 rollOnFileSizeLimit: true,
-                                fileSizeLimitBytes: 1024 * 1024,
-                                retainedFileCountLimit: 10)
+                                fileSizeLimitBytes: 10 * 1024 * 1024,
+                                retainedFileCountLimit: null,
+                                shared: true)
                             .CreateLogger();
                     }
                     // Written as a plain value so braces in a message (e.g. a JSON error body) are not
