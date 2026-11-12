@@ -156,7 +156,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="cls_CareSync.cs" />
-    <Compile Include="cls_DatabaseMaintenance.cs" />
+    <Compile Include="cls_ServiceControl.cs" />
     <Compile Include="cls_ConfigDefaults.cs" />
     <Compile Include="cls_ConfirmDialog.cs" />
     <Compile Include="cls_Spinner.cs">

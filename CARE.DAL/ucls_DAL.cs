@@ -44,16 +44,6 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// The decrypted connection string from cfg/common.cfg, for the MySQL command-line tools (mysqldump /
-        /// mysql) that back up and restore the database. Read from the file, not from the open connection,
-        /// which drops the password once it is opened.
-        /// </summary>
-        public string GetPlainConnectionString()
-        {
-            return ucls_EnDcryption.DecryptString(EncKey.encdeKey, getConnectionString());
-        }
-
-        /// <summary>
         /// Deletes the data of the worklist orders linked to no DICOM device (saved by a whole-facility fetch):
         /// service requests with no care_service_request_device row that has a device_id, and care_worklist rows
         /// with no service request. Removed, in one transaction: their care_sync_upload rows; the Plexus study,
