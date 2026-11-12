@@ -941,8 +941,8 @@ namespace Plexus_SCU_Service
                     ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty,
                     GetConfigSetting("care_from_date", "careFromDate"),
                     facilityId,
-                    // The DICOM Enabler's worklist, as the MWL service fetches it (blank: nothing is fetched)
                     GetConfigSetting("dicom_enabler_id", null).Trim(),
+                    ucls_CareWorklist.IsAllDevices(GetConfigSetting(ucls_CareWorklist.AllDevicesConfigKey, null)),
                     // The worklist API's progress lines belong to the MWL log; keep only its errors here,
                     // since they explain why an upload is kept for retry
                     (message, isInfo) => { if (!isInfo) WriteToLog(message, false); });

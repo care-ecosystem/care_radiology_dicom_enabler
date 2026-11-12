@@ -840,9 +840,12 @@ namespace Plexus_DICOM_Enabler
                 foreach (DataRow row in dsResult.Tables[0].Rows)
                 {
                     string key = row["config_key"].ToString();
-                    if (fields.ContainsKey(key) || key == DicomEnablerIdKey)
+                    if (fields.ContainsKey(key) || key == DicomEnablerIdKey || key == ucls_CareWorklist.AllDevicesConfigKey)
                         loadedConfigValues[key] = row["config_value"].ToString().Trim();
                 }
+                loadedConfigValues.TryGetValue(ucls_CareWorklist.AllDevicesConfigKey, out string allDevicesValue);
+                mtchkb_WorklistAllDevices.Checked = ucls_CareWorklist.IsAllDevices(allDevicesValue);
+                mtchkb_WorklistAllDevices.Enabled = loadedConfigValues.ContainsKey(ucls_CareWorklist.AllDevicesConfigKey);
 
                 // The saved DICOM Enabler is selected until the user picks another one
                 loadedConfigValues.TryGetValue(DicomEnablerIdKey, out string savedEnablerId);
@@ -892,6 +895,10 @@ namespace Plexus_DICOM_Enabler
                 {
                     values[DicomEnablerIdKey] = selectedDicomEnabler?.Id ?? string.Empty;
                 }
+                if (loadedConfigValues.ContainsKey(ucls_CareWorklist.AllDevicesConfigKey))
+                {
+                    values[ucls_CareWorklist.AllDevicesConfigKey] = mtchkb_WorklistAllDevices.Checked ? "1" : string.Empty;
+                }
 
                 string fromDate = values["care_from_date"];
                 if (fromDate != string.Empty && !DateTime.TryParseExact(fromDate, ConfigDateFormat,
@@ -909,6 +916,13 @@ namespace Plexus_DICOM_Enabler
                 {
                     loadedConfigValues.TryGetValue(value.Key, out string oldValue);
                     string newValue = value.Value.Trim();
+                    if (value.Key == ucls_CareWorklist.AllDevicesConfigKey)
+                    {
+                        bool wasOn = ucls_CareWorklist.IsAllDevices(oldValue), isOn = ucls_CareWorklist.IsAllDevices(newValue);
+                        if (wasOn != isOn)
+                            changes[value.Key] = $"Fetch the facility's whole worklist (all devices): {(wasOn ? "on" : "off")} -> {(isOn ? "on" : "off")}";
+                        continue;
+                    }
                     if ((oldValue ?? string.Empty) != newValue)
                         changes[value.Key] = $"{value.Key}: {DisplayConfigValue(oldValue)} -> {DisplayConfigValue(newValue)}";
                 }
@@ -946,6 +960,10 @@ namespace Plexus_DICOM_Enabler
                     if (oldEnablerId != string.Empty)
                         confirmLines.Add("  The previous DICOM Enabler is unassigned in CARE, and it and its saved devices are removed from care_devices.");
                 }
+                if (changes.ContainsKey(ucls_CareWorklist.AllDevicesConfigKey))
+                    confirmLines.Add(mtchkb_WorklistAllDevices.Checked
+                        ? "  The facility's whole CARE worklist is fetched, without the DICOM Enabler (device) filter, and no DICOM Enabler is needed to fetch it."
+                        : "  Only the selected DICOM Enabler's worklist is fetched again; scheduled requests of other devices leave the worklist (marked COMPLETED) at the next refresh.");
                 if (cls_ConfirmDialog.Show(this, "Save Configuration - confirm changes",
                         "These changes will be saved to the database, and the services using them restarted. Save them?",
                         confirmLines, ("Save", DialogResult.Yes), ("Cancel", DialogResult.Cancel)) != DialogResult.Yes)
@@ -1825,6 +1843,7 @@ namespace Plexus_DICOM_Enabler
                     return new[] { MwlServiceName, StoreScuServiceName };
                 case "worklist_refresh_start_seconds":
                 case "worklist_refresh_interval_seconds":
+                case ucls_CareWorklist.AllDevicesConfigKey:
                     return new[] { MwlServiceName };
                 case "scu_poll_interval_seconds":
                 case "max_upload_retries":

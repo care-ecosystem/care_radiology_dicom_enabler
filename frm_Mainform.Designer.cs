@@ -124,6 +124,7 @@ namespace Plexus_DICOM_Enabler
             this.mbtn_SaveConfig = new MaterialSkin.Controls.MaterialButton();
             this.grpb_CareSettings = new System.Windows.Forms.GroupBox();
             this.grpb_UploadSettings = new System.Windows.Forms.GroupBox();
+            this.mtchkb_WorklistAllDevices = new MaterialSkin.Controls.MaterialCheckbox();
             this.lbl_FacilityId = new MaterialSkin.Controls.MaterialLabel();
             this.mtxtb_FacilityId = new MaterialSkin.Controls.MaterialTextBox();
             this.lbl_CareFromDate = new MaterialSkin.Controls.MaterialLabel();
@@ -1360,12 +1361,13 @@ namespace Plexus_DICOM_Enabler
             this.grpb_CareSettings.Controls.Add(this.mbtn_DicomEnablerRefresh);
             this.grpb_CareSettings.Controls.Add(this.lbl_DicomEnablerBanner);
             this.grpb_CareSettings.Controls.Add(this.spn_DicomEnablerRefresh);
+            this.grpb_CareSettings.Controls.Add(this.mtchkb_WorklistAllDevices);
             this.grpb_CareSettings.Font = new System.Drawing.Font("Microsoft Tai Le", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.grpb_CareSettings.Location = new System.Drawing.Point(80, 14);
             this.grpb_CareSettings.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.grpb_CareSettings.Name = "grpb_CareSettings";
             this.grpb_CareSettings.Padding = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.grpb_CareSettings.Size = new System.Drawing.Size(896, 230);
+            this.grpb_CareSettings.Size = new System.Drawing.Size(896, 265);
             this.grpb_CareSettings.TabIndex = 0;
             this.grpb_CareSettings.TabStop = false;
             this.grpb_CareSettings.Text = "CARE Settings";
@@ -1505,6 +1507,22 @@ namespace Plexus_DICOM_Enabler
             this.lbl_DicomEnablerBanner.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.lbl_DicomEnablerBanner.Visible = false;
             //
+            // mtchkb_WorklistAllDevices
+            //
+            this.mtchkb_WorklistAllDevices.AutoSize = true;
+            this.mtchkb_WorklistAllDevices.Depth = 0;
+            this.mtchkb_WorklistAllDevices.Location = new System.Drawing.Point(226, 212);
+            this.mtchkb_WorklistAllDevices.Margin = new System.Windows.Forms.Padding(0);
+            this.mtchkb_WorklistAllDevices.MouseLocation = new System.Drawing.Point(-1, -1);
+            this.mtchkb_WorklistAllDevices.MouseState = MaterialSkin.MouseState.HOVER;
+            this.mtchkb_WorklistAllDevices.Name = "mtchkb_WorklistAllDevices";
+            this.mtchkb_WorklistAllDevices.ReadOnly = false;
+            this.mtchkb_WorklistAllDevices.Ripple = true;
+            this.mtchkb_WorklistAllDevices.Size = new System.Drawing.Size(520, 37);
+            this.mtchkb_WorklistAllDevices.TabIndex = 11;
+            this.mtchkb_WorklistAllDevices.Text = "Fetch the facility's whole worklist (all devices, no device filter)";
+            this.mtchkb_WorklistAllDevices.UseVisualStyleBackColor = true;
+            //
             // grpb_UploadSettings
             //
             this.grpb_UploadSettings.Controls.Add(this.lbl_ScpFolder);
@@ -1512,7 +1530,7 @@ namespace Plexus_DICOM_Enabler
             this.grpb_UploadSettings.Controls.Add(this.lbl_FailedScpFolder);
             this.grpb_UploadSettings.Controls.Add(this.mtxtb_FailedScpFolder);
             this.grpb_UploadSettings.Font = new System.Drawing.Font("Microsoft Tai Le", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.grpb_UploadSettings.Location = new System.Drawing.Point(80, 256);
+            this.grpb_UploadSettings.Location = new System.Drawing.Point(80, 291);
             this.grpb_UploadSettings.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.grpb_UploadSettings.Name = "grpb_UploadSettings";
             this.grpb_UploadSettings.Padding = new System.Windows.Forms.Padding(3, 2, 3, 2);
@@ -1788,6 +1806,7 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.RichTextBox rtb_AppLog;
         private System.Windows.Forms.RichTextBox rtb_SCPLog;
         private MaterialSkin.Controls.MaterialCheckbox mtchkb_CheckServer;
+        private MaterialSkin.Controls.MaterialCheckbox mtchkb_WorklistAllDevices;
         private System.Windows.Forms.DataGridViewTextBoxColumn pk;
         private System.Windows.Forms.DataGridViewTextBoxColumn servername;
         private System.Windows.Forms.DataGridViewTextBoxColumn serverAETitle;

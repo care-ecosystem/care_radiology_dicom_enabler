@@ -251,8 +251,10 @@ namespace Worklist_SCP.Model
             }
 
             // The DICOM Enabler selected in the Configuration tab: CARE returns only its worklist (the
-            // requests scheduled in the rooms of its DICOM devices). Without one nothing is fetched.
+            // requests scheduled in the rooms of its DICOM devices). Without one nothing is fetched,
+            // unless worklist_all_devices is on: then the whole facility's worklist is fetched.
             string dicomEnablerId = WorklistServer.GetConfigSetting("dicom_enabler_id", null).Trim();
+            bool allDevices = ucls_CareWorklist.IsAllDevices(WorklistServer.GetConfigSetting(ucls_CareWorklist.AllDevicesConfigKey, null));
 
             ucls_DAL objDal = null;
             try
@@ -265,6 +267,7 @@ namespace Worklist_SCP.Model
                     WorklistServer.GetConfigSetting("care_from_date", "careFromDate"),
                     facilityId,
                     dicomEnablerId,
+                    allDevices,
                     objReadWriteLog.WriteToLog);
             }
             catch (Exception ex)
@@ -345,6 +348,7 @@ namespace Worklist_SCP.Model
                 .Distinct()
                 .ToList();
             mwlItem.ScheduledAET = mwlItem.ScheduledAETs.FirstOrDefault() ?? string.Empty;
+            mwlItem.HasScheduledDevices = record.HasDevices;
             // Who raised the service request in CARE
             mwlItem.ReferringPhysician = record.ServiceRequestReferringPhysician ?? string.Empty;
             mwlItem.TechnicianInstruction = record.ServiceRequestTechnicianInstruction ?? string.Empty;

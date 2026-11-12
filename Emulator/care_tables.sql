@@ -264,7 +264,8 @@ INSERT IGNORE INTO `care_config` (`config_key`, `config_value`, `description`) V
   ('scan_completed_wait_seconds', NULL, 'Seconds after the last upload of an accession number, with none of its files left in the SCP folder, before COMPLETED is sent to CARE. Blank = App.config scanCompletedWaitSeconds, or 60.'),
   ('scp_folder', NULL, 'Folder where received DICOM files are saved and picked up for upload. Blank = SCP under the install folder. Restart the services to apply.'),
   ('failed_scp_folder', NULL, 'Folder files are moved to after the upload retry limit is hit. Blank = FailedSCP under the install folder.'),
-  ('dicom_enabler_id', NULL, 'CARE id of the DICOM Enabler this enabler is, selected in the Configuration tab from the facility''s unassigned DICOM Enablers. Its details and DICOM endpoints are its care_devices row. Blank = none selected.');
+  ('dicom_enabler_id', NULL, 'CARE id of the DICOM Enabler this enabler is, selected in the Configuration tab from the facility''s unassigned DICOM Enablers. Its details and DICOM endpoints are its care_devices row. Blank = none selected.'),
+  ('worklist_all_devices', NULL, '1 = fetch the facility''s whole CARE worklist without the DICOM Enabler (device) filter, for facilities whose devices are not set up in CARE; no DICOM Enabler is then needed to fetch it. Blank = only the selected DICOM Enabler''s worklist.');
 
 -- Upgrade: the worklist is no longer filtered by modality, so the care_modality setting is removed.
 -- Deleting a row that is not there does nothing, so re-running this script changes nothing.

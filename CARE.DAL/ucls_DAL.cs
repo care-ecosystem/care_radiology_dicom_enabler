@@ -1091,6 +1091,7 @@ namespace Plexus.Common.Database
                         "(SELECT GROUP_CONCAT(DISTINCT d.device_ae_title ORDER BY d.device_ae_title SEPARATOR '|') " +
                         "  FROM care_service_request_device d WHERE d.service_request_pk = sr.pk AND d.device_ae_title IS NOT NULL " +
                         "  AND (@modality = '' OR d.device_modality IS NULL OR UPPER(d.device_modality) = UPPER(@modality))) AS device_ae_titles, " +
+                        "EXISTS (SELECT 1 FROM care_service_request_device d WHERE d.service_request_pk = sr.pk AND d.device_id IS NOT NULL) AS has_devices, " +
                         "p.patient_id, p.name AS patient_name, p.gender, p.age, p.patient_uhid " +
                         "FROM care_worklist w " +
                         "LEFT JOIN care_service_request sr ON sr.pk = w.service_request_pk " +
@@ -1124,6 +1125,7 @@ namespace Plexus.Common.Database
                                     ServiceRequestReferringPhysician = DbString(reader, "referring_physician"),
                                     DeviceAeTitles = (DbString(reader, "device_ae_titles") ?? string.Empty)
                                                      .Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries).ToList(),
+                                    HasDevices = reader["has_devices"] != DBNull.Value && Convert.ToInt32(reader["has_devices"]) != 0,
                                     ServiceRequestProcedureId = DbString(reader, "procedure_id"),
                                     ServiceRequestPriority = DbString(reader, "priority"),
                                     ServiceRequestTechnicianInstruction = DbString(reader, "technician_instruction"),
@@ -1535,6 +1537,11 @@ namespace Plexus.Common.Database
         /// on (of the requested modality), its Scheduled Station AE Titles (0040,0001).
         /// </summary>
         public List<string> DeviceAeTitles { get; set; } = new List<string>();
+        /// <summary>
+        /// Read by GetScheduledCareWorklist: true when the request is mapped to any DICOM device in CARE.
+        /// Such a request is only sent to its devices' AE titles; one with no device goes to every device.
+        /// </summary>
+        public bool HasDevices { get; set; }
     }
 
 
