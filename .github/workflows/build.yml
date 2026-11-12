@@ -24,9 +24,10 @@ name: Build CARE DICOM Enabler
 #   4. App.config committed value
 #
 # Environments (Settings > Environments):
-#   staging   used by push/PR to main, manual runs, and plain vX.Y.Z tags
-#             (e.g. v0.0.1 -> staging release). Holds the shared staging
-#             server as secrets/vars.
+#   staging   used by push/PR to main and plain vX.Y.Z tags (e.g. v0.0.1 ->
+#             staging release). Holds the shared staging server as secrets/vars.
+#   (manual)  a manual run builds with whichever environment is picked in the
+#             "target_environment" dropdown (defaults to staging).
 #   <state>   used when a tag named <state>-vX.Y.Z is pushed, e.g.
 #             jh-v1.0.0 -> environment "jh", ka-v1.0.0 -> environment "ka".
 #             Holds that state's CARE_BASE_URL, CARE_API_TOKEN and vars,
@@ -70,6 +71,11 @@ on:
       - main
   workflow_dispatch:  # Manual trigger with configurable inputs
     inputs:
+      target_environment:
+        description: 'Environment whose secrets/variables to build with'
+        required: true
+        default: dev
+        type: environment   # dropdown of Settings > Environments
       build_configuration:
         description: 'Build Configuration'
         required: false
@@ -136,7 +142,8 @@ permissions:
 
 jobs:
   # Work out which environment a run belongs to:
-  #   push/PR to main, manual runs  -> staging
+  #   manual run                    -> the environment chosen in the form
+  #   push/PR to main               -> staging
   #   tag vX.Y.Z                    -> staging   (staging release)
   #   tag <environment>-vX.Y.Z      -> <environment>, e.g. jh-v1.0.0 -> jh
   prep:
@@ -146,8 +153,12 @@ jobs:
     steps:
       - id: env
         shell: bash
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
         run: |
-          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            env_name="${TARGET_ENVIRONMENT:-staging}"
+          elif [ "$GITHUB_REF_TYPE" != "tag" ]; then
             env_name=staging
           elif [[ "$GITHUB_REF_NAME" =~ ^v[0-9] ]]; then
             env_name=staging
