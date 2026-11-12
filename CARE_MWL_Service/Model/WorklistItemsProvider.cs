@@ -285,8 +285,9 @@ namespace Worklist_SCP.Model
         /// <summary>
         /// Maps one care_worklist row (with its patient and service request) to the worklist item
         /// returned in C-FIND responses. requestedModality is the modality the device queried with:
-        /// the row was read because it is scheduled on a DICOM device of that modality, so the item
-        /// carries it. Without one, the request's own modality is used.
+        /// the row was read because it is scheduled on a DICOM device of that modality, or is linked to no
+        /// device (no modality from CARE, offered for any modality), so the item carries it. Without one,
+        /// the request's own modality is used.
         /// </summary>
         private static WorklistItem ToWorklistItem(CareWorklistRecord record, string requestedModality)
         {

@@ -946,6 +946,21 @@ namespace Plexus_DICOM_Enabler
                 bool newEnablerAssigned = false;
                 CareDeviceRecord newEnabler = null;
 
+                // Turning the whole facility's worklist off: the data fetched for every device is backed up and
+                // cleared, and the DICOM Enabler's devices and worklist are loaded again (SwitchToEnablerFetchAsync)
+                if (changes.ContainsKey(ucls_CareWorklist.AllDevicesConfigKey) && !mtchkb_WorklistAllDevices.Checked)
+                {
+                    if (newEnablerId == string.Empty)
+                    {
+                        MessageBox.Show(this, "Select a DICOM Enabler before turning off fetching the facility's whole worklist: " +
+                                              "its devices and worklist are loaded instead.",
+                                        "Check DICOM Enabler", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                    await SwitchToEnablerFetchAsync(values, changes, newFacilityId, oldEnablerId, newEnablerId);
+                    return;
+                }
+
                 // Nothing is written to the database (or CARE) until the user confirms the changes
                 var confirmLines = changes.Where(change => change.Key != DicomEnablerIdKey)
                                           .Select(change => change.Value)
@@ -1076,6 +1091,526 @@ namespace Plexus_DICOM_Enabler
                                      "Error Saving Configuration", MessageBoxButtons.OK,
                                      MessageBoxIcon.Error);
             }
+        }
+
+        // App Log area of the switch from the whole facility's worklist to the DICOM Enabler's
+        private const string SwitchArea = "WORKLIST MODE";
+
+        /// <summary>
+        /// Switches from the whole facility's worklist (worklist_all_devices) back to the DICOM Enabler's, after
+        /// the user confirms: stops the services, backs up the database (like Initializer.bat), sets the current
+        /// DICOM Enabler and its devices still assigned (the MWL service unassigns them when it stops) to unassigned
+        /// in CARE, deletes the data of the orders linked to no DICOM device from every table that has it (and, for
+        /// a different DICOM Enabler, the previous one's saved devices), saves the configuration, assigns the new
+        /// DICOM Enabler and its devices in CARE and saves them, fetches its worklist, then starts the services
+        /// again. Orders linked to a device and the rest of the database are kept. Without Administrator rights the user
+        /// can restart the application as Administrator or continue without a backup. When a step fails the user
+        /// can retry it, or, once data has been changed, restore the backup. Every step is logged to the App Log.
+        /// </summary>
+        private async System.Threading.Tasks.Task SwitchToEnablerFetchAsync(Dictionary<string, string> values, Dictionary<string, string> changes,
+                                                                              string facilityId, string oldEnablerId, string newEnablerId)
+        {
+            string nl = Environment.NewLine;
+            string newName = selectedDicomEnabler?.Name ?? newEnablerId;
+            string oldText = DescribeEnabler(oldEnablerId);
+            var otherChanges = changes.Where(change => change.Key != DicomEnablerIdKey && change.Key != ucls_CareWorklist.AllDevicesConfigKey)
+                                      .Select(change => "  - " + change.Value).ToList();
+
+            string message = $"Switch from the facility's whole worklist to DICOM Enabler {newName}'s worklist?" + nl + nl +
+                             "This will:" + nl +
+                             "  1. Stop the CARE services" + nl +
+                             $"  2. Back up the database to {cls_DatabaseMaintenance.BackupRoot}" + nl +
+                             $"  3. Set the current DICOM Enabler ({oldText}) and its devices to unassigned in CARE" + nl +
+                             "  4. Delete the orders linked to no DICOM device from every table that has them (worklist, service requests, patients, uploads and study records); orders linked to a device are kept" +
+                             (oldEnablerId != string.Empty && !string.Equals(oldEnablerId, newEnablerId, StringComparison.OrdinalIgnoreCase)
+                                 ? ", and the previous DICOM Enabler's saved devices are removed" : string.Empty) + nl +
+                             $"  5. Save the configuration and set DICOM Enabler {newName} and its devices to assigned in CARE" + nl +
+                             "  6. Fetch the worklist for its devices" + nl +
+                             "  7. Start the services again" +
+                             (otherChanges.Count > 0 ? nl + nl + "Other changes saved:" + nl + string.Join(nl, otherChanges) : string.Empty) +
+                             nl + nl + "Continue?";
+            if (MessageBox.Show(this, message, "Switch to the DICOM Enabler's worklist", MessageBoxButtons.YesNo,
+                                MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            {
+                cls_AppLog.Info(SwitchArea, "Switch to the DICOM Enabler's worklist cancelled by the user");
+                return;
+            }
+
+            bool takeBackup = true;
+            if (!cls_DatabaseMaintenance.IsAdministrator())
+            {
+                DialogResult choice = MessageBox.Show(this,
+                    "Backing up the database and stopping the services need the application to run as Administrator." + nl + nl +
+                    "Yes - restart the application as Administrator, then save again" + nl +
+                    "No - continue without a database backup (the data cannot be restored if a step fails)" + nl +
+                    "Cancel - change nothing",
+                    "Run as Administrator", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1);
+                if (choice == DialogResult.Cancel)
+                {
+                    cls_AppLog.Info(SwitchArea, "Switch to the DICOM Enabler's worklist cancelled: not running as Administrator");
+                    return;
+                }
+                if (choice == DialogResult.Yes)
+                {
+                    if (cls_DatabaseMaintenance.RestartAsAdministrator(out string restartError))
+                    {
+                        cls_AppLog.Info(SwitchArea, "Restarting the application as Administrator to switch to the DICOM Enabler's worklist; nothing was changed");
+                        Application.Exit();
+                        return;
+                    }
+                    cls_AppLog.Warning(SwitchArea, restartError);
+                    MessageBox.Show(this, restartError + " Nothing was changed.", "Run as Administrator", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                takeBackup = false;
+                cls_AppLog.Warning(SwitchArea, "Continuing without a database backup: the application is not running as Administrator");
+            }
+
+            cls_AppLog.Info(SwitchArea, $"Switching from the facility's whole worklist to DICOM Enabler {newName} ({newEnablerId}); current DICOM Enabler: {oldText}");
+            mbtn_SaveConfig.Enabled = false;
+            this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
+            var serviceNames = new[] { MwlServiceName, StoreScpServiceName, StoreScuServiceName };
+            List<string> stoppedServices = null;
+            var switchState = new SwitchState { FacilityId = facilityId, NewEnablerId = newEnablerId, BackupFile = null };
+            bool completed = false;
+            try
+            {
+                // 1. Stop the services, so nothing reads or writes the database while it is backed up and cleaned
+                string stopError = null;
+                stoppedServices = await System.Threading.Tasks.Task.Run(() => cls_DatabaseMaintenance.StopServices(serviceNames, out stopError));
+                if (stoppedServices == null)
+                {
+                    ShowSwitchError(stopError + " Nothing was changed.");
+                    return;
+                }
+
+                // 2. Back up the database
+                if (takeBackup)
+                {
+                    string backupError = null;
+                    switchState.BackupFile = await System.Threading.Tasks.Task.Run(() => cls_DatabaseMaintenance.BackupDatabase(out backupError));
+                    if (switchState.BackupFile == null)
+                    {
+                        cls_AppLog.Error(SwitchArea, "Database backup failed: " + backupError);
+                        ShowSwitchError("The database could not be backed up: " + backupError + nl + nl + "Nothing was changed.");
+                        return;
+                    }
+                }
+
+                // 3. Unassign the current DICOM Enabler and its devices - before anything is deleted, as their ids are in care_devices
+                if (!await RunSwitchStepAsync("Set the current DICOM Enabler and its devices to unassigned in CARE", switchState, false, () => UnassignSavedEnabler(switchState)))
+                    return;
+
+                // 4. Delete the orders linked to no device, and a replaced DICOM Enabler's saved devices
+                if (!await RunSwitchStepAsync("Delete the orders linked to no DICOM device", switchState, true, DeleteUnlinkedOrdersForSwitch))
+                    return;
+                if (oldEnablerId != string.Empty && !string.Equals(oldEnablerId, newEnablerId, StringComparison.OrdinalIgnoreCase) &&
+                    !await RunSwitchStepAsync("Remove the previous DICOM Enabler's saved devices", switchState, true, () => RemovePreviousEnablerDevices(oldEnablerId)))
+                    return;
+
+                // 5. Save the configuration, then assign and save the new DICOM Enabler, then its devices
+                if (!await RunSwitchStepAsync("Save the configuration", switchState, true, () => SaveConfigForSwitch(values)))
+                    return;
+                if (!await RunSwitchStepAsync($"Set DICOM Enabler {newName} to assigned in CARE and save it", switchState, true, () => AssignEnablerForSwitch(switchState)))
+                    return;
+                if (!await RunSwitchStepAsync("Fetch the DICOM Enabler's devices, set them to assigned in CARE and save them", switchState, true, () => AssignDevicesForSwitch(switchState)))
+                    return;
+
+                // 6. Fetch the worklist for its devices
+                if (!await RunSwitchStepAsync("Fetch the worklist for the DICOM Enabler's devices", switchState, true, () => FetchWorklistForSwitch(values, facilityId, newEnablerId)))
+                    return;
+
+                completed = true;
+            }
+            catch (Exception ex)
+            {
+                cls_AppLog.Error(SwitchArea, "Switching to the DICOM Enabler's worklist failed with exception " + ex);
+                ShowSwitchError("Switching to the DICOM Enabler's worklist failed with exception " + ex.Message +
+                                (switchState.BackupFile != null ? nl + nl + "The database backup is " + switchState.BackupFile : string.Empty));
+            }
+            finally
+            {
+                // 7. Start the services again with the new configuration (or the restored data)
+                string startError = null;
+                if (stoppedServices != null && stoppedServices.Count > 0)
+                    await System.Threading.Tasks.Task.Run(() => cls_DatabaseMaintenance.StartServices(stoppedServices, out startError));
+                this.Cursor = System.Windows.Forms.Cursors.Default;
+                mbtn_SaveConfig.Enabled = true;
+
+                if (completed)
+                {
+                    cls_AppLog.Info(SwitchArea, $"Switched to DICOM Enabler {newName}'s worklist");
+                    MessageBox.Show(this, $"Switched to DICOM Enabler {newName}'s worklist: its devices and worklist were loaded from CARE." +
+                                          (switchState.BackupFile != null ? nl + nl + "The previous data is backed up in " + switchState.BackupFile : string.Empty) +
+                                          (startError != null ? nl + nl + startError : string.Empty),
+                                    "Saving Configuration Successfull", MessageBoxButtons.OK,
+                                    startError == null ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                }
+                else if (startError != null)
+                {
+                    MessageBox.Show(this, startError, "Starting the services", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                if (!IsDisposed)
+                    GetConfiguration();
+            }
+        }
+
+        /// <summary>What the switch has done so far, so a failure can be undone.</summary>
+        private sealed class SwitchState
+        {
+            public string FacilityId;
+            public string NewEnablerId;
+            public string BackupFile;
+            // The new DICOM Enabler as retrieved and assigned in CARE (retrieving it again fails once it is assigned)
+            public CareModality AssignedEnabler;
+            // Ids set to assigned in CARE by this switch, set back to unassigned when the backup is restored
+            public List<string> AssignedIds = new List<string>();
+            // Ids this switch set to unassigned (not already unassigned by the MWL service stopping), set back to
+            // assigned when the backup is restored; the MWL service assigns the rest again when it starts
+            public List<string> UnassignedIds = new List<string>();
+        }
+
+        /// <summary>
+        /// Runs one step of the switch off the UI thread; work returns null when it succeeded, else why it failed.
+        /// On failure the user can retry the step. Before any data is changed (dataChanged false) the other choice
+        /// is to stop; after, it is to restore the backup (or, without one, to stop). Returns false when the
+        /// switch stops.
+        /// </summary>
+        private async System.Threading.Tasks.Task<bool> RunSwitchStepAsync(string step, SwitchState state, bool dataChanged, Func<string> work)
+        {
+            string nl = Environment.NewLine;
+            while (true)
+            {
+                cls_AppLog.Info(SwitchArea, step + "...");
+                string error;
+                try
+                {
+                    error = await System.Threading.Tasks.Task.Run(work);
+                }
+                catch (Exception ex)
+                {
+                    error = "failed with exception " + ex.Message;
+                }
+                if (error == null)
+                {
+                    cls_AppLog.Info(SwitchArea, step + ": done");
+                    return true;
+                }
+                cls_AppLog.Error(SwitchArea, $"{step}: {error}");
+
+                string choices;
+                if (!dataChanged)
+                    choices = "Retry - try this step again" + nl + "Cancel - stop here (nothing has been deleted; the services are started again)";
+                else if (state.BackupFile != null)
+                    choices = "Retry - try this step again" + nl + $"Cancel - restore the previous data from the backup ({state.BackupFile})";
+                else
+                    choices = "Retry - try this step again" + nl + "Cancel - stop here (no backup was taken, so the previous data cannot be restored)";
+                DialogResult choice = MessageBox.Show(this, $"{step} failed:" + nl + error + nl + nl + choices,
+                                                      "Switch to the DICOM Enabler's worklist", MessageBoxButtons.RetryCancel, MessageBoxIcon.Error);
+                if (choice == DialogResult.Retry)
+                {
+                    cls_AppLog.Info(SwitchArea, step + ": retried by the user");
+                    continue;
+                }
+
+                if (dataChanged && state.BackupFile != null)
+                    await RestoreAfterFailedSwitchAsync(state);
+                else
+                    cls_AppLog.Warning(SwitchArea, "Switch to the DICOM Enabler's worklist stopped by the user after: " + step +
+                                                   (dataChanged ? " (no backup to restore)" : " (nothing was deleted)"));
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Puts back the data from before the switch: restores the backup, sets what this switch assigned in CARE
+        /// back to unassigned, then the restored DICOM Enabler and its devices back to assigned.
+        /// </summary>
+        private async System.Threading.Tasks.Task RestoreAfterFailedSwitchAsync(SwitchState state)
+        {
+            string nl = Environment.NewLine;
+            cls_AppLog.Warning(SwitchArea, "Restoring the previous data from " + state.BackupFile);
+            string restoreError = null;
+            bool restored = await System.Threading.Tasks.Task.Run(() => cls_DatabaseMaintenance.RestoreDatabase(state.BackupFile, out restoreError));
+            if (!restored)
+            {
+                cls_AppLog.Error(SwitchArea, "The backup could not be restored: " + restoreError);
+                ShowSwitchError("The backup could not be restored: " + restoreError + nl + nl +
+                                "Restore it with Initializer.bat (it lists the backups), or from an elevated Command Prompt: mysql -u root -p < \"" + state.BackupFile + "\"");
+                return;
+            }
+
+            // CARE is put back as it was, each id sent at most once: what this switch assigned and the restored
+            // configuration does not use is set to unassigned; what this switch itself unassigned (and did not
+            // assign again) is set to assigned. The ones the MWL service unassigned when it stopped are assigned
+            // again by the MWL service when it starts.
+            string careSummary = await System.Threading.Tasks.Task.Run(() =>
+            {
+                var lines = new List<string>();
+                var comparer = StringComparer.OrdinalIgnoreCase;
+                var restoredIds = new HashSet<string>(comparer);
+                var dal = new ucls_DAL(Global._applicationPath);
+                try
+                {
+                    string errorString = string.Empty;
+                    string restoredEnablerId = dal.GetConfigValue(DicomEnablerIdKey, string.Empty, ref errorString).Trim();
+                    if (restoredEnablerId != string.Empty)
+                    {
+                        restoredIds.Add(restoredEnablerId);
+                        foreach (CareDeviceRecord device in dal.GetCareDevices(restoredEnablerId, ref errorString).Where(d => !string.IsNullOrWhiteSpace(d.DeviceId)))
+                            restoredIds.Add(device.DeviceId);
+                    }
+
+                    var toUnassign = state.AssignedIds.Distinct(comparer).Where(id => !restoredIds.Contains(id)).ToList();
+                    var toAssign = state.UnassignedIds.Distinct(comparer).Where(id => !state.AssignedIds.Contains(id, comparer)).ToList();
+                    if (toUnassign.Count + toAssign.Count == 0)
+                        return string.Empty;
+                    if (!TryGetModalitiesApi(state.FacilityId, out string modalitiesURL, out string apiKey, out string apiError))
+                        return "CARE was not updated: " + apiError;
+
+                    foreach (string id in toUnassign)
+                    {
+                        if (ucls_CareModalities.TryUpdateAssignmentStatus(modalitiesURL, apiKey, id, ucls_CareModalities.AssignmentUnassigned, cls_AppLog.For("DICOM ENABLER"), out string error))
+                            cls_AppLog.Info(SwitchArea, $"{id} set back to unassigned in CARE");
+                        else
+                            lines.Add($"{id} could not be set back to unassigned in CARE: {error}");
+                    }
+                    var reassigned = new List<string>();
+                    foreach (string id in toAssign)
+                    {
+                        if (ucls_CareModalities.TryUpdateAssignmentStatus(modalitiesURL, apiKey, id, ucls_CareModalities.AssignmentAssigned, cls_AppLog.For("DICOM ENABLER"), out string error))
+                        {
+                            reassigned.Add(id);
+                            cls_AppLog.Info(SwitchArea, $"{id} set back to assigned in CARE");
+                        }
+                        else
+                        {
+                            lines.Add($"{id} could not be set back to assigned in CARE: {error}");
+                        }
+                    }
+                    int updated = 0;
+                    errorString = string.Empty;
+                    if (reassigned.Count > 0 && !dal.SetCareDevicesAssignmentStatus(reassigned, ucls_CareModalities.AssignmentAssigned, ref updated, ref errorString))
+                        lines.Add("care_devices could not be updated: " + errorString);
+                }
+                finally
+                {
+                    dal.Dispose();
+                }
+                foreach (string line in lines)
+                    cls_AppLog.Error(SwitchArea, line);
+                return string.Join(nl, lines);
+            });
+            cls_AppLog.Info(SwitchArea, "Previous data restored from " + state.BackupFile);
+            MessageBox.Show(this, "The previous data was restored from " + state.BackupFile + " and the facility's whole worklist is fetched again." +
+                                  (string.IsNullOrWhiteSpace(careSummary) ? string.Empty : nl + nl + careSummary),
+                            "Switch to the DICOM Enabler's worklist", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // Step 3: the saved DICOM Enabler (care_config) and its saved devices (care_devices) set to unassigned in
+        // CARE before anything is deleted. Stopping the MWL service already unassigns them and saves that in
+        // care_devices, so only the ones still assigned there are sent, each once.
+        private static string UnassignSavedEnabler(SwitchState state)
+        {
+            var dal = new ucls_DAL(Global._applicationPath);
+            try
+            {
+                string errorString = string.Empty;
+                string facilityId = dal.GetConfigValue("facility_id", string.Empty, ref errorString).Trim();
+                string enablerId = string.IsNullOrEmpty(errorString) ? dal.GetConfigValue(DicomEnablerIdKey, string.Empty, ref errorString).Trim() : string.Empty;
+                if (!string.IsNullOrEmpty(errorString))
+                    return "The configuration could not be read: " + errorString;
+                if (enablerId == string.Empty)
+                {
+                    cls_AppLog.Info(SwitchArea, "No DICOM Enabler was saved, so none is set to unassigned in CARE");
+                    return null;
+                }
+
+                CareDeviceRecord enabler = dal.GetCareDevice(enablerId, ref errorString);
+                List<CareDeviceRecord> devices = string.IsNullOrEmpty(errorString) ? dal.GetCareDevices(enablerId, ref errorString) : new List<CareDeviceRecord>();
+                if (!string.IsNullOrEmpty(errorString))
+                    return "The saved DICOM Enabler and its devices could not be read: " + errorString;
+
+                string unassigned = ucls_CareModalities.AssignmentUnassigned;
+                var targets = new List<(string Id, string Name)>();
+                if (!string.Equals(enabler?.AssignmentStatus, unassigned, StringComparison.OrdinalIgnoreCase))
+                    targets.Add((enablerId, "DICOM Enabler " + (enabler?.DeviceName ?? enablerId)));
+                targets.AddRange(devices.Where(d => !string.IsNullOrWhiteSpace(d.DeviceId) && !string.Equals(d.AssignmentStatus, unassigned, StringComparison.OrdinalIgnoreCase))
+                                        .Select(d => (d.DeviceId, "device " + (d.DeviceName ?? d.DeviceId))));
+                int alreadyUnassigned = 1 + devices.Count - targets.Count;
+                if (targets.Count == 0)
+                {
+                    cls_AppLog.Info(SwitchArea, $"DICOM Enabler {enabler?.DeviceName ?? enablerId} and its {devices.Count} device(s) are already unassigned in CARE (set when the MWL service stopped)");
+                    return null;
+                }
+
+                if (!TryGetModalitiesApi(facilityId, out string modalitiesURL, out string apiKey, out string apiError))
+                    return apiError;
+                var done = new List<string>();
+                var failed = new List<string>();
+                foreach (var (id, name) in targets)
+                {
+                    if (ucls_CareModalities.TryUpdateAssignmentStatus(modalitiesURL, apiKey, id, unassigned, cls_AppLog.For("DICOM ENABLER"), out string error))
+                    {
+                        done.Add(id);
+                        state.UnassignedIds.Add(id);
+                        cls_AppLog.Info(SwitchArea, $"{name} ({id}) assignment_status: assigned -> unassigned");
+                    }
+                    else
+                    {
+                        failed.Add($"{name}: {error}");
+                    }
+                }
+                int updated = 0;
+                errorString = string.Empty;
+                if (done.Count > 0 && !dal.SetCareDevicesAssignmentStatus(done, unassigned, ref updated, ref errorString))
+                    failed.Add("care_devices could not be updated: " + errorString);
+                cls_AppLog.Info(SwitchArea, $"Set to unassigned in CARE: {done.Count} of {targets.Count}" +
+                                            (alreadyUnassigned > 0 ? $" ({alreadyUnassigned} already unassigned when the MWL service stopped)" : string.Empty));
+                return failed.Count == 0 ? null : "Not set to unassigned in CARE: " + string.Join("; ", failed);
+            }
+            finally
+            {
+                dal.Dispose();
+            }
+        }
+
+        // Step 4: the data of the orders linked to no DICOM device deleted from every table that has it (see
+        // ucls_DAL.DeleteUnlinkedOrders); orders linked to a device and the rest of the database are kept
+        private static string DeleteUnlinkedOrdersForSwitch()
+        {
+            var dal = new ucls_DAL(Global._applicationPath);
+            try
+            {
+                var deleted = new Dictionary<string, int>();
+                string errorString = string.Empty;
+                if (!dal.DeleteUnlinkedOrders(ref deleted, ref errorString))
+                    return errorString;
+                cls_AppLog.Info(SwitchArea, "Deleted the orders linked to no device: " +
+                    (deleted.Values.Sum() == 0 ? "there were none" : string.Join(", ", deleted.Where(d => d.Value > 0).Select(d => $"{d.Key} {d.Value} row(s)"))));
+                return null;
+            }
+            finally
+            {
+                dal.Dispose();
+            }
+        }
+
+        // Step 4b: a different DICOM Enabler is selected, so the previous one's saved rows (and its devices') are
+        // removed from care_devices, as a normal Save does; it was set to unassigned in CARE in step 3
+        private static string RemovePreviousEnablerDevices(string oldEnablerId)
+        {
+            var dal = new ucls_DAL(Global._applicationPath);
+            try
+            {
+                int removed = 0;
+                string errorString = string.Empty;
+                if (!dal.DeleteCareDevicesOfEnabler(oldEnablerId, ref removed, ref errorString))
+                    return errorString;
+                cls_AppLog.Info(SwitchArea, $"Removed {removed} care_devices row(s) of the previous DICOM Enabler ({oldEnablerId})");
+                return null;
+            }
+            finally
+            {
+                dal.Dispose();
+            }
+        }
+
+        // Step 5a: the Configuration tab's values, with the whole facility's worklist off and the new DICOM Enabler
+        private static string SaveConfigForSwitch(Dictionary<string, string> values)
+        {
+            var dal = new ucls_DAL(Global._applicationPath);
+            try
+            {
+                string errorString = string.Empty;
+                if (!dal.SaveConfig(values, ref errorString))
+                    return errorString;
+                foreach (var value in values)
+                    cls_AppLog.Info("CONFIG", $"{value.Key}: {DisplayConfigValue(value.Value)}");
+                return null;
+            }
+            finally
+            {
+                dal.Dispose();
+            }
+        }
+
+        // Step 5b: the new DICOM Enabler retrieved and set to assigned in CARE, then saved with its DICOM endpoints
+        private static string AssignEnablerForSwitch(SwitchState state)
+        {
+            if (!TryGetModalitiesApi(state.FacilityId, out string modalitiesURL, out string apiKey, out string apiError))
+                return apiError;
+            if (state.AssignedEnabler == null)
+            {
+                var assigned = AssignDicomEnabler(modalitiesURL, apiKey, state.NewEnablerId);
+                if (!assigned.Item1)
+                    return assigned.Item3;
+                state.AssignedEnabler = assigned.Item2;
+                state.AssignedIds.Add(state.NewEnablerId);
+            }
+            CareDeviceRecord enabler = ucls_CareModalities.ToDeviceRecord(state.AssignedEnabler, state.FacilityId, null);
+            var dal = new ucls_DAL(Global._applicationPath);
+            try
+            {
+                string errorString = string.Empty;
+                if (!dal.SaveCareDevice(enabler, ref errorString))
+                    return errorString;
+            }
+            finally
+            {
+                dal.Dispose();
+            }
+            // Its endpoints become the Modality SCP and Store SCP settings the services listen with
+            string endpointError = string.Empty;
+            if (!cls_ConfigDefaults.ApplyDicomEndpointSettings(enabler, new Dictionary<string, string>(), ref endpointError))
+                return "The SCP settings could not be updated from it: " + endpointError;
+            return null;
+        }
+
+        // Step 5c: the DICOM Enabler's devices fetched from CARE, set to assigned there and saved to care_devices
+        private static string AssignDevicesForSwitch(SwitchState state)
+        {
+            CareSyncCheck check = cls_CareSync.Check("switch to the DICOM Enabler's worklist");
+            if (!check.Checked)
+                return check.Error;
+            cls_CareSync.AssignInCare(check, true);
+            state.AssignedIds.AddRange(check.CareDevices.Where(d => d.DeviceId != null && d.AssignmentStatus == ucls_CareModalities.AssignmentAssigned)
+                                                        .Select(d => d.DeviceId));
+            if (!cls_CareSync.Apply(check, new Dictionary<string, string>(), out string applyError))
+                return applyError;
+            var notAssigned = check.CareDevices.Where(d => !string.IsNullOrWhiteSpace(d.DeviceId) && d.AssignmentStatus != ucls_CareModalities.AssignmentAssigned)
+                                               .Select(d => d.DeviceName ?? d.DeviceId).ToList();
+            if (notAssigned.Count > 0)
+                return $"{notAssigned.Count} device(s) could not be set to assigned in CARE: {string.Join(", ", notAssigned)} (see the App Log)";
+            cls_AppLog.Info(SwitchArea, $"{check.CareDevices.Count} device(s) of the DICOM Enabler saved and set to assigned in CARE");
+            return null;
+        }
+
+        // Step 6: the DICOM Enabler's worklist (device filter) fetched from CARE and saved to care_worklist
+        private static string FetchWorklistForSwitch(Dictionary<string, string> values, string facilityId, string enablerId)
+        {
+            values.TryGetValue("care_from_date", out string fromDate);
+            if (string.IsNullOrWhiteSpace(fromDate))
+                fromDate = cls_ConfigDefaults.GetConfigDefault("care_from_date");
+            var dal = new ucls_DAL(Global._applicationPath);
+            try
+            {
+                bool ok = ucls_CareWorklist.RefreshCareWorklist(dal,
+                    (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).Trim().TrimEnd('/'),
+                    ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty,
+                    fromDate, facilityId, enablerId, false, cls_AppLog.For("WORKLIST"));
+                return ok ? null : "The worklist could not be fetched from CARE or saved (see the App Log).";
+            }
+            finally
+            {
+                dal.Dispose();
+            }
+        }
+
+        private void ShowSwitchError(string message)
+        {
+            this.Cursor = System.Windows.Forms.Cursors.Default;
+            MessageBox.Show(this, message, "Switch to the DICOM Enabler's worklist", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
         /// <summary>A saved enabler for the log: its name from care_devices when it is the one loaded, and its id.</summary>
