@@ -187,6 +187,73 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Print which environment this run targets and what it resolved from it,
+      # so a missing/empty environment is obvious before anything is built.
+      # Variables are printed in full; secrets only as set/not set + length.
+      - name: Show target environment and resolved CARE settings
+        shell: pwsh
+        env:
+          TARGET_ENV: ${{ needs.prep.outputs.environment }}
+          # Manual-run inputs, so the table can say where each value came from.
+          INPUT_CARE_BASE_URL:                  ${{ inputs.care_server_url }}
+          INPUT_CARE_API_TOKEN:                 ${{ inputs.care_api_token }}
+          INPUT_CARE_FROM_DATE:                 ${{ inputs.care_from_date }}
+          INPUT_CARE_BACKEND:                   ${{ inputs.care_backend }}
+          INPUT_CARE_MAX_UPLOAD_RETRIES:        ${{ inputs.max_upload_retries }}
+          INPUT_CARE_WORKLIST_REFRESH_START:    ${{ inputs.worklist_refresh_start }}
+          INPUT_CARE_WORKLIST_REFRESH_INTERVAL: ${{ inputs.worklist_refresh_interval }}
+        run: |
+          $targetEnv = $env:TARGET_ENV
+          Write-Output "Target environment : $targetEnv"
+          Write-Output "Trigger            : $env:GITHUB_EVENT_NAME ($env:GITHUB_REF_TYPE '$env:GITHUB_REF_NAME')"
+          Write-Output ""
+
+          $settings = @(
+            @{ Name = 'CARE_BASE_URL';                  Kind = 'secret';   Value = $env:CARE_BASE_URL;                  Input = $env:INPUT_CARE_BASE_URL }
+            @{ Name = 'CARE_API_TOKEN';                 Kind = 'secret';   Value = $env:CARE_API_TOKEN;                 Input = $env:INPUT_CARE_API_TOKEN }
+            @{ Name = 'CARE_FROM_DATE';                 Kind = 'variable'; Value = $env:CARE_FROM_DATE;                 Input = $env:INPUT_CARE_FROM_DATE }
+            @{ Name = 'CARE_BACKEND';                   Kind = 'variable'; Value = $env:CARE_BACKEND;                   Input = $env:INPUT_CARE_BACKEND }
+            @{ Name = 'CARE_MAX_UPLOAD_RETRIES';        Kind = 'variable'; Value = $env:CARE_MAX_UPLOAD_RETRIES;        Input = $env:INPUT_CARE_MAX_UPLOAD_RETRIES }
+            @{ Name = 'CARE_WORKLIST_REFRESH_START';    Kind = 'variable'; Value = $env:CARE_WORKLIST_REFRESH_START;    Input = $env:INPUT_CARE_WORKLIST_REFRESH_START }
+            @{ Name = 'CARE_WORKLIST_REFRESH_INTERVAL'; Kind = 'variable'; Value = $env:CARE_WORKLIST_REFRESH_INTERVAL; Input = $env:INPUT_CARE_WORKLIST_REFRESH_INTERVAL }
+          )
+
+          $found = 0
+          $rows  = @()
+          Write-Output ("  {0,-32} {1,-9} {2,-8} {3,-26} {4}" -f 'SETTING', 'KIND', 'STATUS', 'SOURCE', 'VALUE')
+          foreach ($s in $settings) {
+            $value = "$($s.Value)"
+            if ($value -eq '') {
+              $status = 'NOT SET'
+              $source = '-'
+              $shown  = '(App.config default)'
+            } else {
+              $found++
+              $status = 'set'
+              $source = if ("$($s.Input)" -ne '') { 'manual input' } else { "environment '$targetEnv'" }
+              $shown  = if ($s.Kind -eq 'secret') { "(hidden, $($value.Length) chars)" } else { $value }
+            }
+            Write-Output ("  {0,-32} {1,-9} {2,-8} {3,-26} {4}" -f $s.Name, $s.Kind, $status, $source, $shown)
+            $rows += "| $($s.Name) | $($s.Kind) | $status | $source | $shown |"
+          }
+
+          Write-Output ""
+          Write-Output "$found of $($settings.Count) CARE settings resolved for environment '$targetEnv'."
+          if ($found -eq 0) {
+            Write-Output "::warning::Environment '$targetEnv' provided no CARE settings. Check Settings > Environments > '$targetEnv' exists and has CARE_BASE_URL / CARE_API_TOKEN secrets. This build will use the committed App.config defaults."
+          }
+
+          # Same table in the run's Summary tab.
+          $summary = @(
+            "### CARE settings - environment ``$targetEnv``"
+            ""
+            "Trigger: $env:GITHUB_EVENT_NAME ($env:GITHUB_REF_TYPE ``$env:GITHUB_REF_NAME``) - $found of $($settings.Count) settings resolved"
+            ""
+            "| Setting | Kind | Status | Source | Value |"
+            "|---|---|---|---|---|"
+          ) + $rows
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
       # Two services talk to CARE, through DIFFERENTLY NAMED keys in separate
       # config files. Patching only the MWL service leaves image upload
       # pointing at whatever is committed, which is the shared
