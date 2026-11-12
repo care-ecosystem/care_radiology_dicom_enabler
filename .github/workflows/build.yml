@@ -20,7 +20,8 @@ name: Build CARE DICOM Enabler
 #   1. workflow_dispatch input   - one-off override for a manual run
 #   2. environment secret / var  - the standing default for the environment
 #                                  the run executes in (see below)
-#   3. App.config committed value
+#   3. workflow default          - for the variables listed below
+#   4. App.config committed value
 #
 # Environments (Settings > Environments):
 #   staging   used by push/PR to main, manual runs, and plain vX.Y.Z tags
@@ -38,12 +39,14 @@ name: Build CARE DICOM Enabler
 #     CARE_BASE_URL    e.g. https://care.example.org
 #     CARE_API_TOKEN   the radiology plugin API token
 #
-#   Variables (appear in the artifact filename, so not secrets):
-#     CARE_FROM_DATE   optional, e.g. 2025-01-01 08:00:00
-#     CARE_BACKEND     optional, 0=List 1=Database 2=CARE Server
-#     CARE_MAX_UPLOAD_RETRIES   optional, e.g. 10  (upload retries before FailedSCP)
-#     CARE_WORKLIST_REFRESH_START     optional, e.g. 5   (seconds after start before the first worklist fetch)
-#     CARE_WORKLIST_REFRESH_INTERVAL  optional, e.g. 30  (seconds between worklist fetches)
+#   Variables (optional overrides, printed in the log so not secrets; the
+#   workflow default applies when neither an input nor a variable is set):
+#     CARE_FROM_DATE                  default 2026-11-11 00:00:00  (worklist from date)
+#     CARE_MAX_UPLOAD_RETRIES         default 10  (upload retries before FailedSCP)
+#     CARE_WORKLIST_REFRESH_START     default 30  (seconds after start before the first worklist fetch)
+#     CARE_WORKLIST_REFRESH_INTERVAL  default 30  (seconds between worklist fetches)
+#
+#   Backend mode is always 2 (CARE Server) and is not configurable.
 #
 # Releasing:
 #   git tag v0.0.1    && git push origin v0.0.1      -> staging release
@@ -101,33 +104,25 @@ on:
         required: false
         default: ''
         type: string
+      # Leave the four below blank to use the environment variable, or the
+      # workflow default if the environment has none.
       care_from_date:
-        description: 'Worklist From Date (baked into EXE)'
+        description: 'Worklist From Date (baked into EXE). Default: 2026-11-11 00:00:00'
         required: false
         default: ''
         type: string
-      care_backend:
-        description: 'Backend Mode (0=List, 1=Database, 2=CARE Server)'
-        required: false
-        default: ''
-        type: choice
-        options:
-          - ''
-          - '0'
-          - '1'
-          - '2'
       max_upload_retries:
-        description: 'Max Upload Retries before a file moves to FailedSCP (baked into EXE)'
+        description: 'Max Upload Retries before a file moves to FailedSCP (baked into EXE). Default: 10'
         required: false
         default: ''
         type: string
       worklist_refresh_start:
-        description: 'Seconds after service start before the first worklist fetch (baked into EXE)'
+        description: 'Seconds after service start before the first worklist fetch (baked into EXE). Default: 30'
         required: false
         default: ''
         type: string
       worklist_refresh_interval:
-        description: 'Seconds between worklist fetches (baked into EXE)'
+        description: 'Seconds between worklist fetches (baked into EXE). Default: 30'
         required: false
         default: ''
         type: string
@@ -175,13 +170,14 @@ jobs:
       # Sensitive -> Secrets (masked in logs)
       CARE_BASE_URL:  ${{ inputs.care_server_url != '' && inputs.care_server_url || secrets.CARE_BASE_URL }}
       CARE_API_TOKEN: ${{ inputs.care_api_token  != '' && inputs.care_api_token  || secrets.CARE_API_TOKEN }}
-      # Non-sensitive -> Variables. These end up in the artifact filename, and a
-      # masked secret would render there as "***", so they must not be secrets.
-      CARE_FROM_DATE: ${{ inputs.care_from_date  != '' && inputs.care_from_date  || vars.CARE_FROM_DATE }}
-      CARE_BACKEND:   ${{ inputs.care_backend    != '' && inputs.care_backend    || vars.CARE_BACKEND }}
-      CARE_MAX_UPLOAD_RETRIES:  ${{ inputs.max_upload_retries  != '' && inputs.max_upload_retries  || vars.CARE_MAX_UPLOAD_RETRIES }}
-      CARE_WORKLIST_REFRESH_START:    ${{ inputs.worklist_refresh_start    != '' && inputs.worklist_refresh_start    || vars.CARE_WORKLIST_REFRESH_START }}
-      CARE_WORKLIST_REFRESH_INTERVAL: ${{ inputs.worklist_refresh_interval != '' && inputs.worklist_refresh_interval || vars.CARE_WORKLIST_REFRESH_INTERVAL }}
+      # Always CARE Server mode. Not configurable.
+      CARE_BACKEND: '2'
+      # Non-sensitive -> Variables (printed in the log, so never secrets).
+      # Resolution: manual input -> environment variable -> workflow default.
+      CARE_FROM_DATE:                 ${{ inputs.care_from_date            != '' && inputs.care_from_date            || vars.CARE_FROM_DATE                 || '2026-11-11 00:00:00' }}
+      CARE_MAX_UPLOAD_RETRIES:        ${{ inputs.max_upload_retries        != '' && inputs.max_upload_retries        || vars.CARE_MAX_UPLOAD_RETRIES        || '10' }}
+      CARE_WORKLIST_REFRESH_START:    ${{ inputs.worklist_refresh_start    != '' && inputs.worklist_refresh_start    || vars.CARE_WORKLIST_REFRESH_START    || '30' }}
+      CARE_WORKLIST_REFRESH_INTERVAL: ${{ inputs.worklist_refresh_interval != '' && inputs.worklist_refresh_interval || vars.CARE_WORKLIST_REFRESH_INTERVAL || '30' }}
 
     steps:
       - name: Checkout
@@ -194,32 +190,39 @@ jobs:
         shell: pwsh
         env:
           TARGET_ENV: ${{ needs.prep.outputs.environment }}
-          # Manual-run inputs, so the table can say where each value came from.
+          # Manual-run inputs and raw environment variables, so the table can
+          # say where each resolved value came from.
           INPUT_CARE_BASE_URL:                  ${{ inputs.care_server_url }}
           INPUT_CARE_API_TOKEN:                 ${{ inputs.care_api_token }}
           INPUT_CARE_FROM_DATE:                 ${{ inputs.care_from_date }}
-          INPUT_CARE_BACKEND:                   ${{ inputs.care_backend }}
           INPUT_CARE_MAX_UPLOAD_RETRIES:        ${{ inputs.max_upload_retries }}
           INPUT_CARE_WORKLIST_REFRESH_START:    ${{ inputs.worklist_refresh_start }}
           INPUT_CARE_WORKLIST_REFRESH_INTERVAL: ${{ inputs.worklist_refresh_interval }}
+          VAR_CARE_FROM_DATE:                   ${{ vars.CARE_FROM_DATE }}
+          VAR_CARE_MAX_UPLOAD_RETRIES:          ${{ vars.CARE_MAX_UPLOAD_RETRIES }}
+          VAR_CARE_WORKLIST_REFRESH_START:      ${{ vars.CARE_WORKLIST_REFRESH_START }}
+          VAR_CARE_WORKLIST_REFRESH_INTERVAL:   ${{ vars.CARE_WORKLIST_REFRESH_INTERVAL }}
         run: |
           $targetEnv = $env:TARGET_ENV
           Write-Output "Target environment : $targetEnv"
           Write-Output "Trigger            : $env:GITHUB_EVENT_NAME ($env:GITHUB_REF_TYPE '$env:GITHUB_REF_NAME')"
+          Write-Output "Backend mode       : $env:CARE_BACKEND (CARE Server, fixed)"
           Write-Output ""
 
+          # FromEnv = what the environment itself supplied (secrets have no
+          # workflow default, so their resolved value is the environment's).
           $settings = @(
-            @{ Name = 'CARE_BASE_URL';                  Kind = 'secret';   Value = $env:CARE_BASE_URL;                  Input = $env:INPUT_CARE_BASE_URL }
-            @{ Name = 'CARE_API_TOKEN';                 Kind = 'secret';   Value = $env:CARE_API_TOKEN;                 Input = $env:INPUT_CARE_API_TOKEN }
-            @{ Name = 'CARE_FROM_DATE';                 Kind = 'variable'; Value = $env:CARE_FROM_DATE;                 Input = $env:INPUT_CARE_FROM_DATE }
-            @{ Name = 'CARE_BACKEND';                   Kind = 'variable'; Value = $env:CARE_BACKEND;                   Input = $env:INPUT_CARE_BACKEND }
-            @{ Name = 'CARE_MAX_UPLOAD_RETRIES';        Kind = 'variable'; Value = $env:CARE_MAX_UPLOAD_RETRIES;        Input = $env:INPUT_CARE_MAX_UPLOAD_RETRIES }
-            @{ Name = 'CARE_WORKLIST_REFRESH_START';    Kind = 'variable'; Value = $env:CARE_WORKLIST_REFRESH_START;    Input = $env:INPUT_CARE_WORKLIST_REFRESH_START }
-            @{ Name = 'CARE_WORKLIST_REFRESH_INTERVAL'; Kind = 'variable'; Value = $env:CARE_WORKLIST_REFRESH_INTERVAL; Input = $env:INPUT_CARE_WORKLIST_REFRESH_INTERVAL }
+            @{ Name = 'CARE_BASE_URL';                  Kind = 'secret';   Value = $env:CARE_BASE_URL;                  Input = $env:INPUT_CARE_BASE_URL;                  FromEnv = $env:CARE_BASE_URL }
+            @{ Name = 'CARE_API_TOKEN';                 Kind = 'secret';   Value = $env:CARE_API_TOKEN;                 Input = $env:INPUT_CARE_API_TOKEN;                 FromEnv = $env:CARE_API_TOKEN }
+            @{ Name = 'CARE_FROM_DATE';                 Kind = 'variable'; Value = $env:CARE_FROM_DATE;                 Input = $env:INPUT_CARE_FROM_DATE;                 FromEnv = $env:VAR_CARE_FROM_DATE }
+            @{ Name = 'CARE_MAX_UPLOAD_RETRIES';        Kind = 'variable'; Value = $env:CARE_MAX_UPLOAD_RETRIES;        Input = $env:INPUT_CARE_MAX_UPLOAD_RETRIES;        FromEnv = $env:VAR_CARE_MAX_UPLOAD_RETRIES }
+            @{ Name = 'CARE_WORKLIST_REFRESH_START';    Kind = 'variable'; Value = $env:CARE_WORKLIST_REFRESH_START;    Input = $env:INPUT_CARE_WORKLIST_REFRESH_START;    FromEnv = $env:VAR_CARE_WORKLIST_REFRESH_START }
+            @{ Name = 'CARE_WORKLIST_REFRESH_INTERVAL'; Kind = 'variable'; Value = $env:CARE_WORKLIST_REFRESH_INTERVAL; Input = $env:INPUT_CARE_WORKLIST_REFRESH_INTERVAL; FromEnv = $env:VAR_CARE_WORKLIST_REFRESH_INTERVAL }
           )
 
-          $found = 0
-          $rows  = @()
+          $fromEnvCount   = 0
+          $missingSecrets = @()
+          $rows           = @()
           Write-Output ("  {0,-32} {1,-9} {2,-8} {3,-26} {4}" -f 'SETTING', 'KIND', 'STATUS', 'SOURCE', 'VALUE')
           foreach ($s in $settings) {
             $value = "$($s.Value)"
@@ -227,27 +230,34 @@ jobs:
               $status = 'NOT SET'
               $source = '-'
               $shown  = '(App.config default)'
+              if ($s.Kind -eq 'secret') { $missingSecrets += $s.Name }
             } else {
-              $found++
               $status = 'set'
-              $source = if ("$($s.Input)" -ne '') { 'manual input' } else { "environment '$targetEnv'" }
-              $shown  = if ($s.Kind -eq 'secret') { "(hidden, $($value.Length) chars)" } else { $value }
+              if ("$($s.Input)" -ne '') {
+                $source = 'manual input'
+              } elseif ("$($s.FromEnv)" -ne '') {
+                $source = "environment '$targetEnv'"
+                $fromEnvCount++
+              } else {
+                $source = 'workflow default'
+              }
+              $shown = if ($s.Kind -eq 'secret') { "(hidden, $($value.Length) chars)" } else { $value }
             }
             Write-Output ("  {0,-32} {1,-9} {2,-8} {3,-26} {4}" -f $s.Name, $s.Kind, $status, $source, $shown)
             $rows += "| $($s.Name) | $($s.Kind) | $status | $source | $shown |"
           }
 
           Write-Output ""
-          Write-Output "$found of $($settings.Count) CARE settings resolved for environment '$targetEnv'."
-          if ($found -eq 0) {
-            Write-Output "::warning::Environment '$targetEnv' provided no CARE settings. Check Settings > Environments > '$targetEnv' exists and has CARE_BASE_URL / CARE_API_TOKEN secrets. This build will use the committed App.config defaults."
+          Write-Output "$fromEnvCount of $($settings.Count) CARE settings came from environment '$targetEnv'."
+          if ($missingSecrets.Count -gt 0) {
+            Write-Output "::warning::Environment '$targetEnv' did not provide $($missingSecrets -join ', '). Check Settings > Environments > '$targetEnv' exists and has these secrets. This build will use the committed App.config values for them."
           }
 
           # Same table in the run's Summary tab.
           $summary = @(
             "### CARE settings - environment ``$targetEnv``"
             ""
-            "Trigger: $env:GITHUB_EVENT_NAME ($env:GITHUB_REF_TYPE ``$env:GITHUB_REF_NAME``) - $found of $($settings.Count) settings resolved"
+            "Trigger: $env:GITHUB_EVENT_NAME ($env:GITHUB_REF_TYPE ``$env:GITHUB_REF_NAME``) - backend 2 (CARE Server) - $fromEnvCount of $($settings.Count) settings from the environment"
             ""
             "| Setting | Kind | Status | Source | Value |"
             "|---|---|---|---|---|"
@@ -412,9 +422,7 @@ jobs:
           if ($serverUrl -ne '' -or $backend -ne '') {
             Write-Output ""
             Write-Output "CARE Server Settings (baked into EXE):"
-            if ($backend -ne '') {
-              Write-Output "  - Backend Mode: $backend"
-            }
+            Write-Output "  - Backend Mode: $backend (CARE Server, fixed)"
             if ($serverUrl -ne '') {
               Write-Output "  - Server URL: $serverUrl"
             }
@@ -487,25 +495,6 @@ jobs:
           $shortSha = $env:GITHUB_SHA.Substring(0,7)
           echo "SHORT_SHA=$shortSha" >> $env:GITHUB_ENV
 
-          # Add suffix if CARE settings are customized. Read through env so a build
-          # driven by the repository secret/var defaults is labelled the same way
-          # as one driven by a manual input.
-          $serverUrl = "$env:CARE_BASE_URL"
-          $backend   = "$env:CARE_BACKEND"
-
-          $suffix = ""
-          if ($serverUrl -ne '' -or $backend -ne '') {
-            $suffix = "-custom"
-            if ($backend -eq '2') {
-              $suffix += "-CARE"
-            } elseif ($backend -eq '1') {
-              $suffix += "-DB"
-            } elseif ($backend -eq '0') {
-              $suffix += "-List"
-            }
-          }
-          echo "ARTIFACT_SUFFIX=$suffix" >> $env:GITHUB_ENV
-
           # Build the artifact name here rather than inline in the upload step: upload-artifact
           # rejects names containing " : < > | * ? \ / CR LF, and a branch such as
           # "enhanc/facility_id" reaches us through github.ref_name with a slash in it.
@@ -513,7 +502,7 @@ jobs:
           $platform = "${{ inputs.build_platform || 'AnyCPU' }}"
           $refLabel = "${{ github.event.pull_request.number || github.ref_name }}"
 
-          $artifactName = "CARE_DICOM_Enabler-$config-$platform$suffix-$refLabel-$($env:GITHUB_RUN_NUMBER)-$shortSha"
+          $artifactName = "CARE_DICOM_Enabler-$config-$platform-$refLabel-$($env:GITHUB_RUN_NUMBER)-$shortSha"
           $artifactName = $artifactName -replace '[\\/:"<>|*?\r\n]', '-'   # invalid chars -> dash
           $artifactName = $artifactName -replace '\s+', ''                 # "Any CPU" -> "AnyCPU"
           $artifactName = $artifactName -replace '-{2,}', '-'              # collapse runs of dashes
