@@ -36,15 +36,18 @@ name: Build CARE DICOM Enabler
 #             the .exe.config files, so treat these tokens as rotatable.
 #
 #   Secrets (masked in logs):
-#     CARE_BASE_URL    e.g. https://care.example.org
 #     CARE_API_TOKEN   the radiology plugin API token
 #
-#   Variables (optional overrides, printed in the log so not secrets; the
-#   workflow default applies when neither an input nor a variable is set):
+#   Variables (printed in the log, so not secrets):
+#     CARE_BASE_URL                   e.g. https://care.example.org  (no workflow default)
 #     CARE_FROM_DATE                  default 2026-11-11 00:00:00  (worklist from date)
 #     CARE_MAX_UPLOAD_RETRIES         default 10  (upload retries before FailedSCP)
 #     CARE_WORKLIST_REFRESH_START     default 30  (seconds after start before the first worklist fetch)
 #     CARE_WORKLIST_REFRESH_INTERVAL  default 30  (seconds between worklist fetches)
+#
+#   Manual runs: the form is pre-filled with the workflow defaults and a
+#   non-blank form value is used as-is (it beats the environment variable).
+#   Clear a field to fall back to the environment variable, then the default.
 #
 #   Backend mode is always 2 (CARE Server) and is not configurable.
 #
@@ -104,27 +107,27 @@ on:
         required: false
         default: ''
         type: string
-      # Leave the four below blank to use the environment variable, or the
-      # workflow default if the environment has none.
+      # Pre-filled with the workflow defaults. Edit to override; clear the
+      # field to fall back to the environment variable, then the default.
       care_from_date:
-        description: 'Worklist From Date (baked into EXE). Default: 2026-11-11 00:00:00'
+        description: 'Worklist From Date (baked into EXE)'
         required: false
-        default: ''
+        default: '2026-11-11 00:00:00'
         type: string
       max_upload_retries:
-        description: 'Max Upload Retries before a file moves to FailedSCP (baked into EXE). Default: 10'
+        description: 'Max Upload Retries before a file moves to FailedSCP (baked into EXE)'
         required: false
-        default: ''
+        default: '10'
         type: string
       worklist_refresh_start:
-        description: 'Seconds after service start before the first worklist fetch (baked into EXE). Default: 30'
+        description: 'Seconds after service start before the first worklist fetch (baked into EXE)'
         required: false
-        default: ''
+        default: '30'
         type: string
       worklist_refresh_interval:
-        description: 'Seconds between worklist fetches (baked into EXE). Default: 30'
+        description: 'Seconds between worklist fetches (baked into EXE)'
         required: false
-        default: ''
+        default: '30'
         type: string
 
 # Needed so GITHUB_TOKEN can create the GitHub Release on tag builds.
@@ -168,12 +171,14 @@ jobs:
     # GitHub's secret masking intact and avoids shell injection.
     env:
       # Sensitive -> Secrets (masked in logs)
-      CARE_BASE_URL:  ${{ inputs.care_server_url != '' && inputs.care_server_url || secrets.CARE_BASE_URL }}
-      CARE_API_TOKEN: ${{ inputs.care_api_token  != '' && inputs.care_api_token  || secrets.CARE_API_TOKEN }}
+      CARE_API_TOKEN: ${{ inputs.care_api_token != '' && inputs.care_api_token || secrets.CARE_API_TOKEN }}
       # Always CARE Server mode. Not configurable.
       CARE_BACKEND: '2'
       # Non-sensitive -> Variables (printed in the log, so never secrets).
       # Resolution: manual input -> environment variable -> workflow default.
+      # CARE_BASE_URL also falls back to a secret of the same name so older
+      # environments keep working; keep it under Variables so it prints unmasked.
+      CARE_BASE_URL:                  ${{ inputs.care_server_url           != '' && inputs.care_server_url           || vars.CARE_BASE_URL                  || secrets.CARE_BASE_URL }}
       CARE_FROM_DATE:                 ${{ inputs.care_from_date            != '' && inputs.care_from_date            || vars.CARE_FROM_DATE                 || '2026-11-11 00:00:00' }}
       CARE_MAX_UPLOAD_RETRIES:        ${{ inputs.max_upload_retries        != '' && inputs.max_upload_retries        || vars.CARE_MAX_UPLOAD_RETRIES        || '10' }}
       CARE_WORKLIST_REFRESH_START:    ${{ inputs.worklist_refresh_start    != '' && inputs.worklist_refresh_start    || vars.CARE_WORKLIST_REFRESH_START    || '30' }}
@@ -209,15 +214,16 @@ jobs:
           Write-Output "Backend mode       : $env:CARE_BACKEND (CARE Server, fixed)"
           Write-Output ""
 
-          # FromEnv = what the environment itself supplied (secrets have no
-          # workflow default, so their resolved value is the environment's).
+          # FromEnv = what the environment itself supplied. URL and token have no
+          # workflow default, so for them the resolved value is the environment's.
+          # Default = the workflow default, to spot an untouched manual-run form.
           $settings = @(
-            @{ Name = 'CARE_BASE_URL';                  Kind = 'secret';   Value = $env:CARE_BASE_URL;                  Input = $env:INPUT_CARE_BASE_URL;                  FromEnv = $env:CARE_BASE_URL }
-            @{ Name = 'CARE_API_TOKEN';                 Kind = 'secret';   Value = $env:CARE_API_TOKEN;                 Input = $env:INPUT_CARE_API_TOKEN;                 FromEnv = $env:CARE_API_TOKEN }
-            @{ Name = 'CARE_FROM_DATE';                 Kind = 'variable'; Value = $env:CARE_FROM_DATE;                 Input = $env:INPUT_CARE_FROM_DATE;                 FromEnv = $env:VAR_CARE_FROM_DATE }
-            @{ Name = 'CARE_MAX_UPLOAD_RETRIES';        Kind = 'variable'; Value = $env:CARE_MAX_UPLOAD_RETRIES;        Input = $env:INPUT_CARE_MAX_UPLOAD_RETRIES;        FromEnv = $env:VAR_CARE_MAX_UPLOAD_RETRIES }
-            @{ Name = 'CARE_WORKLIST_REFRESH_START';    Kind = 'variable'; Value = $env:CARE_WORKLIST_REFRESH_START;    Input = $env:INPUT_CARE_WORKLIST_REFRESH_START;    FromEnv = $env:VAR_CARE_WORKLIST_REFRESH_START }
-            @{ Name = 'CARE_WORKLIST_REFRESH_INTERVAL'; Kind = 'variable'; Value = $env:CARE_WORKLIST_REFRESH_INTERVAL; Input = $env:INPUT_CARE_WORKLIST_REFRESH_INTERVAL; FromEnv = $env:VAR_CARE_WORKLIST_REFRESH_INTERVAL }
+            @{ Name = 'CARE_BASE_URL';                  Kind = 'variable'; Value = $env:CARE_BASE_URL;                  Input = $env:INPUT_CARE_BASE_URL;                  FromEnv = $env:CARE_BASE_URL;                    Default = '' }
+            @{ Name = 'CARE_API_TOKEN';                 Kind = 'secret';   Value = $env:CARE_API_TOKEN;                 Input = $env:INPUT_CARE_API_TOKEN;                 FromEnv = $env:CARE_API_TOKEN;                   Default = '' }
+            @{ Name = 'CARE_FROM_DATE';                 Kind = 'variable'; Value = $env:CARE_FROM_DATE;                 Input = $env:INPUT_CARE_FROM_DATE;                 FromEnv = $env:VAR_CARE_FROM_DATE;               Default = '2026-11-11 00:00:00' }
+            @{ Name = 'CARE_MAX_UPLOAD_RETRIES';        Kind = 'variable'; Value = $env:CARE_MAX_UPLOAD_RETRIES;        Input = $env:INPUT_CARE_MAX_UPLOAD_RETRIES;        FromEnv = $env:VAR_CARE_MAX_UPLOAD_RETRIES;      Default = '10' }
+            @{ Name = 'CARE_WORKLIST_REFRESH_START';    Kind = 'variable'; Value = $env:CARE_WORKLIST_REFRESH_START;    Input = $env:INPUT_CARE_WORKLIST_REFRESH_START;    FromEnv = $env:VAR_CARE_WORKLIST_REFRESH_START;  Default = '30' }
+            @{ Name = 'CARE_WORKLIST_REFRESH_INTERVAL'; Kind = 'variable'; Value = $env:CARE_WORKLIST_REFRESH_INTERVAL; Input = $env:INPUT_CARE_WORKLIST_REFRESH_INTERVAL; FromEnv = $env:VAR_CARE_WORKLIST_REFRESH_INTERVAL; Default = '30' }
           )
 
           $fromEnvCount   = 0
@@ -234,7 +240,7 @@ jobs:
             } else {
               $status = 'set'
               if ("$($s.Input)" -ne '') {
-                $source = 'manual input'
+                $source = if ("$($s.Input)" -eq "$($s.Default)") { 'manual input (default)' } else { 'manual input' }
               } elseif ("$($s.FromEnv)" -ne '') {
                 $source = "environment '$targetEnv'"
                 $fromEnvCount++
