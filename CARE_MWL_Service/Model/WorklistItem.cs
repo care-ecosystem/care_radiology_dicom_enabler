@@ -60,6 +60,10 @@ namespace Worklist_SCP.Model
         /// </summary>
         public System.Collections.Generic.List<string> ScheduledAETs { get; set; } = new System.Collections.Generic.List<string>();
 
+        /// <summary>
+        /// </summary>
+        public bool HasScheduledDevices { get; set; }
+
         public string ServiceRequestId { get; set; }
 
         public string FacilityId { get; set; }

@@ -156,6 +156,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="cls_CareSync.cs" />
+    <Compile Include="cls_ServiceControl.cs" />
     <Compile Include="cls_ConfigDefaults.cs" />
     <Compile Include="cls_ConfirmDialog.cs" />
     <Compile Include="cls_Spinner.cs">
@@ -250,6 +251,7 @@
     <None Include="Images\delete.ico" />
     <None Include="Images\delete.png" />
     <None Include="Images\devices.png" />
+    <None Include="Images\scuupload.png" />
     <Content Include="Images\landing.png" />
     <Content Include="Images\Login.JPG" />
     <Content Include="Images\scusetting.png" />

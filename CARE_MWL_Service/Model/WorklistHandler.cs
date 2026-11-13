@@ -20,7 +20,11 @@ namespace Worklist_SCP.Model
         /// item left out because a CARE value is not valid DICOM (the other items are still returned),
         /// values sent empty or replaced, and requested keys this server does not return. Optional.
         /// </param>
-        public static IEnumerable<DicomDataset> FilterWorklistItems(DicomDataset request, List<WorklistItem> allWorklistItems, Action<LogEventLevel, string> log = null)
+        /// <param name="deviceRule">
+        /// </param>
+        /// <param name="includeUnmapped">
+        /// </param>
+        public static IEnumerable<DicomDataset> FilterWorklistItems(DicomDataset request, List<WorklistItem> allWorklistItems, Action<LogEventLevel, string> log = null, bool deviceRule = false, bool includeUnmapped = false)
         {
             var exams = allWorklistItems.AsQueryable();
 
@@ -48,9 +52,10 @@ namespace Worklist_SCP.Model
                 if (!string.IsNullOrEmpty(scheduledStationAET))
                 {
                     requestedScheduledAET = scheduledStationAET;
-                    exams = exams.Where(x => x.ScheduledAETs != null && x.ScheduledAETs.Count > 0
-                        ? x.ScheduledAETs.Contains(scheduledStationAET)
-                        : x.ScheduledAET == scheduledStationAET);
+                    if (!deviceRule)
+                        exams = exams.Where(x => x.ScheduledAETs != null && x.ScheduledAETs.Count > 0
+                            ? x.ScheduledAETs.Contains(scheduledStationAET)
+                            : x.ScheduledAET == scheduledStationAET);
                 }
 
                 var performingPhysician = procedureStep.GetSingleValueOrDefault(DicomTag.PerformingPhysicianName, string.Empty);
@@ -91,6 +96,25 @@ namespace Worklist_SCP.Model
                 {
                     exams = exams.Where(x => x.ExamDescription.Equals(procedureDescription));
                 }
+            }
+
+            if (deviceRule)
+            {
+                string requestingAET = requestedScheduledAET;
+                bool namedAET = !string.IsNullOrEmpty(requestingAET) && !requestingAET.Contains("*") && !requestingAET.Contains("?");
+                if (namedAET)
+                    exams = exams.Where(x => x.HasScheduledDevices
+                        ? x.ScheduledAETs != null && x.ScheduledAETs.Contains(requestingAET, StringComparer.Ordinal)
+                        : includeUnmapped);
+                else
+                    exams = exams.Where(x => false);
+
+                var noAeTitle = (allWorklistItems ?? new List<WorklistItem>())
+                    .Where(x => x.HasScheduledDevices && (x.ScheduledAETs == null || x.ScheduledAETs.Count == 0)).ToList();
+                if (log != null && noAeTitle.Count > 0)
+                    log(LogEventLevel.Warning, $"{noAeTitle.Count} scheduled item(s) sent to no device: they are mapped to DICOM devices in CARE " +
+                        "that have no valid AE title (blank or longer than 16 characters). Set the devices' AE titles in CARE. " +
+                        string.Join("; ", noAeTitle.Select(Describe)));
             }
 
             var results = exams.ToList();
@@ -226,10 +250,15 @@ namespace Worklist_SCP.Model
             // Return if requested
             if (procedureStep != null)
             {
-                // The AE title the C-FIND asked for when it is one of the item's, else its first
-                string scheduledAET = requestedScheduledAET != null && result.ScheduledAETs != null && result.ScheduledAETs.Contains(requestedScheduledAET)
-                    ? requestedScheduledAET
-                    : result.ScheduledAET;
+                // The AE title the C-FIND asked for (or the CARE backend's requesting device) when it is one of
+                // the item's, else its first. An item mapped to no device and with no AE title is scheduled for
+                // whichever device asks, so it gets the requesting AE title instead of an empty one.
+                string matchingAET = requestedScheduledAET == null || result.ScheduledAETs == null ? null
+                    : result.ScheduledAETs.FirstOrDefault(aet => string.Equals(aet, requestedScheduledAET, StringComparison.Ordinal));
+                string scheduledAET = matchingAET
+                    ?? (!result.HasScheduledDevices && string.IsNullOrWhiteSpace(result.ScheduledAET) && requestedScheduledAET != null
+                        ? requestedScheduledAET
+                        : result.ScheduledAET);
                 if (procedureStep.Contains(DicomTag.ScheduledStationAETitle) && string.IsNullOrWhiteSpace(scheduledAET))
                     log?.Invoke(LogEventLevel.Warning, $"Scheduled Station AE Title (0040,0001) sent empty: the item is scheduled on no DICOM device with an AE title in CARE. " +
                         $"AccessionNumber={result.AccessionNumber}, ServiceRequestId={result.ServiceRequestId}");

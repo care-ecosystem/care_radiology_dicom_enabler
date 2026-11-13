@@ -44,7 +44,97 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// 
+        /// Deletes the data of the worklist orders linked to no DICOM device (saved by a whole-facility fetch):
+        /// service requests with no care_service_request_device row that has a device_id, and care_worklist rows
+        /// with no service request. Removed, in one transaction: their care_sync_upload rows; the Plexus study,
+        /// series and instance rows of their accession numbers, and Plexus patients left with no study; their
+        /// care_worklist rows; the service requests (their care_service_request_device location rows go with them,
+        /// ON DELETE CASCADE); and care_patient rows no longer used by any care_worklist row. Orders linked to a
+        /// device are not touched. deleted gets the number of rows deleted per table. Returns false with
+        /// errorString set (and nothing deleted) on failure.
+        /// </summary>
+        public bool DeleteUnlinkedOrders(ref Dictionary<string, int> deleted, ref string errorString)
+        {
+            deleted = new Dictionary<string, int>();
+            // Lambdas cannot use the ref parameter, so the counts are collected here and copied at the end
+            var counts = new Dictionary<string, int>();
+            MySqlTransaction transaction = null;
+            try
+            {
+                if (!openDBConnection(ref errorString))
+                    return false;
+
+                var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (MySqlCommand cmd = new MySqlCommand(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'", conConnection))
+                using (MySqlDataReader reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                        existing.Add(reader.GetString(0));
+                }
+                bool plexusTables = existing.Contains("study") && existing.Contains("series") && existing.Contains("instance") && existing.Contains("patient");
+
+                transaction = conConnection.BeginTransaction();
+                Func<string, int> run = sql =>
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(sql, conConnection, transaction))
+                        return cmd.ExecuteNonQuery();
+                };
+                Action<string, string> delete = (table, sql) =>
+                {
+                    int count = run(sql);
+                    counts[table] = (counts.TryGetValue(table, out int before) ? before : 0) + count;
+                };
+
+                // The orders linked to no device and their worklist rows. MySQL cannot open a temporary table
+                // twice in one statement, so each one is used once per statement below.
+                run("DROP TEMPORARY TABLE IF EXISTS tmp_unlinked_sr, tmp_unlinked_wl, tmp_unlinked_study");
+                run("CREATE TEMPORARY TABLE tmp_unlinked_sr (pk BIGINT PRIMARY KEY) " +
+                    "SELECT sr.pk FROM care_service_request sr WHERE NOT EXISTS " +
+                    "(SELECT 1 FROM care_service_request_device d WHERE d.service_request_pk = sr.pk AND d.device_id IS NOT NULL)");
+                run("CREATE TEMPORARY TABLE tmp_unlinked_wl (pk BIGINT PRIMARY KEY, accession_number VARCHAR(64), patient_pk BIGINT) " +
+                    "SELECT w.pk, w.accession_number, w.patient_pk FROM care_worklist w " +
+                    "WHERE w.service_request_pk IS NULL OR w.service_request_pk IN (SELECT pk FROM tmp_unlinked_sr)");
+
+                if (existing.Contains("care_sync_upload"))
+                {
+                    delete("care_sync_upload", "DELETE u FROM care_sync_upload u JOIN tmp_unlinked_wl t ON u.worklist_pk = t.pk");
+                    delete("care_sync_upload", "DELETE u FROM care_sync_upload u JOIN tmp_unlinked_wl t ON u.accession_number = t.accession_number");
+                }
+
+                if (plexusTables)
+                {
+                    run("CREATE TEMPORARY TABLE tmp_unlinked_study (pk BIGINT PRIMARY KEY, patient_fk BIGINT) " +
+                        "SELECT st.pk, st.patient_fk FROM study st JOIN tmp_unlinked_wl t ON st.accession_no = t.accession_number");
+                    delete("instance", "DELETE i FROM instance i JOIN series s ON i.series_fk = s.pk JOIN tmp_unlinked_study t ON s.study_fk = t.pk");
+                    delete("series", "DELETE s FROM series s JOIN tmp_unlinked_study t ON s.study_fk = t.pk");
+                    delete("study", "DELETE st FROM study st JOIN tmp_unlinked_study t ON st.pk = t.pk");
+                    delete("patient", "DELETE p FROM patient p WHERE p.pk IN (SELECT patient_fk FROM tmp_unlinked_study) " +
+                                      "AND NOT EXISTS (SELECT 1 FROM study s WHERE s.patient_fk = p.pk)");
+                }
+
+                delete("care_worklist", "DELETE w FROM care_worklist w JOIN tmp_unlinked_wl t ON w.pk = t.pk");
+                delete("care_service_request", "DELETE sr FROM care_service_request sr JOIN tmp_unlinked_sr t ON sr.pk = t.pk");
+                delete("care_patient", "DELETE p FROM care_patient p WHERE p.pk IN (SELECT patient_pk FROM tmp_unlinked_wl) " +
+                                       "AND NOT EXISTS (SELECT 1 FROM care_worklist w WHERE w.patient_pk = p.pk)");
+
+                transaction.Commit();
+                transaction = null;
+                run("DROP TEMPORARY TABLE IF EXISTS tmp_unlinked_sr, tmp_unlinked_wl, tmp_unlinked_study");
+                closeDBConnection(ref errorString);
+                deleted = counts;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try { transaction?.Rollback(); } catch { }
+                errorString = "Deleting the orders linked to no device failed with exception " + ex.Message;
+                return false;
+            }
+        }
+
+        /// <summary>
+        ///
         /// </summary>
         public void Dispose()
         {
@@ -1070,8 +1160,10 @@ namespace Plexus.Common.Database
         /// progress, completed or cancelled is not offered to the modality again. Only rows for that
         /// facility are returned, and when modality is set, only service requests scheduled on a DICOM
         /// device of that modality (care_service_request_device.device_modality), or, for a request
-        /// with no device modality stored, whose own modality is that one. A blank modality returns
-        /// every modality. A blank facilityId returns nothing.
+        /// with no device modality stored, whose own modality is that one. A request linked to no DICOM
+        /// device (saved by a whole-facility fetch) has no modality from CARE and is returned for every
+        /// modality; the MWL service shares it only while worklist_all_devices is on. A blank modality
+        /// returns every modality. A blank facilityId returns nothing.
         /// </summary>
         public List<CareWorklistRecord> GetScheduledCareWorklist(string facilityId, string modality, ref string errorString)
         {
@@ -1091,6 +1183,7 @@ namespace Plexus.Common.Database
                         "(SELECT GROUP_CONCAT(DISTINCT d.device_ae_title ORDER BY d.device_ae_title SEPARATOR '|') " +
                         "  FROM care_service_request_device d WHERE d.service_request_pk = sr.pk AND d.device_ae_title IS NOT NULL " +
                         "  AND (@modality = '' OR d.device_modality IS NULL OR UPPER(d.device_modality) = UPPER(@modality))) AS device_ae_titles, " +
+                        "EXISTS (SELECT 1 FROM care_service_request_device d WHERE d.service_request_pk = sr.pk AND d.device_id IS NOT NULL) AS has_devices, " +
                         "p.patient_id, p.name AS patient_name, p.gender, p.age, p.patient_uhid " +
                         "FROM care_worklist w " +
                         "LEFT JOIN care_service_request sr ON sr.pk = w.service_request_pk " +
@@ -1099,7 +1192,8 @@ namespace Plexus.Common.Database
                         "AND (@modality = '' " +
                         "  OR EXISTS (SELECT 1 FROM care_service_request_device d WHERE d.service_request_pk = sr.pk AND UPPER(d.device_modality) = UPPER(@modality)) " +
                         "  OR (UPPER(sr.modality) = UPPER(@modality) AND NOT EXISTS (SELECT 1 FROM care_service_request_device d " +
-                        "      WHERE d.service_request_pk = sr.pk AND d.device_modality IS NOT NULL))) " +
+                        "      WHERE d.service_request_pk = sr.pk AND d.device_modality IS NOT NULL)) " +
+                        "  OR NOT EXISTS (SELECT 1 FROM care_service_request_device d WHERE d.service_request_pk = sr.pk AND d.device_id IS NOT NULL)) " +
                         "ORDER BY w.pk",
                         conConnection))
                     {
@@ -1124,6 +1218,7 @@ namespace Plexus.Common.Database
                                     ServiceRequestReferringPhysician = DbString(reader, "referring_physician"),
                                     DeviceAeTitles = (DbString(reader, "device_ae_titles") ?? string.Empty)
                                                      .Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries).ToList(),
+                                    HasDevices = reader["has_devices"] != DBNull.Value && Convert.ToInt32(reader["has_devices"]) != 0,
                                     ServiceRequestProcedureId = DbString(reader, "procedure_id"),
                                     ServiceRequestPriority = DbString(reader, "priority"),
                                     ServiceRequestTechnicianInstruction = DbString(reader, "technician_instruction"),
@@ -1535,6 +1630,11 @@ namespace Plexus.Common.Database
         /// on (of the requested modality), its Scheduled Station AE Titles (0040,0001).
         /// </summary>
         public List<string> DeviceAeTitles { get; set; } = new List<string>();
+        /// <summary>
+        /// Read by GetScheduledCareWorklist: true when the request is mapped to any DICOM device in CARE.
+        /// Such a request is only sent to its devices' AE titles; one with no device goes to every device.
+        /// </summary>
+        public bool HasDevices { get; set; }
     }
 
 

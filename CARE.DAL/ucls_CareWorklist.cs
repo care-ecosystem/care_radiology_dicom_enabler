@@ -19,16 +19,32 @@ namespace Plexus.Common.Database
         public const int PageSize = 14;
 
         /// <summary>
-        /// Fetches every page of a DICOM Enabler's worklist created from fromDate until now: only the
-        /// facility's requests scheduled in the rooms of the enabler's DICOM devices, each listing only
-        /// its devices (device_id={dicomEnablerId}). dicomEnablerId is required - the whole facility's
-        /// worklist is never fetched. It is not filtered by modality: the modality a device queries with
-        /// is matched when it sends C-FIND, against the modality of the devices each request is on.
         /// </summary>
-        public static CareWorklistResponse FetchWorklist(string baseUrl, string token, string fromDate, string facilityId, string dicomEnablerId, Action<string, bool> writeToLog)
+        public const string AllDevicesConfigKey = "worklist_all_devices";
+
+        /// <summary>True when a worklist_all_devices care_config value turns the option on ("1" or "true").</summary>
+        public static bool IsAllDevices(string configValue)
         {
-            if (string.IsNullOrWhiteSpace(dicomEnablerId))
-                throw new ArgumentException("The CARE worklist is only fetched for a DICOM Enabler: dicomEnablerId is required.", nameof(dicomEnablerId));
+            string value = (configValue ?? string.Empty).Trim();
+            return value == "1" || value.Equals("true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Fetches every page of the worklist created from fromDate until now. Normally that is a DICOM
+        /// Enabler's worklist: only the facility's requests scheduled in the rooms of the enabler's DICOM
+        /// devices, each listing only its devices (device_id={dicomEnablerId}), and dicomEnablerId is
+        /// required. With allDevices (the worklist_all_devices option) no device_id is sent and the
+        /// facility's whole worklist is fetched, for facilities whose devices are not set up in CARE.
+        /// It is not filtered by modality: the modality a device queries with is matched when it sends
+        /// C-FIND, against the modality of the devices each request is on, or the request's own modality
+        /// when it has none.
+        /// </summary>
+        public static CareWorklistResponse FetchWorklist(string baseUrl, string token, string fromDate, string facilityId, string dicomEnablerId, bool allDevices, Action<string, bool> writeToLog)
+        {
+            if (allDevices)
+                dicomEnablerId = null;
+            else if (string.IsNullOrWhiteSpace(dicomEnablerId))
+                throw new ArgumentException("The CARE worklist is only fetched for a DICOM Enabler unless worklist_all_devices is on: dicomEnablerId is required.", nameof(dicomEnablerId));
 
             // Fixed for every page so the date window does not move while paging
             string toDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
@@ -153,23 +169,27 @@ namespace Plexus.Common.Database
         }
 
         /// <summary>
-        /// Fetches the DICOM Enabler's worklist (device filter) and saves it with SyncCareWorklist. Every
-        /// refresh - the MWL service's periodic one, the one when a C-FIND matches no row, and the SCU
-        /// service's - goes through here. Returns false without calling CARE when no DICOM Enabler is
-        /// selected in the Configuration tab, and when the API call fails, CARE does not report success,
-        /// or saving fails; the reason is logged.
+        /// Fetches the DICOM Enabler's worklist (device filter), or with allDevices the facility's whole
+        /// worklist, and saves it with SyncCareWorklist. Every refresh - the MWL service's periodic one,
+        /// the one when a C-FIND matches no row, and the SCU service's - goes through here. Returns false
+        /// without calling CARE when allDevices is off and no DICOM Enabler is selected in the
+        /// Configuration tab, and when the API call fails, CARE does not report success, or saving fails;
+        /// the reason is logged.
         /// </summary>
-        public static bool RefreshCareWorklist(ucls_DAL objDal, string baseUrl, string token, string fromDate, string facilityId, string dicomEnablerId, Action<string, bool> writeToLog)
+        public static bool RefreshCareWorklist(ucls_DAL objDal, string baseUrl, string token, string fromDate, string facilityId, string dicomEnablerId, bool allDevices, Action<string, bool> writeToLog)
         {
-            if (string.IsNullOrWhiteSpace(dicomEnablerId))
+            if (!allDevices && string.IsNullOrWhiteSpace(dicomEnablerId))
             {
                 writeToLog("Not calling the CARE worklist API: no DICOM Enabler is selected in the Configuration tab. " +
-                           "The worklist is only fetched for a DICOM Enabler (device filter) - select one and save it.", false);
+                           "The worklist is only fetched for a DICOM Enabler (device filter) - select one and save it, " +
+                           "or turn on fetching the whole facility's worklist (all devices).", false);
                 return false;
             }
             try
             {
-                CareWorklistResponse careResponse = FetchWorklist(baseUrl, token, fromDate, facilityId, dicomEnablerId, writeToLog);
+                if (allDevices)
+                    writeToLog("Fetching the whole facility's CARE worklist (all devices, no device filter: worklist_all_devices is on)", true);
+                CareWorklistResponse careResponse = FetchWorklist(baseUrl, token, fromDate, facilityId, dicomEnablerId, allDevices, writeToLog);
                 if (!IsSuccess(careResponse))
                 {
                     writeToLog($"CARE worklist API did not report success (status={careResponse?.status ?? "none"}) - care_worklist not updated", false);
@@ -230,7 +250,8 @@ namespace Plexus.Common.Database
                                     "?limit=" + PageSize +
                                     "&offset=" + offset;
 
-                requestUrl += "&device_id=" + Uri.EscapeDataString(dicomEnablerId.Trim());
+                if (!string.IsNullOrWhiteSpace(dicomEnablerId))
+                    requestUrl += "&device_id=" + Uri.EscapeDataString(dicomEnablerId.Trim());
                 if (!string.IsNullOrWhiteSpace(fromDate))
                     requestUrl += "&created_date_after=" + Uri.EscapeDataString(fromDate.Trim());
                 requestUrl += "&created_date_before=" + Uri.EscapeDataString(toDate);

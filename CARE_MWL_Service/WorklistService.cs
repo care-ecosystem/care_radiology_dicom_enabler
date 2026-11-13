@@ -55,6 +55,9 @@ namespace Worklist_SCP
         // The connecting device, for error logs: AE title once the association is requested, IP and port always
         private string Device => RemoteDeviceInfo.DescribeConnection(Association, _remoteHost, _remotePort);
 
+        private string _cFindQueryKeys = string.Empty;
+        private string QueryKeys => $" Query keys: {_cFindQueryKeys}";
+
         // A device that goes silent while it is its turn (e.g. it never got a reply) would keep the
         // association open until the service stops: it is aborted after DeviceIdleTimeout instead
         private static readonly TimeSpan DeviceIdleTimeout = TimeSpan.FromSeconds(60);
@@ -205,7 +208,8 @@ namespace Worklist_SCP
             // The calling AE was checked against the Server List when the association was accepted.
             fileLogger.Information($"Received C-FIND request from AE {Association.CallingAE} with IP: {Association.RemoteHost}");
             fileLogger.Information($"[C-FIND] Worklist requested by device: {RemoteDeviceInfo.Describe(Association)}");
-            fileLogger.Information($"[C-FIND] Query keys: {RemoteDeviceInfo.DescribeQuery(request.Dataset)}");
+            _cFindQueryKeys = RemoteDeviceInfo.DescribeQuery(request.Dataset);
+            fileLogger.Information($"[C-FIND] Query keys: {_cFindQueryKeys}");
             RequestStarted();
             List<string> accessionNos = new List<string>();
 
@@ -243,7 +247,7 @@ namespace Worklist_SCP
                 // The query keys show which of the device's filters matched nothing
                 fileLogger.Warning($" C-FIND completed with no worklist items for AE {Association.CallingAE} with IP: {Association.RemoteHost} - check the order is scheduled in CARE and the query keys are correct. Query keys: {RemoteDeviceInfo.DescribeQuery(request.Dataset)}");
             else
-                fileLogger.Information($" C-FIND completed successfully: returned {returnedItemsCount} worklist items to AE {Association.CallingAE} with IP: {Association.RemoteHost}");
+                fileLogger.Information($" C-FIND completed successfully: returned {returnedItemsCount} worklist items to AE {Association.CallingAE} with IP: {Association.RemoteHost}.{QueryKeys}");
             yield return new DicomCFindResponse(request, DicomStatus.Success);
             RequestFinished();
             WaitForDevice($"the C-FIND replies ({returnedItemsCount} worklist item(s))");
@@ -277,7 +281,7 @@ namespace Worklist_SCP
                     {
                         // Facility ID is mandatory: do not call the CARE worklist API without it.
                         // getFacilityId has already logged why it is missing.
-                        fileLogger.Warning($"Skipping CARE worklist fetch for AE {Association.CallingAE} - no Facility ID set in the Configuration tab; returning no worklist items");
+                        fileLogger.Warning($"Skipping CARE worklist fetch for AE {Association.CallingAE} - no Facility ID set in the Configuration tab; returning no worklist items.{QueryKeys}");
                         WorklistServer.CurrentWorklistItems = new List<WorklistItem>();
                         break;
                     }
@@ -288,29 +292,38 @@ namespace Worklist_SCP
                     string requestedModality = GetRequestedModality(request.Dataset);
                     if (requestedModality == null)
                     {
-                        fileLogger.Warning($"C-FIND from AE {Association.CallingAE} has no Modality (0008,0060) query key - returning no worklist items. Set the modality on the device so it is sent in the worklist query");
+                        fileLogger.Warning($"C-FIND from AE {Association.CallingAE} has no Modality (0008,0060) query key - returning no worklist items. Set the modality on the device so it is sent in the worklist query.{QueryKeys}");
+                        results = new List<DicomDataset>();
+                        break;
+                    }
+                    if (GetRequestedScheduledStationAET(request.Dataset) == null)
+                    {
+                        fileLogger.Error($"C-FIND from AE {Association.CallingAE} with IP: {Association.RemoteHost} has no Scheduled Station AE Title (0040,0001) query key - returning no worklist items. " +
+                                         "It is mandatory: set the device to send its AE title as Scheduled Station AE Title in the worklist query. " +
+                                         $"Query keys: {RemoteDeviceInfo.DescribeQuery(request.Dataset)}");
                         results = new List<DicomDataset>();
                         break;
                     }
                     var itemsSource = CreateItemsSourceService;
-                    fileLogger.Information($"Fetching Records from care_worklist for Facility ID {facilityId}, Modality {requestedModality} (from the C-FIND)");
+                    fileLogger.Information($"Fetching Records from care_worklist for Facility ID {facilityId}, Modality {requestedModality} (from the C-FIND).{QueryKeys}");
                     var careWorklistItems = itemsSource.GetCareWorklistItemsFromDB(facilityId, requestedModality);
-                    results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems, LogWorklistItem).ToList();
+                    bool includeUnmapped = ucls_CareWorklist.IsAllDevices(WorklistServer.GetConfigSetting(ucls_CareWorklist.AllDevicesConfigKey, null));
+                    results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems, LogWorklistItem, deviceRule: true, includeUnmapped: includeUnmapped).ToList();
                     if (results.Count == 0)
                     {
-                        fileLogger.Information($"No care_worklist item matches the C-FIND from AE {Association.CallingAE} ({careWorklistItems.Count} scheduled) - refreshing care_worklist from the CARE worklist API");
+                        fileLogger.Information($"No care_worklist item matches the C-FIND from AE {Association.CallingAE} ({careWorklistItems.Count} scheduled) - refreshing care_worklist from the CARE worklist API.{QueryKeys}");
                         if (itemsSource.RefreshCareWorklistFromApi(facilityId))
                         {
                             careWorklistItems = itemsSource.GetCareWorklistItemsFromDB(facilityId, requestedModality);
-                            results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems, LogWorklistItem).ToList();
+                            results = WorklistHandler.FilterWorklistItems(request.Dataset, careWorklistItems, LogWorklistItem, deviceRule: true, includeUnmapped: includeUnmapped).ToList();
                         }
                         else
                         {
-                            fileLogger.Warning($"Refreshing care_worklist from the CARE worklist API failed - answering from the existing care_worklist rows");
+                            fileLogger.Warning($"Refreshing care_worklist from the CARE worklist API failed - answering from the existing care_worklist rows.{QueryKeys}");
                         }
                     }
                     WorklistServer.CurrentWorklistItems = careWorklistItems;
-                    fileLogger.Information($" Successfully fetched {careWorklistItems.Count} worklist items from care_worklist, {results.Count} matching the C-FIND");
+                    fileLogger.Information($" Successfully fetched {careWorklistItems.Count} worklist items from care_worklist, {results.Count} matching the C-FIND.{QueryKeys}");
                     break;
 
             }
@@ -328,6 +341,7 @@ namespace Worklist_SCP
             string text = $"[C-FIND] {message} - device {Device}";
             if (level == Serilog.Events.LogEventLevel.Error)
                 text += ". The other items are still sent; fix the value in CARE.";
+            text += (text.EndsWith(".") ? string.Empty : ".") + QueryKeys;
             fileLogger?.Write(level, text);
         }
 
@@ -349,6 +363,25 @@ namespace Worklist_SCP
             if (string.IsNullOrEmpty(modality) || modality.Contains("*") || modality.Contains("?"))
                 return null;
             return modality;
+        }
+
+        /// <summary>
+        /// The Scheduled Station AE Title (0040,0001) the device asked for in the Scheduled Procedure Step
+        /// Sequence, or null when it sent none, an empty value or a wildcard.
+        /// </summary>
+        private static string GetRequestedScheduledStationAET(DicomDataset query)
+        {
+            if (query == null || !query.Contains(DicomTag.ScheduledProcedureStepSequence))
+                return null;
+
+            var procedureStep = query.GetSequence(DicomTag.ScheduledProcedureStepSequence).FirstOrDefault();
+            if (procedureStep == null || !procedureStep.TryGetString(DicomTag.ScheduledStationAETitle, out string aeTitle))
+                return null;
+
+            aeTitle = aeTitle?.Trim();
+            if (string.IsNullOrEmpty(aeTitle) || aeTitle.Contains("*") || aeTitle.Contains("?"))
+                return null;
+            return aeTitle;
         }
 
 
@@ -438,13 +471,13 @@ namespace Worklist_SCP
 
                     if (errorString != string.Empty)
                     {
-                        fileLogger.Error($"Updating DB with MWL Status failed for Accession No {accessionNo} with exception" + errorString);
+                        fileLogger.Error($"Updating DB with MWL Status failed for Accession No {accessionNo} with exception" + errorString + "." + QueryKeys);
                     }
                 }
             }
             catch (Exception ex)
             {
-                fileLogger.Error($"Update Status in Database Failed for MWL with exception" + ex.Message);
+                fileLogger.Error($"Update Status in Database Failed for MWL with exception" + ex.Message + "." + QueryKeys);
             }
             finally
             {
