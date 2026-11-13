@@ -50,6 +50,16 @@ namespace Plexus_DICOM_Enabler
             mtc_Modules.TabPages.Remove(tdp_ViewPatients);
             mtc_Modules.TabPages.Remove(tbp_SCUSettings);
 
+            // Fetching the facility's whole worklist (no device filter) is a debugging aid: its checkbox is
+            // only shown in Debug builds, and the Release layout is the one from before it was added. The
+            // setting itself is left as care_config holds it - Save writes back the value the hidden
+            // checkbox was loaded with, so it is not changed by a Release build.
+#if !DEBUG
+            mtchkb_WorklistAllDevices.Visible = false;
+            grpb_CareSettings.Size = new Size(grpb_CareSettings.Width, 230);
+            grpb_UploadSettings.Location = new Point(grpb_UploadSettings.Left, 256);
+#endif
+
             var materialSkinManager = MaterialSkinManager.Instance;
             materialSkinManager.AddFormToManage(this);
             materialSkinManager.Theme = MaterialSkinManager.Themes.LIGHT;
