@@ -1,90 +1,54 @@
-# Plexus_DICOM_Enabler
+# CARE Radiology — DICOM Enabler
 
 [![Build CARE DICOM Enabler](https://github.com/care-ecosystem/care_radiology_dicom_enabler/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/care-ecosystem/care_radiology_dicom_enabler/actions/workflows/build.yml)
 
-Application was built on Visual Studio 2019
+Three lightweight Windows services installed inside the hospital network that bridges DICOM imaging devices (X-ray, CT, MRI, Ultrasound) and CARE HMIS. It pulls the day's worklist down to the modality and pushes acquired images up to CARE — no retyping at the console, no studies stranded on a workstation.
 
-Open Plexus_DICOM_Enabler.sln and build each of the project. 
+| Service | Role | Listens on |
+| --- | --- | --- |
+| `CARE_MWL_Service` | Modality Worklist SCP — answers the device's "who is scheduled?" (C-FIND) | AE `MODALITYSCP`, port 2008 |
+| `CARE_StoreSCP_Service` | Receives images pushed by the device (C-STORE) into `./SCP` | AE `STORAGESCP`, port 2007 |
+| `CARE_SCU_Service` | Polls `./SCP` and uploads new files to CARE | — (outbound HTTPS) |
 
-# Nu-Get Packages to be Installed are listed below 
+Flow: CARE order → device worklist query → acquire → C-STORE → `./SCP` → upload to CARE → study visible on the service request.
 
-fo-dicom 5.0.2
-fo-dicom.Codecs 5.1.0
-Microsoft.Bcl.AsyncInterfaces 6.0.0
-Serilog 2.11.0
-Serilog.Sinks.File 5.0.0
-System.Buffers 4.5.1
-System.Numerics.Vectors 4.5.0
-System.Runtime.CompilerServices.Unsafe 6.0.0
-System.Text.Encodings.Web 6.0.0
-System.Text.Json 6.0.5
-System.Threading.Tasks.Extension 4.5.4
-System.ValueTuple 4.5.0
+## Download and use
 
-# Project and Descriptions
+1. Install **MySQL** (root password `care`, or note your own).
+2. Download the ZIP from the [Releases page](https://github.com/care-ecosystem/care_radiology_dicom_enabler/releases) and extract it (right-click → **Properties** → **Unblock** first if Windows marks it blocked).
+3. Create two empty folders next to the EXE: `SCP` and `FAILED_SCP`.
+4. Run `scripts\Initializer.bat` **as administrator** to create the local database.
+5. Run `CARE_DICOM_Enabler.exe` **as administrator** → **Configuration** tab → set AE titles and the **Facility ID** → **Save**.
+6. **Install Services**, then **Start Services**. Check the **Log** tab for errors.
 
+Verify: all three services **Running** in `services.msc`, and ports 2007/2008 listening —
+`netstat -ano | findstr LISTENING | findstr ":2008 :2007"`
 
-# GenerateConnectionString 
+Full step-by-step with screenshots, troubleshooting and DCMTK test commands: **[Setup Guide](https://egovhealthcare.atlassian.net/wiki/external/NjFjNTEwN2ExYWQwNDMwODg3OGI3MDJiMmMxZmJkMzU)**.
 
-This project is used to generate conneciton String. The conneciton string will be generated and saved to a common xml file. It also has provision to test the DB conneciton before processing the connection string and saving to common configuration file. 
+## Latest release
 
-It also provision to encrypt and decrypt data.
+**[v0.0.2](https://github.com/care-ecosystem/care_radiology_dicom_enabler/releases/tag/v0.0.2)** (pre-release, staging) — asset `CARE_DICOM_Enabler-v0.0.2.zip`.
+Debug builds can fetch the full worklist without device linkage ([#75](https://github.com/care-ecosystem/care_radiology_dicom_enabler/pull/75)) · [full changelog](https://github.com/care-ecosystem/care_radiology_dicom_enabler/compare/v0.0.1...v0.0.2).
 
-# Plexus.Common
+Releases are cut by pushing a tag; the CARE server URL and token for that environment are baked into the build:
 
-This is a library project which is used under different other projects. This project has class and function which are common for other project functionality
+```
+git tag v0.0.3    && git push origin v0.0.3      # -> staging release
+git tag jh-v1.0.0 && git push origin jh-v1.0.0   # -> built with the "jh" environment
+```
 
-1. Save and Read Configuraiton Details
-2. Validate User
-3. Encrypt and Decryption String 
+> The baked token is readable in the `.exe.config` files inside a published ZIP. Treat these tokens as rotatable.
 
-# Plexus_Auth_Service
+## Build from source
 
-This is a Service Project which will authenticate the user Credentials stored in the common configuration file. If the authentication then it would stop the services based on the deployement configuration. Following are the services that the Auth Service will stop based on the validation done 
+- Visual Studio 2019 or later, .NET Framework 4.7.2, run as Administrator
+- `nuget restore CARE_DICOM_Enabler.sln` then build `CARE_DICOM_Enabler.sln` (fo-dicom, MySql.Data, Serilog, MaterialSkin.2 — see `packages.config`)
+- CARE settings live in each service's `App.config` (`careBaseUrl`, `careToken`); the UI's **Configuration** tab writes the rest to `cfg/common.cfg` and the `care_config` table
 
+CI (`.github/workflows/build.yml`) builds on every push/PR to `main` and on tags, and can be run manually with overrides for build configuration, platform, CARE server URL/token, worklist from-date, refresh interval and upload retries. Values resolve as: manual input → environment secret/var → workflow default → committed `App.config`.
 
-Plexus Store SCP Service
-Plexus MWL SCP Service
-Plexus StoreSCU Service
+## Know more
 
-# Plexus_DICOM_Enabler
-
-This is a WinForm project which acts as UI which will be accessed by the end user to perform different operations. Pellucid DICOM Enabler has following screens
-
-Server Manager : Screen where the user will be able to Install/Uninstall , Start and Stop Backend Services
-SCP Settings : Screen where user will be able to configure Modality SCP Settings and Store SCP Settings 
-SCU Settings  : Screen where user will be able to configure Store SCU Details 
-Server List  : Screen where use will be able to add/edit/delete server to which the DICOM Nodes should communicate (hidden while checkserver in cfg/common.cfg is False; shown when it is True so allowed scanners can still be managed - see frm_Mainform_Load)
-View Patient List :Screen that would display list of patient for which different DICOM inteface has happen ( MWL/SCP/Upload of images)
-View Logs : Screen where user will be able view logs of different DICOM Communication ( MWL / STORESCP / STORE SCU)
-Configuration : Screen where user will be able to set the CARE integration settings held in the care_config table - Facility ID (required), worklist modality and from date, polling intervals, SCP / FailedSCP folders and upload limits. Start Services stores the defaults for any blank values (from the service App.config or built-in defaults). Facility ID has no default and must be entered before the services start
-About Us : Screen user will be able to view based details on Plexus
-
-# Plexus_FileDeleteApp
-
-This is a common line project which will delete archive folder and files that was recieved via Store SCP
-
-# Plexus_MWL_Service
-
-This is a windows service project acts as Modality Worklist SCP. This acts as a interface engine which will provide list patient to the respective modality based on the filter request from the modalities 
-
-# Plexus_StoreSCP_Service
-This is a windows service project which will recieve images from Modality and store the images locally. 
-
-
-# Plexus_StoreSCU_Service
-This is a windows service project which will upload images from archive folder to the StoreSCP Node that was configured 
-
-# Unit Test Applications
-
-The solution also has unit test application's project which can be tested individually. 
-
-Sample_ModalitySCP : Unit test application to test the Modality SCP
-Sample_Store_SCP : Unit test application to test both StoreSCP and StoreSCU
-Test_SeriLog : Unit test application to test the SeriLog Library
-
-
-
-
-
-
+- [What the DICOM Enabler is and why](https://egovhealthcare.atlassian.net/wiki/external/NzVkNGIyYzg2NGUxNGZiYTg4NjU2ODNkNThhZDdiYzA)
+- [Setup Guide](https://egovhealthcare.atlassian.net/wiki/external/NjFjNTEwN2ExYWQwNDMwODg3OGI3MDJiMmMxZmJkMzU) — install, verification, troubleshooting
