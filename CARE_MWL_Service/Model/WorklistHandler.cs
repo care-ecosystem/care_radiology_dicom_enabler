@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2012-2022 fo-dicom contributors.
+// Copyright (c) 2012-2022 fo-dicom contributors.
 // Licensed under the Microsoft Public License (MS-PL).
 
 using FellowOakDicom;
@@ -216,6 +216,8 @@ namespace Worklist_SCP.Model
             AddIfExistsInRequest(resultDataset, request, DicomTag.PatientID, result.PatientID); // T1
             AddIfExistsInRequest(resultDataset, request, DicomTag.PatientBirthDate, result.DateOfBirth); // T2
             AddIfExistsInRequest(resultDataset, request, DicomTag.PatientSex, result.Sex); //T2
+            // CARE patient_instruction, also sent as Requested Procedure Comments (0040,1400) below
+            AddIfExistsInRequest(resultDataset, request, DicomTag.PatientComments, result.PatientInstruction ?? string.Empty); // (0010,4000) T3
 
             // Modalities put this on every image of the study, so it comes from the worklist item
             // (stable per order) rather than DicomUID.Generate(), which would change on every C-FIND.

@@ -506,7 +506,7 @@ namespace Worklist_SCP.Model
 
         /// <summary>
         /// Maps CARE's service_request.priority (stat / urgent / asap / routine) to a Requested Procedure
-        /// Priority (0040,1003) defined term: STAT -> STAT, urgent -> HIGH, asap -> MEDIUM, routine -> ROUTINE.
+        /// Priority (0040,1003) defined term: STAT -> STAT, urgent -> MEDIUM, asap -> HIGH, routine -> ROUTINE.
         /// A missing or unknown priority is sent as ROUTINE.
         /// </summary>
         private static string NormalizePriority(string value)
@@ -515,8 +515,8 @@ namespace Worklist_SCP.Model
             switch (value.ToLowerInvariant().Trim())
             {
                 case "stat":    return "STAT";
-                case "urgent":  return "HIGH";
-                case "asap":    return "MEDIUM";
+                case "urgent":  return "MEDIUM";
+                case "asap":    return "HIGH";
                 case "routine": return "ROUTINE";
                 default:        return "ROUTINE";
             }
