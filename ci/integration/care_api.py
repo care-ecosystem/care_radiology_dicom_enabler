@@ -34,6 +34,8 @@ class CareApi:
             headers["Authorization"] = f"Bearer {self.jwt}"
         elif auth == "key":
             headers["Authorization"] = self.cfg.api_token
+        elif auth == "service":
+            headers["Authorization"] = f"Token {self.cfg.service_token}"
         started = time.monotonic()
         response = self.session.request(method, url, headers=headers, timeout=timeout, **kwargs)
         elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -168,7 +170,7 @@ class CareApi:
         path = f"/api/care_radiology/facility/{self.cfg.facility_id}/external/worklist/"
         merged, offset = None, 0
         while True:
-            page = self._json("GET", path, auth="key", params={**params, "offset": offset})
+            page = self._json("GET", path, auth="service", params={**params, "offset": offset})
             results = page.get("results") or []
             if merged is None:
                 merged = page
@@ -181,7 +183,7 @@ class CareApi:
     def upload_external(self, filename, content):
         return self._request(
             "POST", f"/api/care_radiology/facility/{self.cfg.facility_id}/external/imaging_study/upload/",
-            auth="key", timeout=600,
+            auth="service", timeout=600,
             files={"file": (filename, content, "application/dicom")},
         )
 

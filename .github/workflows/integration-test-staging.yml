@@ -24,7 +24,9 @@ name: Integration Test - CARE Server
 # running. A workflow_dispatch input, when given, overrides the environment variable.
 #
 #   Secrets (required)
-#     CARE_API_TOKEN     care_radiology static key (CARE_RADIOLOGY_WEBHOOK_SECRET)
+#     CARE_API_TOKEN     care_radiology static key (CARE_RADIOLOGY_WEBHOOK_SECRET), kept in App.config
+#     CARE_SERVICE_TOKEN service-account token of the test facility; every CARE API call the
+#                        enabler and the suite make is authenticated with it (Authorization: Token ...)
 #     CARE_USERNAME      test user - facility admin of the test facility, no MFA
 #     CARE_PASSWORD
 #   Variables (required)
@@ -122,6 +124,7 @@ jobs:
     env:
       CARE_BASE_URL:             ${{ inputs.care_base_url || vars.CARE_BASE_URL || secrets.CARE_BASE_URL }}
       CARE_API_TOKEN:            ${{ secrets.CARE_API_TOKEN }}
+      CARE_SERVICE_TOKEN:        ${{ secrets.CARE_SERVICE_TOKEN }}
       CARE_USERNAME:             ${{ secrets.CARE_USERNAME }}
       CARE_PASSWORD:             ${{ secrets.CARE_PASSWORD }}
       CARE_FACILITY_ID:          ${{ inputs.care_facility_id || vars.CARE_FACILITY_ID }}
@@ -150,7 +153,7 @@ jobs:
       - name: Check target configuration
         shell: pwsh
         run: |
-          $required = 'CARE_BASE_URL','CARE_API_TOKEN','CARE_USERNAME','CARE_PASSWORD','CARE_FACILITY_ID','CARE_PATIENT_ID','CARE_DICOM_ENABLER_ID'
+          $required = 'CARE_BASE_URL','CARE_API_TOKEN','CARE_SERVICE_TOKEN','CARE_USERNAME','CARE_PASSWORD','CARE_FACILITY_ID','CARE_PATIENT_ID','CARE_DICOM_ENABLER_ID'
           $missing = $required | Where-Object { -not [Environment]::GetEnvironmentVariable($_) }
           if ($missing) {
             Write-Error "Environment '${{ inputs.environment || 'staging' }}' is missing: $($missing -join ', '). See the header of this workflow."
@@ -298,6 +301,20 @@ jobs:
             Write-Output "care_config $key = $($settings[$key])"
           }
 
+          # The service token, encrypted for this machine the way Initializer.ps1 stores it
+          # (keep in step with Protect-ServiceToken there and CARE.DAL/ucls_ServiceToken.cs)
+          # PowerShell 7 ships ProtectedData in its own assembly; Windows PowerShell has it in System.Security
+          try { Add-Type -AssemblyName System.Security.Cryptography.ProtectedData -ErrorAction Stop } catch { Add-Type -AssemblyName System.Security }
+          $entropy = [Text.Encoding]::UTF8.GetBytes('CARE DICOM Enabler service token v1')
+          $cipher = [Security.Cryptography.ProtectedData]::Protect(
+            [Text.Encoding]::UTF8.GetBytes($env:CARE_SERVICE_TOKEN.Trim()), $entropy,
+            [Security.Cryptography.DataProtectionScope]::LocalMachine)
+          $value = 'dpapi:' + [Convert]::ToBase64String($cipher)
+          $sql = "UPDATE plexus_mi2.care_config SET config_value = '$value' WHERE config_key = 'care_service_token';"
+          & $env:MYSQL_EXE -u root --protocol=TCP -e $sql
+          if ($LASTEXITCODE -ne 0) { Write-Error "care_config care_service_token update failed"; exit 1 }
+          Write-Output "care_config care_service_token = (set, encrypted for this machine)"
+
       # Replicates CARE.DAL/EnDcryption.cs: AES-256-CBC, key = EncKey.encdeKey, zero IV, PKCS7.
       - name: Write cfg/common.cfg
         shell: pwsh
@@ -385,7 +402,7 @@ jobs:
           foreach ($file in Get-ChildItem "$env:REPORT_DIR" -Recurse -File -Include *.txt, *.html, *.md, *.xml) {
             $text = Get-Content $file.FullName -Raw
             if ($text) {
-              foreach ($secret in $env:CARE_API_TOKEN, $env:CARE_PASSWORD) {
+              foreach ($secret in $env:CARE_API_TOKEN, $env:CARE_SERVICE_TOKEN, $env:CARE_PASSWORD) {
                 if ($secret) { $text = $text.Replace($secret, '***') }
               }
               Set-Content -Path $file.FullName -Value $text -NoNewline

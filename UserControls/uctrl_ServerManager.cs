@@ -273,9 +273,12 @@ namespace Plexus_DICOM_Enabler.UserControls
                     // Only the CARE services read care_config and need the Facility Id
                     if (!ApplyDefaults())
                         return;
+                    if (!ConfirmServiceToken(out bool tokenSet))
+                        return;
                     // Check CARE for changes to the DICOM Enabler, its devices and the SCP settings first;
-                    // any change is applied only once the user confirms it
-                    if (!SyncWithCareBeforeStart())
+                    // any change is applied only once the user confirms it. Without the service token CARE
+                    // cannot be checked, so the saved DICOM Enabler's endpoints are used as they are.
+                    if (tokenSet ? !SyncWithCareBeforeStart() : !ApplySavedEndpoints())
                         return;
 
                     //StartStopService("Plexus_Auth_Service", true);
@@ -384,6 +387,31 @@ namespace Plexus_DICOM_Enabler.UserControls
             {
                 objDAL.Dispose();
             }
+            return true;
+        }
+
+        /// <summary>
+        /// Checks that the CARE service token (entered in Initializer.bat) is set and can be decrypted on this
+        /// machine. When it cannot, warns that the services will not reach CARE and asks whether to start them
+        /// anyway. tokenSet is whether the token is usable. Returns whether to start the services.
+        /// </summary>
+        private bool ConfirmServiceToken(out bool tokenSet)
+        {
+            tokenSet = ucls_ServiceToken.TryGetAuthorizationHeader(Global._applicationPath, out _, out string tokenError);
+            if (tokenSet)
+                return true;
+
+            cls_AppLog.Warning("SERVICES", "CARE service token not available at Start Service(s): " + tokenError);
+            string reason = char.ToUpperInvariant(tokenError[0]) + tokenError.Substring(1);
+            DialogResult answer = MessageBox.Show(FindForm(),
+                reason + Environment.NewLine + Environment.NewLine +
+                "Without it the services cannot fetch the worklist from CARE, upload images or send scan status. " +
+                "Images received are kept in the SCP folder and uploaded once the token is set." + Environment.NewLine + Environment.NewLine +
+                "Start the services anyway?",
+                "Start Services - CARE service token", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes)
+                return false;
+            cls_AppLog.Warning("SERVICES", "Starting the services without a CARE service token - confirmed by the user");
             return true;
         }
 

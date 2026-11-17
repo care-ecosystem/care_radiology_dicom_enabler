@@ -19,6 +19,12 @@ readable by Administrators and SYSTEM only. After connecting to MySQL:
   - Otherwise: a fresh setup from schema.sql / care_tables.sql.
 Nothing in Backups\ is ever deleted.
 
+It then asks for this facility's CARE service-account token (input hidden) and stores it in
+care_config (care_service_token), encrypted with Windows DPAPI for this machine: the services and
+the app decrypt it on this machine only when they call CARE, and a copy of the database taken to
+another machine cannot decrypt it. A token already set is kept unless you choose to replace it, so
+re-run this script to rotate the token.
+
 Env vars (all optional):
   DICOM_MYSQL_HOST         MySQL host              (default: localhost)
   DICOM_MYSQL_PORT         MySQL port              (default: 3306)
@@ -38,6 +44,8 @@ Env vars (all optional):
   DICOM_MYSQL_NEW_PWD      Password root@localhost is changed to as the final step,
                             after all SQL files are applied
                             (default: care)
+  DICOM_SERVICE_TOKEN      CARE service-account token to store without asking (unattended
+                            setup). Replaces a token already set.
 #>
 
 $MySqlHost   = if ($env:DICOM_MYSQL_HOST) { $env:DICOM_MYSQL_HOST } else { 'localhost' }
@@ -56,6 +64,7 @@ $BackupDir   = Join-Path $BackupRoot (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss')
 $ServiceNames = @('Care MWL SCP Service', 'Care Store SCP Service', 'Care Store SCU Service')
 
 $script:HadFailure = $false
+$careTablesOk = $false
 
 function Write-Step {
     param([string]$Message)
@@ -330,6 +339,61 @@ function Read-MaskedInput {
     return $buffer.ToString()
 }
 
+# The CARE service token is stored as "dpapi:<base64>", encrypted with DPAPI for this machine.
+# Keep in step with CARE.DAL\ucls_ServiceToken.cs, which decrypts it.
+$ServiceTokenKey     = 'care_service_token'
+$ServiceTokenPrefix  = 'dpapi:'
+$ServiceTokenEntropy = [Text.Encoding]::UTF8.GetBytes('CARE DICOM Enabler service token v1')
+try { Add-Type -AssemblyName System.Security.Cryptography.ProtectedData -ErrorAction Stop } catch { Add-Type -AssemblyName System.Security }
+
+function Protect-ServiceToken {
+    param([string]$Token)
+    $cipher = [Security.Cryptography.ProtectedData]::Protect(
+        [Text.Encoding]::UTF8.GetBytes($Token), $ServiceTokenEntropy,
+        [Security.Cryptography.DataProtectionScope]::LocalMachine)
+    return $ServiceTokenPrefix + [Convert]::ToBase64String($cipher)
+}
+
+# The token, or $null when the stored value is not one this machine can decrypt
+function Unprotect-ServiceToken {
+    param([string]$Stored)
+    if (-not $Stored -or -not $Stored.StartsWith($ServiceTokenPrefix)) { return $null }
+    try {
+        $plain = [Security.Cryptography.ProtectedData]::Unprotect(
+            [Convert]::FromBase64String($Stored.Substring($ServiceTokenPrefix.Length)), $ServiceTokenEntropy,
+            [Security.Cryptography.DataProtectionScope]::LocalMachine)
+        return [Text.Encoding]::UTF8.GetString($plain).Trim()
+    } catch {
+        return $null
+    }
+}
+
+# Length and short SHA-256 fingerprint, never the token itself. Matches what the services log
+# when CARE rejects the token (ucls_CareWorklist.DescribeToken), so the two can be compared.
+function Get-TokenDescription {
+    param([string]$Token)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $hex = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Token))).Replace('-', '').ToLower()
+    } finally {
+        $sha.Dispose()
+    }
+    return "$($Token.Length) chars, sha256:$($hex.Substring(0, 16))"
+}
+
+# Trims the token and drops a pasted "Token " scheme. Returns $null (with a message) when it is not usable.
+function ConvertTo-ServiceToken {
+    param([string]$Text)
+    $token = "$Text".Trim()
+    if ($token -match '^(?i)Token\s+') { $token = $token -replace '^(?i)Token\s+', '' }
+    if (-not $token) { return $null }
+    if ($token -match '\s' -or $token -match '[^\x21-\x7E]') {
+        Write-Host "  The token must be one word of printable characters, without spaces." -ForegroundColor Yellow
+        return $null
+    }
+    return $token
+}
+
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     # The backups are Administrators-only: without admin rights they would be silently ignored
@@ -341,7 +405,7 @@ if (-not $isAdmin) {
 # ---------------------------------------------------------------------------
 # Step 1: MySQL client available
 # ---------------------------------------------------------------------------
-Write-Step "1/7 Checking for the MySQL client (mysql.exe)"
+Write-Step "1/8 Checking for the MySQL client (mysql.exe)"
 
 $mysqlExe = $null
 if ($env:DICOM_MYSQL_BIN -and (Test-Path $env:DICOM_MYSQL_BIN)) {
@@ -381,9 +445,9 @@ if ($mysqlExe) {
 # Step 2: MySQL Windows service running
 # ---------------------------------------------------------------------------
 if ($SkipService) {
-    Write-Step "2/7 Checking MySQL service (skipped - DICOM_SKIP_SERVICE_CHECK=1)"
+    Write-Step "2/8 Checking MySQL service (skipped - DICOM_SKIP_SERVICE_CHECK=1)"
 } else {
-    Write-Step "2/7 Checking MySQL Windows service"
+    Write-Step "2/8 Checking MySQL Windows service"
     $svc = Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*mysql*' -or $_.DisplayName -like '*mysql*' } | Select-Object -First 1
 
     if (-not $svc) {
@@ -406,7 +470,7 @@ if ($SkipService) {
 # ---------------------------------------------------------------------------
 # Step 3: MySQL connectivity, existing database and backups
 # ---------------------------------------------------------------------------
-Write-Step "3/7 Checking MySQL connectivity, existing database and backups"
+Write-Step "3/8 Checking MySQL connectivity, existing database and backups"
 
 $connected = $false
 $dbExists = $false
@@ -480,16 +544,16 @@ if (-not $mysqlExe) {
 $dbReady = $false
 $restoreOk = $false
 if (-not $connected) {
-    Write-Step "4/7 Backing up or restoring the database (skipped - not connected, see step 3)"
+    Write-Step "4/8 Backing up or restoring the database (skipped - not connected, see step 3)"
 } elseif ($dbExists) {
-    Write-Step "4/7 Backing up the existing database $DbName"
+    Write-Step "4/8 Backing up the existing database $DbName"
     $dbReady = Backup-Database
 } elseif ($restoreFrom) {
-    Write-Step "4/7 Restoring database $DbName from backup $($restoreFrom.Name)"
+    Write-Step "4/8 Restoring database $DbName from backup $($restoreFrom.Name)"
     $restoreOk = Restore-Database $restoreFrom
     $dbReady = $restoreOk
 } else {
-    Write-Step "4/7 Backing up or restoring the database (skipped - fresh setup)"
+    Write-Step "4/8 Backing up or restoring the database (skipped - fresh setup)"
     $dbReady = $true
 }
 
@@ -498,9 +562,9 @@ if (-not $connected) {
 # INSERT IGNORE), so an existing or restored database keeps its tables and rows.
 # ---------------------------------------------------------------------------
 if (-not $dbReady) {
-    Write-Step "5/7 Creating/updating database tables (skipped - see step $(if ($connected) { 4 } else { 3 }))"
+    Write-Step "5/8 Creating/updating database tables (skipped - see step $(if ($connected) { 4 } else { 3 }))"
 } else {
-    Write-Step "5/7 Creating/updating database tables"
+    Write-Step "5/8 Creating/updating database tables"
     $schemaPath = Join-Path $PSScriptRoot 'schema.sql'
     if (-not (Test-Path $schemaPath)) {
         Write-Fail "schema.sql was not found next to Initializer.ps1 ($schemaPath)." "Restore Emulator\schema.sql from source control."
@@ -520,6 +584,7 @@ if (-not $dbReady) {
                     Write-Fail "Failed applying care_tables.sql (care_service_request / care_patient / care_worklist / care_sync_upload / care_config / care_devices) to '$DbName'." "Ensure user '$MySqlUser' has CREATE and REFERENCES privileges on '$DbName', then re-run this script."
                 } else {
                     Write-Ok "CARE tables are ready: care_service_request, care_patient, care_worklist, care_sync_upload, care_config, care_devices."
+                    $careTablesOk = $true
                 }
             }
         }
@@ -530,11 +595,11 @@ if (-not $dbReady) {
 # Step 6: Restore the SCP / FailedSCP folders of the chosen backup, merged into what is there
 # ---------------------------------------------------------------------------
 if (-not $restoreFrom) {
-    Write-Step "6/7 Restoring SCP / FailedSCP folders (skipped - no backup restored)"
+    Write-Step "6/8 Restoring SCP / FailedSCP folders (skipped - no backup restored)"
 } elseif (-not $restoreOk) {
-    Write-Step "6/7 Restoring SCP / FailedSCP folders (skipped - the database restore failed, see step 4)"
+    Write-Step "6/8 Restoring SCP / FailedSCP folders (skipped - the database restore failed, see step 4)"
 } else {
-    Write-Step "6/7 Restoring SCP / FailedSCP folders from backup $($restoreFrom.Name)"
+    Write-Step "6/8 Restoring SCP / FailedSCP folders from backup $($restoreFrom.Name)"
     # Target folders: as configured in the restored care_config, else the defaults under the install folder
     $configuredFolders = @{}
     $configQuery = Invoke-MySql "SELECT config_key, config_value FROM $DbName.care_config WHERE config_key IN ('scp_folder', 'failed_scp_folder');"
@@ -571,14 +636,84 @@ if (-not $restoreFrom) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 7: root password, set to 'care' (DICOM_MYSQL_NEW_PWD) whatever it was. Runs last: every
+# Step 7: this facility's CARE service-account token, stored encrypted for this machine. Before the
+# password change in step 8, which would lock out the mysql calls made here.
+# ---------------------------------------------------------------------------
+if (-not $careTablesOk) {
+    Write-Step "7/8 Setting the CARE service token (skipped - the CARE tables are not ready, see step 5)"
+} else {
+    Write-Step "7/8 Setting the CARE service token"
+    $tokenQuery = Invoke-MySql "SELECT IFNULL(config_value, '') FROM $DbName.care_config WHERE config_key = '$ServiceTokenKey';"
+    if ($tokenQuery.ExitCode -ne 0) {
+        Write-Fail "Could not read $ServiceTokenKey from care_config: $($tokenQuery.Output | Select-Object -First 1)" "Re-run Initializer.bat."
+    } else {
+        $stored = "$($tokenQuery.Output | Select-Object -First 1)".Trim()
+        $existing = Unprotect-ServiceToken $stored
+        $newToken = $null
+        $askForToken = $true
+
+        if ($env:DICOM_SERVICE_TOKEN) {
+            $newToken = ConvertTo-ServiceToken $env:DICOM_SERVICE_TOKEN
+            $askForToken = $false
+            if (-not $newToken) {
+                Write-Fail "DICOM_SERVICE_TOKEN is not a usable token." "Set DICOM_SERVICE_TOKEN to the facility's service-account token, or clear it to be asked."
+            } else {
+                Write-Info "Using the token in DICOM_SERVICE_TOKEN."
+            }
+        } elseif ($existing) {
+            Write-Info "A service token is already set ($(Get-TokenDescription $existing))."
+            while ($true) {
+                $answer = (Read-Host "  Keep it? [Y/n] (n = enter a new token)").Trim()
+                if ($answer -eq '' -or $answer -ieq 'y' -or $answer -ieq 'yes') { $askForToken = $false; break }
+                if ($answer -ieq 'n' -or $answer -ieq 'no') { break }
+                Write-Host "  Please answer Y or N." -ForegroundColor Yellow
+            }
+            if (-not $askForToken) { Write-Ok "Kept the service token already set." }
+        } elseif ($stored) {
+            # Most often a database restored from another machine: DPAPI ties the value to the machine that stored it
+            Write-Warn "A service token is stored but cannot be decrypted on this machine (database restored or copied from another machine?). Enter it again."
+        }
+
+        if ($askForToken) {
+            Write-Info "Paste this facility's CARE service-account token. Input is hidden; press Enter on an empty line to skip."
+            for ($attempt = 1; $attempt -le 3 -and -not $newToken; $attempt++) {
+                $entered = Read-MaskedInput "  Service token: "
+                if (-not "$entered".Trim()) { break }
+                $newToken = ConvertTo-ServiceToken $entered
+            }
+            if (-not $newToken) {
+                if ($existing) {
+                    Write-Info "No new token entered - the service token already set is kept."
+                } else {
+                    Write-Fail "No service token was set: the services cannot call CARE (worklist, DICOM upload, scan status) until it is." "Re-run Initializer.bat as administrator and paste the facility's service-account token."
+                }
+            }
+        }
+
+        if ($newToken) {
+            $protected = Protect-ServiceToken $newToken
+            # Base64 with a fixed prefix: no quotes to escape in the SQL literal
+            $saveQuery = Invoke-MySql "UPDATE $DbName.care_config SET config_value = '$protected' WHERE config_key = '$ServiceTokenKey';"
+            if ($saveQuery.ExitCode -ne 0) {
+                Write-Fail "Saving the service token failed: $($saveQuery.Output | Select-Object -First 1)" "Re-run Initializer.bat."
+            } else {
+                Write-Ok "Service token saved, encrypted for this machine ($(Get-TokenDescription $newToken)). The services use it from their next CARE call."
+            }
+        }
+        $existing = $null
+        $newToken = $null
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Step 8: root password, set to 'care' (DICOM_MYSQL_NEW_PWD) whatever it was. Runs last: every
 # mysql call above authenticates with the password accepted in step 3, so changing it any earlier
 # would lock out the remaining steps.
 # ---------------------------------------------------------------------------
 if (-not $dbReady) {
-    Write-Step "7/7 Setting the MySQL root password (skipped - see step $(if ($connected) { 4 } else { 3 }))"
+    Write-Step "8/8 Setting the MySQL root password (skipped - see step $(if ($connected) { 4 } else { 3 }))"
 } else {
-    Write-Step "7/7 Setting the MySQL root password"
+    Write-Step "8/8 Setting the MySQL root password"
     $alterSql = "ALTER USER 'root'@'localhost' IDENTIFIED BY '$NewPwd'; FLUSH PRIVILEGES;"
     & $mysqlExe @mysqlArgs -e $alterSql
     if ($LASTEXITCODE -ne 0) {

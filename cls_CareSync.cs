@@ -118,21 +118,22 @@ namespace Plexus_DICOM_Enabler
         };
 
         /// <summary>
-        /// The facility's modalities API URL and the static API key from App.config. False with error set
-        /// when the facility, careBackendURL or staticAPIKey is missing.
+        /// The facility's modalities API URL and the Authorization header for it: the CARE service-account
+        /// token entered in Initializer.bat (see ucls_ServiceToken), decrypted now. False with error set
+        /// when the facility, careBackendURL or the service token is missing.
         /// </summary>
         public static bool TryGetModalitiesApi(string facilityId, out string modalitiesURL, out string apiKey, out string error)
         {
             modalitiesURL = null;
+            apiKey = null;
             error = null;
             string baseUrl = (System.Configuration.ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).Trim();
-            apiKey = System.Configuration.ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty;
             if (string.IsNullOrWhiteSpace(facilityId))
                 error = "the Facility Id is not set.";
             else if (baseUrl == string.Empty)
                 error = "careBackendURL is not set in App.config.";
-            else if (string.IsNullOrWhiteSpace(apiKey))
-                error = "staticAPIKey is not set in App.config.";
+            else if (!ucls_ServiceToken.TryGetAuthorizationHeader(Global._applicationPath, out apiKey, out string tokenError))
+                error = tokenError;
             if (error != null)
                 return false;
             modalitiesURL = ucls_CareModalities.BuildModalitiesURL(baseUrl, System.Configuration.ConfigurationManager.AppSettings["modalitiesURL"], facilityId);

@@ -14,7 +14,7 @@ namespace Plexus.Common.Database
     /// one per DICOM Enabler, usually per room) and DICOM devices (care_type dicom, one per modality
     /// machine). Every DICOM device is connected to exactly one DICOM Enabler through its dicom_enabler.
     /// Only devices whose status is active and availability_status is available are listed, assigned or not.
-    /// Authenticated with the same static API key (CARE_RADIOLOGY_WEBHOOK_SECRET) as the imaging study APIs.
+    /// Authenticated with the CARE service-account token (see ucls_ServiceToken), like the imaging study APIs.
     /// </summary>
     public static class ucls_CareModalities
     {
@@ -469,7 +469,7 @@ namespace Plexus.Common.Database
         }
 
         /// <summary>
-        /// Sends one request to the CARE Modalities API with the static API key, and a JSON body when
+        /// Sends one request to the CARE Modalities API with the service-token Authorization header, and a JSON body when
         /// jsonBody is set. Returns false with error set (and logged) when CARE cannot be reached or
         /// does not answer with a success status.
         /// </summary>
@@ -541,18 +541,18 @@ namespace Plexus.Common.Database
             // What to check, for the banners that show this error
             int status = (int)response.StatusCode;
             if (status == 401 || status == 403)
-                error += ". The staticAPIKey in App.config does not match CARE_RADIOLOGY_WEBHOOK_SECRET on the CARE server.";
+                error += ". CARE rejected the service token: check that it is this facility's service-account token and is still active, then run Initializer.bat to enter it again.";
             else if (status == 404)
                 error += ". Check careBackendURL / modalitiesURL in App.config and the Facility Id.";
             else if (status >= 500)
                 error += ". CARE server error; try again later.";
 
-            // A 401/403 is nearly always the token not matching the server's CARE_RADIOLOGY_WEBHOOK_SECRET
+            // A 401/403 is nearly always a wrong, revoked or other-facility service token
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
                 response.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {
                 writeToLog(
-                    $"Authorization rejected by CARE. Token in use: {ucls_CareWorklist.DescribeToken(token)}. Verify it matches CARE_RADIOLOGY_WEBHOOK_SECRET on the server.", false);
+                    $"Authorization rejected by CARE. Token in use: {ucls_CareWorklist.DescribeToken(token)}. Verify it is this facility's service-account token in CARE (compare the fingerprint Initializer.bat showed); a 403 can also mean the service account lacks permission for this API.", false);
             }
             return false;
         }

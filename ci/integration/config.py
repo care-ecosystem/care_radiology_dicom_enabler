@@ -32,6 +32,7 @@ class Config:
     # CARE server
     base_url: str = field(default_factory=lambda: _env("CARE_BASE_URL", required=True).rstrip("/"))
     api_token: str = field(default_factory=lambda: _env("CARE_API_TOKEN", required=True), repr=False)
+    service_token: str = field(default_factory=lambda: _env("CARE_SERVICE_TOKEN", required=True), repr=False)
     username: str = field(default_factory=lambda: _env("CARE_USERNAME", required=True))
     password: str = field(default_factory=lambda: _env("CARE_PASSWORD", required=True), repr=False)
     facility_id: str = field(default_factory=lambda: _env("CARE_FACILITY_ID", required=True))
@@ -79,4 +80,4 @@ class Config:
     @property
     def secrets(self):
         """Values that must never appear in the report."""
-        return [s for s in (self.api_token, self.password) if s]
+        return [s for s in (self.api_token, self.service_token, self.password) if s]

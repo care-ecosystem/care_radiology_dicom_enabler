@@ -242,8 +242,10 @@ CREATE TABLE IF NOT EXISTS `care_sync_upload` (
 -- Configuration tab. Start Services offers to fill each blank setting with its default (the App.config
 -- value baked in at build time, or the built-in default) so the stored values are shown and can be
 -- changed; it is stored only if the user confirms. A value still blank means the service uses that default. facility_id has no default:
--- the user must enter it, and the services are not started until it is set. API keys and tokens
--- stay in App.config.
+-- the user must enter it, and the services are not started until it is set. The static API key stays in
+-- App.config. care_service_token is not shown in the Configuration tab: Initializer.bat asks for this
+-- facility's CARE service-account token and stores it here encrypted with Windows DPAPI for this machine
+-- ("dpapi:<base64>"), so it cannot be decrypted from a copy of the database on another machine.
 CREATE TABLE IF NOT EXISTS `care_config` (
   `config_key` varchar(100) NOT NULL,
   `config_value` text DEFAULT NULL,
@@ -265,6 +267,7 @@ INSERT IGNORE INTO `care_config` (`config_key`, `config_value`, `description`) V
   ('scp_folder', NULL, 'Folder where received DICOM files are saved and picked up for upload. Blank = SCP under the install folder. Restart the services to apply.'),
   ('failed_scp_folder', NULL, 'Folder files are moved to after the upload retry limit is hit. Blank = FailedSCP under the install folder.'),
   ('dicom_enabler_id', NULL, 'CARE id of the DICOM Enabler this enabler is, selected in the Configuration tab from the facility''s unassigned DICOM Enablers. Its details and DICOM endpoints are its care_devices row. Blank = none selected.'),
+  ('care_service_token', NULL, 'CARE service-account token sent as Authorization: Token <token> on every CARE API call, encrypted with Windows DPAPI for this machine. Set by Initializer.bat; never shown or logged. Blank = CARE is not called.'),
   ('worklist_all_devices', NULL, '1 = fetch the facility''s whole CARE worklist without the DICOM Enabler (device) filter, for facilities whose devices are not set up in CARE; no DICOM Enabler is then needed to fetch it. Blank = only the selected DICOM Enabler''s worklist.');
 
 -- Upgrade: the worklist is no longer filtered by modality, so the care_modality setting is removed.
