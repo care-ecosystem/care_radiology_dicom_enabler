@@ -85,6 +85,10 @@ def test_device_worklist_returns_only_relevant_service_requests(cfg, dicom, ctx,
             f"{accession}: Scheduled Station AE {item['scheduled_aet']} != configured {cfg.calling_aet}"
         )
         assert item["procedure_step_id"], f"{accession}: worklist item has no Scheduled Procedure Step ID"
+        # The CI service requests are created with priority "routine"
+        assert item["priority"] == "ROUTINE", (
+            f"{accession}: Requested Procedure Priority (0040,1003) {item['priority']!r} != 'ROUTINE'"
+        )
         sr(ctx, targeted[accession])["worklist_item"] = item
     record["items"] = [
         f"{a}: PatientID={i['patient_id']} SPS={i['procedure_step_id']} RP={i['requested_procedure_id']} '{i['description']}'"

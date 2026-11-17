@@ -505,20 +505,20 @@ namespace Worklist_SCP.Model
         }
 
         /// <summary>
-        /// Maps CARE's free-text service_request.priority to a DICOM CS-compliant Priority value
-        /// (STAT/HIGH/MEDIUM/ROUTINE), mirroring the gender normalization done for PatientSex - CARE
-        /// returns lower-case/varied wording, but the Priority attribute is a constrained CS value set.
+        /// Maps CARE's service_request.priority (stat / urgent / asap / routine) to a Requested Procedure
+        /// Priority (0040,1003) defined term: STAT -> STAT, urgent -> MEDIUM, asap -> HIGH, routine -> ROUTINE.
+        /// A missing or unknown priority is sent as ROUTINE.
         /// </summary>
         private static string NormalizePriority(string value)
         {
             if (string.IsNullOrWhiteSpace(value)) return "ROUTINE";
             switch (value.ToLowerInvariant().Trim())
             {
-                case "stat": case "emergency": case "urgent": return "STAT";
-                case "high": case "asap":                     return "HIGH";
-                case "medium":                                return "MEDIUM";
-                case "routine": case "normal":                return "ROUTINE";
-                default:                                      return "ROUTINE";
+                case "stat":    return "STAT";
+                case "urgent":  return "MEDIUM";
+                case "asap":    return "HIGH";
+                case "routine": return "ROUTINE";
+                default:        return "ROUTINE";
             }
         }
 

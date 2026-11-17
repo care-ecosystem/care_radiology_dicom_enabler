@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2012-2022 fo-dicom contributors.
+// Copyright (c) 2012-2022 fo-dicom contributors.
 // Licensed under the Microsoft Public License (MS-PL).
 
 using FellowOakDicom;
@@ -216,6 +216,8 @@ namespace Worklist_SCP.Model
             AddIfExistsInRequest(resultDataset, request, DicomTag.PatientID, result.PatientID); // T1
             AddIfExistsInRequest(resultDataset, request, DicomTag.PatientBirthDate, result.DateOfBirth); // T2
             AddIfExistsInRequest(resultDataset, request, DicomTag.PatientSex, result.Sex); //T2
+            // CARE patient_instruction, also sent as Requested Procedure Comments (0040,1400) below
+            AddIfExistsInRequest(resultDataset, request, DicomTag.PatientComments, result.PatientInstruction ?? string.Empty); // (0010,4000) T3
 
             // Modalities put this on every image of the study, so it comes from the worklist item
             // (stable per order) rather than DicomUID.Generate(), which would change on every C-FIND.
@@ -226,6 +228,7 @@ namespace Worklist_SCP.Model
 
             AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureID, result.ProcedureID); // T1
             AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureComments, result.PatientInstruction); // T3
+            AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedurePriority, result.Priority ?? string.Empty); // T2
 
             // procedure_id is CARE's unique code identifying the type of exam ordered (e.g. "xray spine" = 1),
             // distinct from RequestedProcedureID above (which identifies this specific order/request).
@@ -291,7 +294,6 @@ namespace Worklist_SCP.Model
             // Put blanks in for unsupported fields which are type 2 (i.e. must have a value even if NULL)
             // In a real server, you may wish to support some or all of these, but they are not commonly supported
             AddIfExistsInRequest(resultDataset, request, DicomTag.ReferencedStudySequence, new DicomDataset());         // Ref//d Study Sequence
-            AddIfExistsInRequest(resultDataset, request, DicomTag.Priority, result.Priority);                     // Priority
             AddIfExistsInRequest(resultDataset, request, DicomTag.PatientTransportArrangements, "");              // Transport Arrangements
             AddIfExistsInRequest(resultDataset, request, DicomTag.AdmissionID, "");                               // Admission ID
             AddIfExistsInRequest(resultDataset, request, DicomTag.CurrentPatientLocation, "");                    // Patient Location
