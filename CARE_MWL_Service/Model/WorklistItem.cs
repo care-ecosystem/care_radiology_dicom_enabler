@@ -78,5 +78,9 @@ namespace Worklist_SCP.Model
 
         public string ProcedureCode { get; set; }
 
+        public string BodySite { get; set; }
+
+        public string BodySiteId { get; set; }
+
     }
 }

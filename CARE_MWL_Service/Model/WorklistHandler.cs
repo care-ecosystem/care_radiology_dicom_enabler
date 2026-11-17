@@ -167,6 +167,7 @@ namespace Worklist_SCP.Model
                    $"ScheduledDateTime={(item.ExamDateAndTime != default ? item.ExamDateAndTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) : "(none)")}, " +
                    $"ProcedureDescription={item.ExamDescription}, ProcedureCode={item.ProcedureCode}, RequestedProcedureID={item.ProcedureID}, " +
                    $"ScheduledProcedureStepID={item.ProcedureStepID}, StudyInstanceUID={item.StudyUID}, Priority={item.Priority}, " +
+                   $"BodySite={item.BodySite}, BodySiteId={item.BodySiteId}, " +
                    $"ReferringPhysician={item.ReferringPhysician}, Institution={item.HospitalName}";
         }
 
@@ -216,7 +217,7 @@ namespace Worklist_SCP.Model
             AddIfExistsInRequest(resultDataset, request, DicomTag.PatientID, result.PatientID); // T1
             AddIfExistsInRequest(resultDataset, request, DicomTag.PatientBirthDate, result.DateOfBirth); // T2
             AddIfExistsInRequest(resultDataset, request, DicomTag.PatientSex, result.Sex); //T2
-            // CARE patient_instruction, also sent as Requested Procedure Comments (0040,1400) below
+            // CARE patient_instruction
             AddIfExistsInRequest(resultDataset, request, DicomTag.PatientComments, result.PatientInstruction ?? string.Empty); // (0010,4000) T3
 
             // Modalities put this on every image of the study, so it comes from the worklist item
@@ -227,7 +228,6 @@ namespace Worklist_SCP.Model
             AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureDescription, result.ExamDescription); //T1C
 
             AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureID, result.ProcedureID); // T1
-            AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureComments, result.PatientInstruction); // T3
             AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedurePriority, result.Priority ?? string.Empty); // T2
 
             // procedure_id is CARE's unique code identifying the type of exam ordered (e.g. "xray spine" = 1),
@@ -247,6 +247,28 @@ namespace Worklist_SCP.Model
                 AddValue(requestedProcedureCode, DicomTag.CodeMeaning, result.ExamDescription ?? string.Empty);
             }
             AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureCodeSequence, requestedProcedureCode); // T1C
+
+            string bodyPart = ToCodeString(result.BodySite);
+            if (bodyPart.Length > 16)
+            {
+                if (request.Contains(DicomTag.BodyPartExamined))
+                    log?.Invoke(LogEventLevel.Warning, $"Body Part Examined (0018,0015) \"{bodyPart}\" not sent (sent empty): a DICOM code string allows at most 16 characters. " +
+                        $"AccessionNumber={result.AccessionNumber}, ServiceRequestId={result.ServiceRequestId}");
+                bodyPart = string.Empty;
+            }
+            AddIfExistsInRequest(resultDataset, request, DicomTag.BodyPartExamined, bodyPart); // (0018,0015) T3
+
+            // CARE body_site_id is a SNOMED CT code, sent in Anatomic Region Sequence (0008,2218) with
+            // body_site as its meaning. Built only when the query asks for it, like the procedure code.
+            var anatomicRegion = new DicomDataset();
+            if (request.Contains(DicomTag.AnatomicRegionSequence) && !string.IsNullOrWhiteSpace(result.BodySiteId))
+            {
+                string bodySiteId = result.BodySiteId.Trim();
+                AddValue(anatomicRegion, bodySiteId.Length <= 16 ? DicomTag.CodeValue : DicomTag.LongCodeValue, bodySiteId);
+                AddValue(anatomicRegion, DicomTag.CodingSchemeDesignator, "SCT");
+                AddValue(anatomicRegion, DicomTag.CodeMeaning, result.BodySite ?? string.Empty);
+            }
+            AddIfExistsInRequest(resultDataset, request, DicomTag.AnatomicRegionSequence, anatomicRegion); // (0008,2218) T3
 
             // Scheduled Procedure Step sequence T1
             // add results to procedure step dataset
@@ -503,6 +525,20 @@ namespace Worklist_SCP.Model
 
             time = parsed;
             return true;
+        }
+
+
+        /// <summary>
+        /// A free-text value as a CS value: trimmed, uppercased, and every character CS does not allow
+        /// (anything other than A-Z, 0-9, space and underscore) replaced by "_". Not limited to 16 characters.
+        /// </summary>
+        private static string ToCodeString(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+            return new string(value.Trim().ToUpperInvariant()
+                .Select(c => (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ' || c == '_' ? c : '_')
+                .ToArray());
         }
 
 

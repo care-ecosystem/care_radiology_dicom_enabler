@@ -356,6 +356,8 @@ namespace Worklist_SCP.Model
             mwlItem.PatientInstruction = record.ServiceRequestPatientInstruction ?? string.Empty;
             mwlItem.Priority = NormalizePriority(record.ServiceRequestPriority);
             mwlItem.ProcedureCode = record.ServiceRequestProcedureId ?? string.Empty;
+            mwlItem.BodySite = record.ServiceRequestBodySite ?? string.Empty;
+            mwlItem.BodySiteId = record.ServiceRequestBodySiteId ?? string.Empty;
 
             // care_service_request.date is saved already converted to local time.
             if (record.ServiceRequestDate.HasValue)
