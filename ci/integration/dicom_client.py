@@ -87,7 +87,7 @@ class DicomClient:
         query = Dataset()
         for keyword in ("PatientName", "PatientID", "PatientBirthDate", "PatientSex", "AccessionNumber",
                         "RequestedProcedureID", "RequestedProcedureDescription", "ReferringPhysicianName",
-                        "InstitutionName"):
+                        "InstitutionName", "RequestedProcedurePriority"):
             setattr(query, keyword, "")
         sps = Dataset()
         sps.ScheduledStationAETitle = scheduled_aet or ""
@@ -205,6 +205,7 @@ def _worklist_item(identifier):
         "modality": str(sps.get("Modality", "") or ""),
         "scheduled_aet": str(sps.get("ScheduledStationAETitle", "") or ""),
         "institution": str(identifier.get("InstitutionName", "") or ""),
+        "priority": str(identifier.get("RequestedProcedurePriority", "") or ""),
     }
 
 
