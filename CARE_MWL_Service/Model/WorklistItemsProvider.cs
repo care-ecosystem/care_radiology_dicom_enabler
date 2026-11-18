@@ -260,10 +260,15 @@ namespace Worklist_SCP.Model
             try
             {
                 objDal = new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
+                if (!ucls_ServiceToken.TryGetAuthorizationHeader(objDal, out string authorization, out string tokenError))
+                {
+                    objReadWriteLog.WriteToLog("Not calling the CARE worklist API: " + tokenError, false);
+                    return false;
+                }
                 return ucls_CareWorklist.RefreshCareWorklist(
                     objDal,
                     ConfigurationManager.AppSettings["careBaseUrl"] ?? string.Empty,
-                    ConfigurationManager.AppSettings["careToken"] ?? string.Empty,
+                    authorization,
                     WorklistServer.GetConfigSetting("care_from_date", "careFromDate"),
                     facilityId,
                     dicomEnablerId,

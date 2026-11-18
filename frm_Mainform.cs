@@ -1484,9 +1484,11 @@ namespace Plexus_DICOM_Enabler
             var dal = new ucls_DAL(Global._applicationPath);
             try
             {
+                if (!ucls_ServiceToken.TryGetAuthorizationHeader(dal, out string authorization, out string tokenError))
+                    return "The worklist could not be fetched from CARE: " + tokenError;
                 bool ok = ucls_CareWorklist.RefreshCareWorklist(dal,
                     (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).Trim().TrimEnd('/'),
-                    ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty,
+                    authorization,
                     fromDate, facilityId, enablerId, false, cls_AppLog.For("WORKLIST"));
                 return ok ? null : "The worklist could not be fetched from CARE or saved (see the App Log).";
             }
@@ -1518,7 +1520,7 @@ namespace Plexus_DICOM_Enabler
             MessageBox.Show(this, message, "Error Saving Configuration", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
-        /// <summary>The facility's modalities API URL and the static API key; see cls_CareSync.TryGetModalitiesApi.</summary>
+        /// <summary>The facility's modalities API URL and the service-token Authorization header; see cls_CareSync.TryGetModalitiesApi.</summary>
         private static bool TryGetModalitiesApi(string facilityId, out string modalitiesURL, out string apiKey, out string error)
         {
             return cls_CareSync.TryGetModalitiesApi(facilityId, out modalitiesURL, out apiKey, out error);
@@ -1653,7 +1655,8 @@ namespace Plexus_DICOM_Enabler
             string facilityId = mtxtb_FacilityId.Text.Trim();
             string baseUrl = (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).Trim();
             string modalitiesPath = ConfigurationManager.AppSettings["modalitiesURL"];
-            string staticAPIKey = ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty;
+            string authorization = null;
+            string tokenError = null;
 
             mbtn_DicomEnablerRefresh.Enabled = true;
 
@@ -1666,8 +1669,8 @@ namespace Plexus_DICOM_Enabler
             }
             else if (baseUrl == string.Empty)
                 notLoadedReason = "careBackendURL is not set in App.config, so the DICOM Enablers cannot be loaded.";
-            else if (string.IsNullOrWhiteSpace(staticAPIKey))
-                notLoadedReason = "staticAPIKey is not set in App.config, so the DICOM Enablers cannot be loaded.";
+            else if (!ucls_ServiceToken.TryGetAuthorizationHeader(Global._applicationPath, out authorization, out tokenError))
+                notLoadedReason = "The DICOM Enablers cannot be loaded: " + tokenError;
             if (notLoadedReason != null)
             {
                 ShowDicomEnablers(null, notLoadedKind, notLoadedReason);
@@ -1686,7 +1689,7 @@ namespace Plexus_DICOM_Enabler
                 result = await System.Threading.Tasks.Task.Run(() =>
                 {
                     bool ok = ucls_CareModalities.TryFetchUnassignedDicomEnablers(
-                        modalitiesURL, staticAPIKey, LogDicomEnablerLoad, out CareModalitiesResponse enablers, out string error);
+                        modalitiesURL, authorization, LogDicomEnablerLoad, out CareModalitiesResponse enablers, out string error);
                     return Tuple.Create(ok, enablers, error);
                 });
             }

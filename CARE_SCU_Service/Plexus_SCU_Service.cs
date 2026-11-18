@@ -106,16 +106,16 @@ namespace Plexus_SCU_Service
                 string careBackendURL = (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).TrimEnd('/');
                 string uploadPath = ConfigurationManager.AppSettings["uploadURL"] ?? string.Empty;
                 string statusPath = ConfigurationManager.AppSettings["statusURL"] ?? string.Empty;
-                string staticAPIKey = ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty;
 
                 if (string.IsNullOrWhiteSpace(careBackendURL))
                 {
                     WriteToLog("careBackendURL is not configured in App.config", false);
                     return;
                 }
-                if (string.IsNullOrWhiteSpace(staticAPIKey))
+                // The service-account token, decrypted for this cycle only (see ucls_ServiceToken)
+                if (!ucls_ServiceToken.TryGetAuthorizationHeader(objDAL, out string authorization, out string tokenError))
                 {
-                    WriteToLog("staticAPIKey is not configured in App.config — cannot upload", false);
+                    WriteToLog("Not uploading: " + tokenError, false);
                     return;
                 }
 
@@ -157,9 +157,9 @@ namespace Plexus_SCU_Service
                 if (dcmfiles.Length <= 0)
                 {
                     WriteToLog($"Folder {dcmPushPath} has no files to upload.", true);
-                    SendPendingScanStartedStatuses(facilityId.Trim(), statusURL, staticAPIKey);
-                    SendPendingScanCancelledStatuses(facilityId.Trim(), statusURL, staticAPIKey);
-                    SendScanCompletedStatuses(facilityId.Trim(), statusURL, staticAPIKey, dcmPushPath, dcmfiles, new HashSet<string>());
+                    SendPendingScanStartedStatuses(facilityId.Trim(), statusURL, authorization);
+                    SendPendingScanCancelledStatuses(facilityId.Trim(), statusURL, authorization);
+                    SendScanCompletedStatuses(facilityId.Trim(), statusURL, authorization, dcmPushPath, dcmfiles, new HashSet<string>());
                     return;
                 }
 
@@ -254,7 +254,7 @@ namespace Plexus_SCU_Service
                             continue;
                         }
 
-                        UploadDicomFileViaHttp(dcmfile, dataset, fileMeta, instanceKey, uploadURL, statusURL, staticAPIKey, retryDelayMinutes, failedRetryCount);
+                        UploadDicomFileViaHttp(dcmfile, dataset, fileMeta, instanceKey, uploadURL, statusURL, authorization, retryDelayMinutes, failedRetryCount);
                     }
                     finally
                     {
@@ -272,10 +272,10 @@ namespace Plexus_SCU_Service
                         WriteToLog($"{waitingCount} file(s) waiting for their next retry time", true);
                 }
 
-                SendPendingScanStartedStatuses(facilityId.Trim(), statusURL, staticAPIKey);
-                SendPendingScanCancelledStatuses(facilityId.Trim(), statusURL, staticAPIKey);
+                SendPendingScanStartedStatuses(facilityId.Trim(), statusURL, authorization);
+                SendPendingScanCancelledStatuses(facilityId.Trim(), statusURL, authorization);
                 if (!unreadableFilePending)
-                    SendScanCompletedStatuses(facilityId.Trim(), statusURL, staticAPIKey, dcmPushPath, dcmfiles, pendingAccessionNumbers);
+                    SendScanCompletedStatuses(facilityId.Trim(), statusURL, authorization, dcmPushPath, dcmfiles, pendingAccessionNumbers);
             }
             catch (Exception ex)
             {
@@ -289,7 +289,7 @@ namespace Plexus_SCU_Service
 
         // dataset, fileMeta and instanceKey come from TryReadInstance. failedRetryCount is the file's retry_count
         // when this upload is a retry, null for a new file
-        private void UploadDicomFileViaHttp(string dcmfile, DicomDataset dataset, DicomFileMetaInformation fileMeta, string instanceKey, string uploadURL, string statusURL, string staticApiKey, int retryDelayMinutes, int? failedRetryCount)
+        private void UploadDicomFileViaHttp(string dcmfile, DicomDataset dataset, DicomFileMetaInformation fileMeta, string instanceKey, string uploadURL, string statusURL, string authorization, int retryDelayMinutes, int? failedRetryCount)
         {
             string studyInstanceId = string.Empty;
             string accessionNumber = string.Empty;
@@ -334,7 +334,7 @@ namespace Plexus_SCU_Service
                     }
                 }
 
-                SendScanStartedStatus(accessionNumber, statusURL, staticApiKey);
+                SendScanStartedStatus(accessionNumber, statusURL, authorization);
 
                 string fileName = Path.GetFileName(dcmfile);
                 using (var content = new MultipartFormDataContent())
@@ -345,7 +345,7 @@ namespace Plexus_SCU_Service
                     content.Add(fileContent, "file", fileName);
 
                     var request = new HttpRequestMessage(HttpMethod.Post, uploadURL);
-                    request.Headers.Add("Authorization", staticApiKey);
+                    request.Headers.Add("Authorization", authorization);
                     request.Content = content;
 
                     WriteToLog($"Uploading to {uploadURL} (DICOM PatientID={patientId}, StudyUID={studyInstanceId}, AccessionNumber={accessionNumber})", true);
@@ -693,7 +693,7 @@ namespace Plexus_SCU_Service
         // be sent (or CARE cannot be reached) the file is still uploaded and scan_status is set to
         // START_PENDING, so it is tried again every cycle by SendPendingScanStartedStatuses even when the
         // file was uploaded and deleted.
-        private void SendScanStartedStatus(string accessionNumber, string statusURL, string staticApiKey)
+        private void SendScanStartedStatus(string accessionNumber, string statusURL, string authorization)
         {
             string errorString = string.Empty;
             string serviceRequestId = null;
@@ -712,7 +712,7 @@ namespace Plexus_SCU_Service
                 return;
             }
 
-            if (careOutage == null && SendScanStatus(statusURL, staticApiKey, serviceRequestId, accessionNumber, ScanStatusStarted))
+            if (careOutage == null && SendScanStatus(statusURL, authorization, serviceRequestId, accessionNumber, ScanStatusStarted))
                 SaveScanStatus(accessionNumber, "STARTED");
             else if (scanStatus != "START_PENDING")
                 SaveScanStatus(accessionNumber, "START_PENDING");
@@ -721,21 +721,21 @@ namespace Plexus_SCU_Service
         // Sends IN_PROGRESS for each of the facility's accession numbers whose IN_PROGRESS could not be
         // sent on MPPS IN PROGRESS or before its upload (scan_status START_PENDING). When it cannot be sent it is tried again
         // next cycle, and while CARE cannot be reached it is not tried until it is reachable again.
-        private void SendPendingScanStartedStatuses(string facilityId, string statusURL, string staticApiKey)
+        private void SendPendingScanStartedStatuses(string facilityId, string statusURL, string authorization)
         {
-            SendPendingScanStatuses(facilityId, statusURL, staticApiKey, "START_PENDING", ScanStatusStarted, "STARTED");
+            SendPendingScanStatuses(facilityId, statusURL, authorization, "START_PENDING", ScanStatusStarted, "STARTED");
         }
 
         // Sends CANCELLED for each of the facility's accession numbers whose CANCELLED could not be sent
         // when the modality sent MPPS DISCONTINUED (scan_status CANCEL_PENDING), retried like IN_PROGRESS.
-        private void SendPendingScanCancelledStatuses(string facilityId, string statusURL, string staticApiKey)
+        private void SendPendingScanCancelledStatuses(string facilityId, string statusURL, string authorization)
         {
-            SendPendingScanStatuses(facilityId, statusURL, staticApiKey, "CANCEL_PENDING", ScanStatusCancelled, "CANCELLED");
+            SendPendingScanStatuses(facilityId, statusURL, authorization, "CANCEL_PENDING", ScanStatusCancelled, "CANCELLED");
         }
 
         // Sends studyStatus for each of the facility's care_worklist rows with scan_status pendingScanStatus,
         // and sets scan_status to sentScanStatus for each one CARE accepts.
-        private void SendPendingScanStatuses(string facilityId, string statusURL, string staticApiKey, string pendingScanStatus, string studyStatus, string sentScanStatus)
+        private void SendPendingScanStatuses(string facilityId, string statusURL, string authorization, string pendingScanStatus, string studyStatus, string sentScanStatus)
         {
             if (careOutage != null)
                 return;
@@ -757,7 +757,7 @@ namespace Plexus_SCU_Service
                         continue;
                     }
 
-                    if (SendScanStatus(statusURL, staticApiKey, scan.ServiceRequestId, scan.AccessionNumber, studyStatus))
+                    if (SendScanStatus(statusURL, authorization, scan.ServiceRequestId, scan.AccessionNumber, studyStatus))
                         SaveScanStatus(scan.AccessionNumber, sentScanStatus);
                 }
             }
@@ -777,7 +777,7 @@ namespace Plexus_SCU_Service
         // until it is reachable again. pendingAccessionNumbers only covers cycleFiles, the files listed at
         // the start of the cycle, so before the first COMPLETED is sent the SCP folder is checked
         // again for files the Store SCP saved during the cycle.
-        private void SendScanCompletedStatuses(string facilityId, string statusURL, string staticApiKey, string dcmPushPath, string[] cycleFiles, HashSet<string> pendingAccessionNumbers)
+        private void SendScanCompletedStatuses(string facilityId, string statusURL, string authorization, string dcmPushPath, string[] cycleFiles, HashSet<string> pendingAccessionNumbers)
         {
             if (careOutage != null)
                 return;
@@ -831,7 +831,7 @@ namespace Plexus_SCU_Service
                     if (pendingAccessionNumbers.Contains(scan.AccessionNumber))
                         continue;
 
-                    if (SendScanStatus(statusURL, staticApiKey, scan.ServiceRequestId, scan.AccessionNumber, ScanStatusCompleted))
+                    if (SendScanStatus(statusURL, authorization, scan.ServiceRequestId, scan.AccessionNumber, ScanStatusCompleted))
                         SaveScanStatus(scan.AccessionNumber, "COMPLETED");
                 }
             }
@@ -871,9 +871,9 @@ namespace Plexus_SCU_Service
         }
 
         // PATCHes study_status for a service request to the CARE scan status API. Returns whether CARE accepted it.
-        private bool SendScanStatus(string statusURL, string staticApiKey, string serviceRequestId, string accessionNumber, string studyStatus)
+        private bool SendScanStatus(string statusURL, string authorization, string serviceRequestId, string accessionNumber, string studyStatus)
         {
-            return ucls_CareScanStatus.Send(statusURL, staticApiKey, serviceRequestId, accessionNumber, studyStatus, WriteToLog);
+            return ucls_CareScanStatus.Send(statusURL, authorization, serviceRequestId, accessionNumber, studyStatus, WriteToLog);
         }
 
         private void SaveScanStatus(string accessionNumber, string scanStatus)
@@ -935,10 +935,16 @@ namespace Plexus_SCU_Service
                     return false;
                 }
 
+                if (!ucls_ServiceToken.TryGetAuthorizationHeader(objDAL, out string authorization, out string tokenError))
+                {
+                    WriteToLog("Not refreshing care_worklist: " + tokenError, false);
+                    return false;
+                }
+
                 return ucls_CareWorklist.RefreshCareWorklist(
                     objDAL,
                     (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).TrimEnd('/'),
-                    ConfigurationManager.AppSettings["staticAPIKey"] ?? string.Empty,
+                    authorization,
                     GetConfigSetting("care_from_date", "careFromDate"),
                     facilityId,
                     GetConfigSetting("dicom_enabler_id", null).Trim(),
