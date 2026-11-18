@@ -1873,7 +1873,7 @@ namespace Plexus_DICOM_Enabler
             if (notLoadedReason != null)
             {
                 ShowFacilities(null);
-                ShowBanner(lbl_DicomEnablerBanner, tt_DicomEnablerBanner, BannerKind.Error, notLoadedReason);
+                ShowEnablersWithoutCare(BannerKind.Error, notLoadedReason);
                 return;
             }
 
@@ -1906,7 +1906,7 @@ namespace Plexus_DICOM_Enabler
             if (!result.Item1)
             {
                 ShowFacilities(null);
-                ShowBanner(lbl_DicomEnablerBanner, tt_DicomEnablerBanner, BannerKind.Error,
+                ShowEnablersWithoutCare(BannerKind.Error,
                            $"Could not load the facilities from CARE ({DescribeHost(baseUrl)}). {result.Item3}");
                 return;
             }
@@ -1914,17 +1914,35 @@ namespace Plexus_DICOM_Enabler
             ShowFacilities(result.Item2);
             if (result.Item2.Count == 0)
             {
-                ShowBanner(lbl_DicomEnablerBanner, tt_DicomEnablerBanner, BannerKind.Warning,
+                ShowEnablersWithoutCare(BannerKind.Warning,
                            "The service account has access to no facilities in CARE. Ask a CARE administrator to give it access, then click Refresh.");
                 return;
             }
             if (selectedFacility != null && !selectedFacility.Listed)
             {
-                ShowBanner(lbl_DicomEnablerBanner, tt_DicomEnablerBanner, BannerKind.Warning,
+                ShowEnablersWithoutCare(BannerKind.Warning,
                            $"The saved facility {selectedFacility.Id} is not one the service account can access in CARE. Select one of its facilities, or check the token entered in Initializer.bat.");
                 return;
             }
             LoadDicomEnablers();
+        }
+
+        /// <summary>
+        /// When the DICOM Enablers cannot be loaded from CARE because the facilities could not be: fills the
+        /// DICOM Enabler dropdown from what is saved locally ("(None)" and the saved enabler, when the saved
+        /// facility is selected), so the saved selection can still be seen or cleared, and shows message.
+        /// </summary>
+        private void ShowEnablersWithoutCare(BannerKind messageKind, string message)
+        {
+            if (!IsDicomEnablerConfigAvailable())
+            {
+                // Same as LoadDicomEnablers: Save could not store a selection, so the dropdown is disabled
+                mcb_DicomEnabler.Enabled = false;
+                ShowDicomEnablers(null, BannerKind.Error, message + " The database is also out of date (the DICOM Enabler setting is missing): run Initializer.bat to update it.");
+                return;
+            }
+            mcb_DicomEnabler.Enabled = true;
+            ShowDicomEnablers(null, messageKind, message);
         }
 
         private void ShowFacilities(List<CareFacility> facilities)
@@ -1993,6 +2011,7 @@ namespace Plexus_DICOM_Enabler
                 return;
             selectedFacility = item;
             selectedDicomEnabler = null;
+            ShowDicomEnablers(null, BannerKind.Info, $"Loading the DICOM Enablers of {selectedFacility?.ToString() ?? "the facility"} from CARE...");
             LoadDicomEnablers();
         }
 
