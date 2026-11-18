@@ -47,7 +47,7 @@ git tag jh-v1.0.0 && git push origin jh-v1.0.0   # -> built with the "jh" enviro
 - `nuget restore CARE_DICOM_Enabler.sln` then build `CARE_DICOM_Enabler.sln` (fo-dicom, MySql.Data, Serilog, MaterialSkin.2 — see `packages.config`)
 - CARE settings live in each service's `App.config` (`careBaseUrl`, static API key in `careToken` / `staticAPIKey`); the service-account token is set by `Initializer.bat`; the UI's **Configuration** tab writes the rest to `cfg/common.cfg` and the `care_config` table
 
-CI (`.github/workflows/build.yml`) builds on every push/PR to `main` and on tags, and can be run manually with overrides for build configuration, platform, CARE server URL/token, worklist from-date, refresh interval and upload retries. Values resolve as: manual input → environment secret/var → workflow default → committed `App.config`.
+CI (`.github/workflows/build.yml`) builds on every push/PR to `main` and on tags, and can be run manually with overrides for build configuration, platform, CARE server URL/token, worklist from-date, refresh interval, upload retries and the scan-completed wait (`CARE_SCAN_COMPLETED_WAIT_SECONDS`, seconds after a study's last upload before COMPLETED is sent to CARE). Values resolve as: manual input → environment secret/var → workflow default → committed `App.config`.
 
 ## Know more
 

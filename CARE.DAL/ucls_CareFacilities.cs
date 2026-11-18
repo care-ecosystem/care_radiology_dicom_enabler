@@ -102,12 +102,4 @@ namespace Plexus.Common.Database
         public int count { get; set; }
         public List<CareFacility> results { get; set; }
     }
-
-    /// <summary>The fields of a CARE facility the Configuration tab uses; the rest of the response is ignored.</summary>
-    public class CareFacility
-    {
-        public string id { get; set; }
-        public string name { get; set; }
-        public string facility_type { get; set; }
-    }
 }
