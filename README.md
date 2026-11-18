@@ -18,7 +18,7 @@ Flow: CARE order → device worklist query → acquire → C-STORE → `./SCP` �
 2. Download the ZIP from the [Releases page](https://github.com/care-ecosystem/care_radiology_dicom_enabler/releases) and extract it (right-click → **Properties** → **Unblock** first if Windows marks it blocked).
 3. Create two empty folders next to the EXE: `SCP` and `FAILED_SCP`.
 4. Run `scripts\Initializer.bat` **as administrator** to create the local database. When asked, paste the facility's **CARE service-account token** (input is hidden). It is stored encrypted for this machine only; re-run the Initializer to replace it.
-5. Run `CARE_DICOM_Enabler.exe` **as administrator** → **Configuration** tab → set AE titles and the **Facility ID** → **Save**.
+5. Run `CARE_DICOM_Enabler.exe` **as administrator** → **Configuration** tab → select the **Facility** (the list shows the facilities the service-account token can access) and the **DICOM Enabler** → **Save**.
 6. **Install Services**, then **Start Services**. Check the **Log** tab for errors.
 
 Verify: all three services **Running** in `services.msc`, and ports 2007/2008 listening —
@@ -47,7 +47,7 @@ git tag jh-v1.0.0 && git push origin jh-v1.0.0   # -> built with the "jh" enviro
 - `nuget restore CARE_DICOM_Enabler.sln` then build `CARE_DICOM_Enabler.sln` (fo-dicom, MySql.Data, Serilog, MaterialSkin.2 — see `packages.config`)
 - CARE settings live in each service's `App.config` (`careBaseUrl`, static API key in `careToken` / `staticAPIKey`); the service-account token is set by `Initializer.bat`; the UI's **Configuration** tab writes the rest to `cfg/common.cfg` and the `care_config` table
 
-CI (`.github/workflows/build.yml`) builds on every push/PR to `main` and on tags, and can be run manually with overrides for build configuration, platform, CARE server URL/token, worklist from-date, refresh interval and upload retries. Values resolve as: manual input → environment secret/var → workflow default → committed `App.config`.
+CI (`.github/workflows/build.yml`) builds on every push/PR to `main` and on tags, and can be run manually with overrides for build configuration, platform, CARE server URL/token, worklist from-date, refresh interval, upload retries and the scan-completed wait (`CARE_SCAN_COMPLETED_WAIT_SECONDS`, seconds after a study's last upload before COMPLETED is sent to CARE). Values resolve as: manual input → environment secret/var → workflow default → committed `App.config`.
 
 ## Know more
 

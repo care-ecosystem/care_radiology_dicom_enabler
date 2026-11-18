@@ -850,7 +850,7 @@ namespace Plexus_DICOM_Enabler
                 foreach (DataRow row in dsResult.Tables[0].Rows)
                 {
                     string key = row["config_key"].ToString();
-                    if (fields.ContainsKey(key) || key == DicomEnablerIdKey || key == ucls_CareWorklist.AllDevicesConfigKey)
+                    if (fields.ContainsKey(key) || key == FacilityIdKey || key == DicomEnablerIdKey || key == ucls_CareWorklist.AllDevicesConfigKey)
                         loadedConfigValues[key] = row["config_value"].ToString().Trim();
                 }
                 loadedConfigValues.TryGetValue(ucls_CareWorklist.AllDevicesConfigKey, out string allDevicesValue);
@@ -874,7 +874,10 @@ namespace Plexus_DICOM_Enabler
                     field.Value.Text = value;
                 }
 
-                LoadDicomEnablers();
+                loadedConfigValues.TryGetValue(FacilityIdKey, out string savedFacilityId);
+                selectedFacility = string.IsNullOrWhiteSpace(savedFacilityId) ? null : new FacilityItem(savedFacilityId.Trim(), null);
+
+                LoadFacilities();
             }
             catch (Exception ex)
             {
@@ -892,15 +895,16 @@ namespace Plexus_DICOM_Enabler
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(mtxtb_FacilityId.Text))
+                if (selectedFacility == null)
                 {
-                    MessageBox.Show(this, "Please enter the Facility Id. The CARE worklist is not fetched without it.",
+                    MessageBox.Show(this, "Please select the facility. The CARE worklist is not fetched without it.",
                                      "Check Mandatory", MessageBoxButtons.OK,
                                      MessageBoxIcon.Error);
                     return;
                 }
 
                 var values = GetConfigFields().ToDictionary(field => field.Key, field => field.Value.Text.Trim());
+                values[FacilityIdKey] = selectedFacility.Id;
                 if (IsDicomEnablerConfigAvailable())
                 {
                     values[DicomEnablerIdKey] = selectedDicomEnabler?.Id ?? string.Empty;
@@ -931,6 +935,12 @@ namespace Plexus_DICOM_Enabler
                         bool wasOn = ucls_CareWorklist.IsAllDevices(oldValue), isOn = ucls_CareWorklist.IsAllDevices(newValue);
                         if (wasOn != isOn)
                             changes[value.Key] = $"Fetch the facility's whole worklist (all devices): {(wasOn ? "on" : "off")} -> {(isOn ? "on" : "off")}";
+                        continue;
+                    }
+                    if (value.Key == FacilityIdKey)
+                    {
+                        if (!string.Equals((oldValue ?? string.Empty).Trim(), newValue, StringComparison.OrdinalIgnoreCase))
+                            changes[value.Key] = $"Facility: {DescribeFacility(oldValue)} -> {DescribeFacility(newValue)}";
                         continue;
                     }
                     if ((oldValue ?? string.Empty) != newValue)
@@ -1652,7 +1662,7 @@ namespace Plexus_DICOM_Enabler
             }
             mcb_DicomEnabler.Enabled = true;
 
-            string facilityId = mtxtb_FacilityId.Text.Trim();
+            string facilityId = selectedFacility?.Id ?? string.Empty;
             string baseUrl = (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).Trim();
             string modalitiesPath = ConfigurationManager.AppSettings["modalitiesURL"];
             string authorization = null;
@@ -1664,7 +1674,7 @@ namespace Plexus_DICOM_Enabler
             BannerKind notLoadedKind = BannerKind.Error;
             if (facilityId == string.Empty)
             {
-                notLoadedReason = "Enter the Facility Id and click Refresh to load the DICOM Enablers.";
+                notLoadedReason = "Select the facility to load its DICOM Enablers.";
                 notLoadedKind = BannerKind.Warning;
             }
             else if (baseUrl == string.Empty)
@@ -1680,7 +1690,7 @@ namespace Plexus_DICOM_Enabler
             // Refresh stays available while loading: clicking it starts a new load and this one's result is ignored
             string modalitiesURL = ucls_CareModalities.BuildModalitiesURL(baseUrl, modalitiesPath, facilityId);
             ShowBanner(lbl_DicomEnablerBanner, tt_DicomEnablerBanner, BannerKind.Info,
-                       $"Loading DICOM Enablers from CARE ({DescribeHost(baseUrl)}, facility {facilityId})...");
+                       $"Loading DICOM Enablers from CARE ({DescribeHost(baseUrl)}, {selectedFacility})...");
             spn_DicomEnablerRefresh.Start();
 
             Tuple<bool, CareModalitiesResponse, string> result;
@@ -1707,7 +1717,7 @@ namespace Plexus_DICOM_Enabler
             if (!result.Item1)
             {
                 ShowDicomEnablers(null, BannerKind.Error,
-                    $"Could not load the DICOM Enablers from CARE ({DescribeHost(baseUrl)}, facility {facilityId}). {result.Item3}");
+                    $"Could not load the DICOM Enablers from CARE ({DescribeHost(baseUrl)}, {selectedFacility}). {result.Item3}");
                 return;
             }
             ShowDicomEnablers(result.Item2.results, BannerKind.Info, null);
@@ -1722,6 +1732,8 @@ namespace Plexus_DICOM_Enabler
         {
             loadedConfigValues.TryGetValue(DicomEnablerIdKey, out string savedEnablerId);
             savedEnablerId = string.IsNullOrWhiteSpace(savedEnablerId) ? null : savedEnablerId.Trim();
+            if (!IsSavedFacilitySelected())
+                savedEnablerId = null;
 
             rebuildingDicomEnablerItems = true;
             try
@@ -1809,7 +1821,215 @@ namespace Plexus_DICOM_Enabler
 
         private void mbtn_DicomEnablerRefresh_Click(object sender, EventArgs e)
         {
+            LoadFacilities();
+        }
+
+        private const string FacilityIdKey = "facility_id";
+
+        private FacilityItem selectedFacility;
+
+        private int facilityLoadVersion;
+
+        private bool rebuildingFacilityItems;
+
+        private readonly Dictionary<string, string> facilityNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>A facility in the dropdown. Name is null when CARE did not list it (only its id is known).</summary>
+        private sealed class FacilityItem
+        {
+            public FacilityItem(string id, string name)
+            {
+                Id = id;
+                Name = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+            }
+
+            public string Id { get; }
+            public string Name { get; }
+
+            public bool Listed { get; set; } = true;
+
+            public override string ToString()
+            {
+                if (!Listed)
+                    return $"{Id} (not available to this service account)";
+                return Name ?? Id;
+            }
+        }
+
+        private async void LoadFacilities()
+        {
+            int loadVersion = ++facilityLoadVersion;
+
+            dicomEnablerLoadVersion++;
+            spn_DicomEnablerRefresh.Stop();
+
+            string baseUrl = (ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).Trim();
+            string notLoadedReason = null;
+            string authorization = null;
+            if (baseUrl == string.Empty)
+                notLoadedReason = "careBackendURL is not set in App.config, so the facilities cannot be loaded.";
+            else if (!ucls_ServiceToken.TryGetAuthorizationHeader(Global._applicationPath, out authorization, out string tokenError))
+                notLoadedReason = "The facilities cannot be loaded: " + tokenError;
+            if (notLoadedReason != null)
+            {
+                ShowFacilities(null);
+                ShowEnablersWithoutCare(BannerKind.Error, notLoadedReason);
+                return;
+            }
+
+            string facilitiesURL = ucls_CareFacilities.BuildFacilitiesURL(baseUrl, ConfigurationManager.AppSettings["facilitiesURL"]);
+            ShowBanner(lbl_DicomEnablerBanner, tt_DicomEnablerBanner, BannerKind.Info,
+                       $"Loading the service account's facilities from CARE ({DescribeHost(baseUrl)})...");
+            spn_DicomEnablerRefresh.Start();
+
+            Tuple<bool, List<CareFacility>, string> result;
+            try
+            {
+                result = await System.Threading.Tasks.Task.Run(() =>
+                {
+                    bool ok = ucls_CareFacilities.TryFetchFacilities(facilitiesURL, authorization, LogFacilityLoad,
+                                                                     out List<CareFacility> facilities, out string error);
+                    return Tuple.Create(ok, facilities, error);
+                });
+            }
+            catch (Exception ex)
+            {
+                result = Tuple.Create(false, (List<CareFacility>)null, "Loading failed with exception " + ex.Message);
+                cls_AppLog.Error("FACILITIES", "Loading the facilities failed with exception " + ex.Message);
+            }
+
+            // The form was closed, or a newer load (Refresh, tab reopened) replaced this one
+            if (IsDisposed || loadVersion != facilityLoadVersion)
+                return;
+            spn_DicomEnablerRefresh.Stop();
+
+            if (!result.Item1)
+            {
+                ShowFacilities(null);
+                ShowEnablersWithoutCare(BannerKind.Error,
+                           $"Could not load the facilities from CARE ({DescribeHost(baseUrl)}). {result.Item3}");
+                return;
+            }
+
+            ShowFacilities(result.Item2);
+            if (result.Item2.Count == 0)
+            {
+                ShowEnablersWithoutCare(BannerKind.Warning,
+                           "The service account has access to no facilities in CARE. Ask a CARE administrator to give it access, then click Refresh.");
+                return;
+            }
+            if (selectedFacility != null && !selectedFacility.Listed)
+            {
+                ShowEnablersWithoutCare(BannerKind.Warning,
+                           $"The saved facility {selectedFacility.Id} is not one the service account can access in CARE. Select one of its facilities, or check the token entered in Initializer.bat.");
+                return;
+            }
             LoadDicomEnablers();
+        }
+
+        /// <summary>
+        /// When the DICOM Enablers cannot be loaded from CARE because the facilities could not be: fills the
+        /// DICOM Enabler dropdown from what is saved locally ("(None)" and the saved enabler, when the saved
+        /// facility is selected), so the saved selection can still be seen or cleared, and shows message.
+        /// </summary>
+        private void ShowEnablersWithoutCare(BannerKind messageKind, string message)
+        {
+            if (!IsDicomEnablerConfigAvailable())
+            {
+                // Same as LoadDicomEnablers: Save could not store a selection, so the dropdown is disabled
+                mcb_DicomEnabler.Enabled = false;
+                ShowDicomEnablers(null, BannerKind.Error, message + " The database is also out of date (the DICOM Enabler setting is missing): run Initializer.bat to update it.");
+                return;
+            }
+            mcb_DicomEnabler.Enabled = true;
+            ShowDicomEnablers(null, messageKind, message);
+        }
+
+        private void ShowFacilities(List<CareFacility> facilities)
+        {
+            loadedConfigValues.TryGetValue(FacilityIdKey, out string savedFacilityId);
+            savedFacilityId = string.IsNullOrWhiteSpace(savedFacilityId) ? null : savedFacilityId.Trim();
+
+            if (facilities != null)
+            {
+                facilityNames.Clear();
+                foreach (CareFacility facility in facilities)
+                    facilityNames[facility.id.Trim()] = facility.name;
+            }
+
+            rebuildingFacilityItems = true;
+            try
+            {
+                var items = (facilities ?? new List<CareFacility>())
+                    .Select(facility => new FacilityItem(facility.id.Trim(), facility.name))
+                    .ToList();
+
+                foreach (string id in new[] { savedFacilityId, selectedFacility?.Id }.Where(id => id != null).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    if (items.Any(item => string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase)))
+                        continue;
+                    facilityNames.TryGetValue(id, out string knownName);
+                    items.Insert(0, new FacilityItem(id, knownName) { Listed = facilities == null });
+                }
+
+                FacilityItem toSelect = null;
+                if (selectedFacility != null)
+                    toSelect = items.FirstOrDefault(item => string.Equals(item.Id, selectedFacility.Id, StringComparison.OrdinalIgnoreCase));
+
+                if (toSelect == null && savedFacilityId == null && facilities != null && items.Count == 1)
+                    toSelect = items[0];
+
+                mcb_Facility.Items.Clear();
+                foreach (FacilityItem item in items)
+                    mcb_Facility.Items.Add(item);
+                if (toSelect != null)
+                    mcb_Facility.SelectedItem = toSelect;
+                else
+                    mcb_Facility.SelectedIndex = -1;
+                selectedFacility = toSelect;
+            }
+            finally
+            {
+                rebuildingFacilityItems = false;
+            }
+        }
+
+        private static void LogFacilityLoad(string message, bool success)
+        {
+            if (success)
+                cls_AppLog.Info("FACILITIES", message);
+            else
+                cls_AppLog.Error("FACILITIES", message);
+        }
+
+        private void mcb_Facility_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (rebuildingFacilityItems)
+                return;
+            var item = mcb_Facility.SelectedItem as FacilityItem;
+            if (string.Equals(item?.Id, selectedFacility?.Id, StringComparison.OrdinalIgnoreCase))
+                return;
+            selectedFacility = item;
+            selectedDicomEnabler = null;
+            ShowDicomEnablers(null, BannerKind.Info, $"Loading the DICOM Enablers of {selectedFacility?.ToString() ?? "the facility"} from CARE...");
+            LoadDicomEnablers();
+        }
+
+        private bool IsSavedFacilitySelected()
+        {
+            loadedConfigValues.TryGetValue(FacilityIdKey, out string savedFacilityId);
+            return selectedFacility != null &&
+                   string.Equals(selectedFacility.Id, (savedFacilityId ?? string.Empty).Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string DescribeFacility(string facilityId)
+        {
+            if (string.IsNullOrWhiteSpace(facilityId))
+                return "(none)";
+            facilityId = facilityId.Trim();
+            return facilityNames.TryGetValue(facilityId, out string name) && !string.IsNullOrWhiteSpace(name)
+                ? $"{name.Trim()} ({facilityId})"
+                : facilityId;
         }
 
         // The Devices tab lists the DICOM devices (modality machines such as CT or X-Ray, each with its own
@@ -2483,7 +2703,8 @@ namespace Plexus_DICOM_Enabler
         }
 
         /// <summary>
-        /// The Configuration tab text box for each care_config key. The poll interval, worklist refresh
+        /// The Configuration tab text box for each care_config key. facility_id is the Facility dropdown
+        /// (selectedFacility), not a text box. The poll interval, worklist refresh
         /// start/interval, max upload retries and retry delay are fixed for now, so they are not shown or
         /// saved here; the services use their stored values or defaults.
         /// </summary>
@@ -2491,7 +2712,6 @@ namespace Plexus_DICOM_Enabler
         {
             return new System.Collections.Generic.Dictionary<string, MaterialTextBox>
             {
-                { "facility_id", mtxtb_FacilityId },
                 { "care_from_date", mtxtb_CareFromDate },
                 { "scp_folder", mtxtb_ScpFolder },
                 { "failed_scp_folder", mtxtb_FailedScpFolder },

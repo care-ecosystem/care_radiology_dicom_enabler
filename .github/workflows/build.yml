@@ -45,6 +45,8 @@ name: Build CARE DICOM Enabler
 #     CARE_MAX_UPLOAD_RETRIES         default 10  (upload retries before FailedSCP)
 #     CARE_WORKLIST_REFRESH_START     default 30  (seconds after start before the first worklist fetch)
 #     CARE_WORKLIST_REFRESH_INTERVAL  default 30  (seconds between worklist fetches)
+#     CARE_SCAN_COMPLETED_WAIT_SECONDS default 60 (seconds after a study's last upload,
+#                                     with none of its files left, before COMPLETED is sent to CARE)
 #
 #   Manual runs: the form is pre-filled with the workflow defaults and a
 #   non-blank form value is used as-is (it beats the environment variable).
@@ -135,6 +137,11 @@ on:
         required: false
         default: '30'
         type: string
+      scan_completed_wait_seconds:
+        description: 'Scan Completion Delay in seconds (baked into EXE)'
+        required: false
+        default: '60'
+        type: string
 
 # Needed so GITHUB_TOKEN can create the GitHub Release on tag builds.
 permissions:
@@ -196,6 +203,7 @@ jobs:
       CARE_MAX_UPLOAD_RETRIES:        ${{ inputs.max_upload_retries        != '' && inputs.max_upload_retries        || vars.CARE_MAX_UPLOAD_RETRIES        || '10' }}
       CARE_WORKLIST_REFRESH_START:    ${{ inputs.worklist_refresh_start    != '' && inputs.worklist_refresh_start    || vars.CARE_WORKLIST_REFRESH_START    || '30' }}
       CARE_WORKLIST_REFRESH_INTERVAL: ${{ inputs.worklist_refresh_interval != '' && inputs.worklist_refresh_interval || vars.CARE_WORKLIST_REFRESH_INTERVAL || '30' }}
+      CARE_SCAN_COMPLETED_WAIT_SECONDS: ${{ inputs.scan_completed_wait_seconds != '' && inputs.scan_completed_wait_seconds || vars.CARE_SCAN_COMPLETED_WAIT_SECONDS || '60' }}
 
     steps:
       - name: Checkout
@@ -216,10 +224,12 @@ jobs:
           INPUT_CARE_MAX_UPLOAD_RETRIES:        ${{ inputs.max_upload_retries }}
           INPUT_CARE_WORKLIST_REFRESH_START:    ${{ inputs.worklist_refresh_start }}
           INPUT_CARE_WORKLIST_REFRESH_INTERVAL: ${{ inputs.worklist_refresh_interval }}
+          INPUT_CARE_SCAN_COMPLETED_WAIT_SECONDS: ${{ inputs.scan_completed_wait_seconds }}
           VAR_CARE_FROM_DATE:                   ${{ vars.CARE_FROM_DATE }}
           VAR_CARE_MAX_UPLOAD_RETRIES:          ${{ vars.CARE_MAX_UPLOAD_RETRIES }}
           VAR_CARE_WORKLIST_REFRESH_START:      ${{ vars.CARE_WORKLIST_REFRESH_START }}
           VAR_CARE_WORKLIST_REFRESH_INTERVAL:   ${{ vars.CARE_WORKLIST_REFRESH_INTERVAL }}
+          VAR_CARE_SCAN_COMPLETED_WAIT_SECONDS: ${{ vars.CARE_SCAN_COMPLETED_WAIT_SECONDS }}
         run: |
           $targetEnv = $env:TARGET_ENV
           Write-Output "Target environment : $targetEnv"
@@ -237,6 +247,7 @@ jobs:
             @{ Name = 'CARE_MAX_UPLOAD_RETRIES';        Kind = 'variable'; Value = $env:CARE_MAX_UPLOAD_RETRIES;        Input = $env:INPUT_CARE_MAX_UPLOAD_RETRIES;        FromEnv = $env:VAR_CARE_MAX_UPLOAD_RETRIES;      Default = '10' }
             @{ Name = 'CARE_WORKLIST_REFRESH_START';    Kind = 'variable'; Value = $env:CARE_WORKLIST_REFRESH_START;    Input = $env:INPUT_CARE_WORKLIST_REFRESH_START;    FromEnv = $env:VAR_CARE_WORKLIST_REFRESH_START;  Default = '30' }
             @{ Name = 'CARE_WORKLIST_REFRESH_INTERVAL'; Kind = 'variable'; Value = $env:CARE_WORKLIST_REFRESH_INTERVAL; Input = $env:INPUT_CARE_WORKLIST_REFRESH_INTERVAL; FromEnv = $env:VAR_CARE_WORKLIST_REFRESH_INTERVAL; Default = '30' }
+            @{ Name = 'CARE_SCAN_COMPLETED_WAIT_SECONDS'; Kind = 'variable'; Value = $env:CARE_SCAN_COMPLETED_WAIT_SECONDS; Input = $env:INPUT_CARE_SCAN_COMPLETED_WAIT_SECONDS; FromEnv = $env:VAR_CARE_SCAN_COMPLETED_WAIT_SECONDS; Default = '60' }
           )
 
           $fromEnvCount   = 0
@@ -306,8 +317,9 @@ jobs:
           $maxRetries  = "$env:CARE_MAX_UPLOAD_RETRIES"
           $refreshStart    = "$env:CARE_WORKLIST_REFRESH_START"
           $refreshInterval = "$env:CARE_WORKLIST_REFRESH_INTERVAL"
+          $scanCompletedWait = "$env:CARE_SCAN_COMPLETED_WAIT_SECONDS"
 
-          foreach ($limit in @(@('Max Upload Retries', $maxRetries), @('Worklist Refresh Interval', $refreshInterval))) {
+          foreach ($limit in @(@('Max Upload Retries', $maxRetries), @('Worklist Refresh Interval', $refreshInterval), @('Scan Completed Wait Seconds', $scanCompletedWait))) {
             if ($limit[1] -and $limit[1] -notmatch '^[1-9][0-9]*$') {
               Write-Error "$($limit[0]) must be a positive whole number, got '$($limit[1])'"
               exit 1
@@ -319,7 +331,7 @@ jobs:
             exit 1
           }
 
-          if (-not ($serverUrl -or $apiToken -or $fromDate -or $backend -or $maxRetries -or $refreshStart -or $refreshInterval)) {
+          if (-not ($serverUrl -or $apiToken -or $fromDate -or $backend -or $maxRetries -or $refreshStart -or $refreshInterval -or $scanCompletedWait)) {
             Write-Output "No CARE settings supplied - keeping App.config defaults."
             exit 0
           }
@@ -382,6 +394,9 @@ jobs:
             careBackendURL    = $serverUrl
             staticAPIKey      = $apiToken
             maxUploadRetries  = $maxRetries
+            # Wait before COMPLETED is sent to CARE. care_config scan_completed_wait_seconds,
+            # when set on a machine, still takes precedence over this baked value.
+            scanCompletedWaitSeconds = $scanCompletedWait
             careFromDate      = $fromDate
           }
 
