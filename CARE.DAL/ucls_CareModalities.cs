@@ -24,6 +24,9 @@ namespace Plexus.Common.Database
         /// <summary>Page size sent as limit; CARE returns at most this many results per call.</summary>
         public const int PageSize = 14;
 
+        /// <summary>The API name TrySend uses in log lines and errors by default.</summary>
+        internal const string ModalitiesApiName = "CARE Modalities API";
+
         /// <summary>Shown for a field CARE did not return (or returned empty).</summary>
         public const string NotAvailable = "N/A";
 
@@ -469,7 +472,7 @@ namespace Plexus.Common.Database
         }
 
         /// <summary>
-        /// Sends one request to the CARE Modalities API with the service-token Authorization header, and a JSON body when
+        /// Sends one request to a CARE API (apiName, the Modalities API by default) with the service-token Authorization header, and a JSON body when
         /// jsonBody is set. Returns false with error set (and logged) when CARE cannot be reached or
         /// does not answer with a success status.
         /// </summary>
@@ -477,9 +480,10 @@ namespace Plexus.Common.Database
         /// timeout: a shorter limit than the client's 30 seconds for this request (e.g. while Windows shuts
         /// down); the network check (gateway / internet pings) is then skipped on failure, as it takes time.
         /// </remarks>
-        private static bool TrySend(HttpMethod method, string requestUrl, string token, string jsonBody, Action<string, bool> writeToLog,
+        internal static bool TrySend(HttpMethod method, string requestUrl, string token, string jsonBody, Action<string, bool> writeToLog,
                                     out string responseBody, out string error, TimeSpan? timeout = null,
-                                    System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken))
+                                    System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken),
+                                    string apiName = ModalitiesApiName)
         {
             responseBody = null;
             error = null;
@@ -489,7 +493,7 @@ namespace Plexus.Common.Database
                 writeToLog(error, false);
                 return false;
             }
-            writeToLog($"CARE Modalities API: {method} {requestUrl}", true);
+            writeToLog($"{apiName}: {method} {requestUrl}", true);
 
             HttpResponseMessage response;
             try
@@ -533,7 +537,7 @@ namespace Plexus.Common.Database
             if (response.IsSuccessStatusCode)
                 return true;
 
-            error = $"CARE Modalities API returned {(int)response.StatusCode} ({response.ReasonPhrase})";
+            error = $"{apiName} returned {(int)response.StatusCode} ({response.ReasonPhrase})";
             string detail = DescribeErrorBody(responseBody);
             if (!string.IsNullOrEmpty(detail))
                 error += ": " + detail;
@@ -543,7 +547,9 @@ namespace Plexus.Common.Database
             if (status == 401 || status == 403)
                 error += ". CARE rejected the service token: check that it is this facility's service-account token and is still active, then run Initializer.bat to enter it again.";
             else if (status == 404)
-                error += ". Check careBackendURL / modalitiesURL in App.config and the Facility Id.";
+                error += apiName == ModalitiesApiName
+                    ? ". Check careBackendURL / modalitiesURL in App.config and the Facility Id."
+                    : ". Check careBackendURL in App.config.";
             else if (status >= 500)
                 error += ". CARE server error; try again later.";
 

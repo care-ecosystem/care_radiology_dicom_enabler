@@ -126,7 +126,7 @@ namespace Plexus_DICOM_Enabler
             this.grpb_UploadSettings = new System.Windows.Forms.GroupBox();
             this.mtchkb_WorklistAllDevices = new MaterialSkin.Controls.MaterialCheckbox();
             this.lbl_FacilityId = new MaterialSkin.Controls.MaterialLabel();
-            this.mtxtb_FacilityId = new MaterialSkin.Controls.MaterialTextBox();
+            this.mcb_Facility = new MaterialSkin.Controls.MaterialComboBox();
             this.lbl_CareFromDate = new MaterialSkin.Controls.MaterialLabel();
             this.mtxtb_CareFromDate = new MaterialSkin.Controls.MaterialTextBox();
             this.lbl_DicomEnabler = new MaterialSkin.Controls.MaterialLabel();
@@ -1354,7 +1354,7 @@ namespace Plexus_DICOM_Enabler
             // grpb_CareSettings
             //
             this.grpb_CareSettings.Controls.Add(this.lbl_FacilityId);
-            this.grpb_CareSettings.Controls.Add(this.mtxtb_FacilityId);
+            this.grpb_CareSettings.Controls.Add(this.mcb_Facility);
             this.grpb_CareSettings.Controls.Add(this.lbl_CareFromDate);
             this.grpb_CareSettings.Controls.Add(this.mtxtb_CareFromDate);
             this.grpb_CareSettings.Controls.Add(this.lbl_DicomEnabler);
@@ -1382,25 +1382,31 @@ namespace Plexus_DICOM_Enabler
             this.lbl_FacilityId.MouseState = MaterialSkin.MouseState.HOVER;
             this.lbl_FacilityId.Name = "lbl_FacilityId";
             this.lbl_FacilityId.TabIndex = 0;
-            this.lbl_FacilityId.Text = "Facility Id *";
+            this.lbl_FacilityId.Text = "Facility *";
             //
-            // mtxtb_FacilityId
+            // mcb_Facility
             //
-            this.mtxtb_FacilityId.AnimateReadOnly = false;
-            this.mtxtb_FacilityId.BorderStyle = System.Windows.Forms.BorderStyle.None;
-            this.mtxtb_FacilityId.Depth = 0;
-            this.mtxtb_FacilityId.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
-            this.mtxtb_FacilityId.LeadingIcon = null;
-            this.mtxtb_FacilityId.Location = new System.Drawing.Point(230, 36);
-            this.mtxtb_FacilityId.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.mtxtb_FacilityId.MaxLength = 100;
-            this.mtxtb_FacilityId.MouseState = MaterialSkin.MouseState.OUT;
-            this.mtxtb_FacilityId.Multiline = false;
-            this.mtxtb_FacilityId.Name = "mtxtb_FacilityId";
-            this.mtxtb_FacilityId.Size = new System.Drawing.Size(200, 50);
-            this.mtxtb_FacilityId.TabIndex = 1;
-            this.mtxtb_FacilityId.Text = "";
-            this.mtxtb_FacilityId.TrailingIcon = null;
+            this.mcb_Facility.AutoResize = false;
+            this.mcb_Facility.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
+            this.mcb_Facility.Depth = 0;
+            this.mcb_Facility.DrawMode = System.Windows.Forms.DrawMode.OwnerDrawVariable;
+            this.mcb_Facility.DropDownHeight = 344;
+            this.mcb_Facility.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.mcb_Facility.DropDownWidth = 420;
+            this.mcb_Facility.Font = new System.Drawing.Font("Microsoft Sans Serif", 14F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Pixel);
+            this.mcb_Facility.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
+            this.mcb_Facility.FormattingEnabled = true;
+            this.mcb_Facility.Hint = "Select a facility";
+            this.mcb_Facility.IntegralHeight = false;
+            this.mcb_Facility.ItemHeight = 43;
+            this.mcb_Facility.Location = new System.Drawing.Point(230, 36);
+            this.mcb_Facility.MaxDropDownItems = 8;
+            this.mcb_Facility.MouseState = MaterialSkin.MouseState.OUT;
+            this.mcb_Facility.Name = "mcb_Facility";
+            this.mcb_Facility.Size = new System.Drawing.Size(220, 49);
+            this.mcb_Facility.StartIndex = 0;
+            this.mcb_Facility.TabIndex = 1;
+            this.mcb_Facility.SelectedIndexChanged += new System.EventHandler(this.mcb_Facility_SelectedIndexChanged);
             //
             // lbl_CareFromDate
             //
@@ -1855,7 +1861,7 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.GroupBox grpb_CareSettings;
         private System.Windows.Forms.GroupBox grpb_UploadSettings;
         private MaterialSkin.Controls.MaterialLabel lbl_FacilityId;
-        private MaterialSkin.Controls.MaterialTextBox mtxtb_FacilityId;
+        private MaterialSkin.Controls.MaterialComboBox mcb_Facility;
         private MaterialSkin.Controls.MaterialLabel lbl_CareFromDate;
         private MaterialSkin.Controls.MaterialTextBox mtxtb_CareFromDate;
         private MaterialSkin.Controls.MaterialLabel lbl_DicomEnabler;
