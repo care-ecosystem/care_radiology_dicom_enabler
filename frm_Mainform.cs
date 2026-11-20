@@ -42,8 +42,9 @@ namespace Plexus_DICOM_Enabler
             mcb_Facility.DropDown += (s, e) => mcb_Facility.DropDownWidth = mcb_Facility.Width;
             mcb_DicomEnabler.DropDown += (s, e) => mcb_DicomEnabler.DropDownWidth = mcb_DicomEnabler.Width;
 
-            WrapListItems(mcb_Facility);
-            WrapListItems(mcb_DicomEnabler);
+            // The saved facility and DICOM Enabler are marked with a tick in the open list
+            WrapListItems(mcb_Facility, item => item is FacilityItem facility && IsSavedFacilityId(facility.Id));
+            WrapListItems(mcb_DicomEnabler, item => item is DicomEnablerItem enabler && enabler.IsSaved);
 
             // Server List is hidden for now, unless checkserver is on: the DICOM services then reject any
             // scanner not listed there, and the tab is the only place to list it or turn checkserver off.
@@ -1607,8 +1608,6 @@ namespace Plexus_DICOM_Enabler
         private int dicomEnablerLoadVersion;
         // Set while the dropdown items are rebuilt, so that does not change selectedDicomEnabler
         private bool rebuildingDicomEnablerItems;
-        // True while the dropdown list is open: the saved enabler is shown with a tick only there
-        private static bool dicomEnablerListOpen;
 
         /// <summary>
         /// A DICOM Enabler in the dropdown. Id is null for the "(None)" entry, which clears the selection.
@@ -1616,7 +1615,6 @@ namespace Plexus_DICOM_Enabler
         private sealed class DicomEnablerItem
         {
             public static readonly DicomEnablerItem None = new DicomEnablerItem(null, null, null);
-            private const string Tick = "\u2714 ";
 
             public DicomEnablerItem(string id, string name, string ip)
             {
@@ -1638,8 +1636,6 @@ namespace Plexus_DICOM_Enabler
                 string text = Name ?? Id;
                 if (!string.IsNullOrEmpty(Detail))
                     text += " - " + Detail;
-                if (IsSaved && dicomEnablerListOpen)
-                    text = Tick + text;
                 return text;
             }
         }
@@ -1824,13 +1820,11 @@ namespace Plexus_DICOM_Enabler
 
         private void mcb_DicomEnabler_DropDown(object sender, EventArgs e)
         {
-            dicomEnablerListOpen = true;
             mcb_DicomEnabler.Invalidate();
         }
 
         private void mcb_DicomEnabler_DropDownClosed(object sender, EventArgs e)
         {
-            dicomEnablerListOpen = false;
             mcb_DicomEnabler.Invalidate();
         }
 
@@ -2009,15 +2003,25 @@ namespace Plexus_DICOM_Enabler
             }
         }
 
-        private static void WrapListItems(MaterialComboBox combo)
+        /// <summary>
+        /// Draws the open list's items: a long one wraps at spaces onto more lines in a row tall enough for
+        /// them, and the item isSaved picks gets a tick before it. MaterialComboBox measures and draws every
+        /// item as one line; these handlers run after its own, so they decide the height and draw over it.
+        /// </summary>
+        private static void WrapListItems(MaterialComboBox combo, Func<object, bool> isSaved)
         {
             const TextFormatFlags wrap = TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.Left;
+            const TextFormatFlags single = TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.Left;
+            const string tick = "\u2714";
             MaterialSkinManager skin = MaterialSkinManager.Instance;
             int minHeight = combo.ItemHeight;
             const int verticalPadding = 10;
+            Font tickFont = null;
 
-            int TextWidth() => Math.Max(1, combo.Width - skin.FORM_PADDING * 2);
             Font ItemFont() => skin.getFontByType(MaterialSkinManager.fontType.Subtitle1);
+            Font TickFont() => tickFont ?? (tickFont = new Font("Segoe UI Symbol", ItemFont().Size, FontStyle.Regular, ItemFont().Unit));
+            int TickWidth() => TextRenderer.MeasureText(tick + " ", TickFont(), Size.Empty, single).Width;
+            int TextWidth() => Math.Max(1, combo.Width - skin.FORM_PADDING * 2 - TickWidth());
 
             combo.MeasureItem += (s, e) =>
             {
@@ -2030,7 +2034,7 @@ namespace Plexus_DICOM_Enabler
 
             combo.DrawItem += (s, e) =>
             {
-                if (e.Index < 0 || e.Index >= combo.Items.Count)
+                if (e.Index < 0 || e.Index >= combo.Items.Count || (e.State & DrawItemState.ComboBoxEdit) != 0 || !combo.DroppedDown)
                     return;
                 string text = combo.GetItemText(combo.Items[e.Index]);
                 Font font = ItemFont();
@@ -2041,10 +2045,14 @@ namespace Plexus_DICOM_Enabler
                 // Wrapped text is centred by hand: GDI centres vertically only on a single line
                 int width = TextWidth();
                 int textHeight = TextRenderer.MeasureText(e.Graphics, text, font, new Size(width, int.MaxValue), wrap).Height;
-                var textBounds = new Rectangle(e.Bounds.Left + skin.FORM_PADDING,
-                                               e.Bounds.Top + Math.Max(0, (e.Bounds.Height - textHeight) / 2),
-                                               width, textHeight);
-                TextRenderer.DrawText(e.Graphics, text, font, textBounds, skin.TextHighEmphasisColor, wrap);
+                int textLeft = e.Bounds.Left + skin.FORM_PADDING + TickWidth();
+                int textTop = e.Bounds.Top + Math.Max(0, (e.Bounds.Height - textHeight) / 2);
+                if (isSaved(combo.Items[e.Index]))
+                    TextRenderer.DrawText(e.Graphics, tick, TickFont(),
+                                          new Rectangle(e.Bounds.Left + skin.FORM_PADDING, textTop, TickWidth(), font.Height),
+                                          skin.TextHighEmphasisColor, single);
+                TextRenderer.DrawText(e.Graphics, text, font, new Rectangle(textLeft, textTop, width, textHeight),
+                                      skin.TextHighEmphasisColor, wrap);
             };
         }
 
@@ -2067,6 +2075,13 @@ namespace Plexus_DICOM_Enabler
             selectedDicomEnabler = null;
             ShowDicomEnablers(null, BannerKind.Info, $"Loading the DICOM Enablers of {selectedFacility?.ToString() ?? "the facility"} from CARE...");
             LoadDicomEnablers();
+        }
+
+        private bool IsSavedFacilityId(string facilityId)
+        {
+            loadedConfigValues.TryGetValue(FacilityIdKey, out string savedFacilityId);
+            return !string.IsNullOrWhiteSpace(savedFacilityId) && facilityId != null &&
+                   string.Equals(facilityId.Trim(), savedFacilityId.Trim(), StringComparison.OrdinalIgnoreCase);
         }
 
         private bool IsSavedFacilitySelected()

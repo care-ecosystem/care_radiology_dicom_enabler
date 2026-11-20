@@ -123,6 +123,8 @@ namespace Plexus_DICOM_Enabler.UserControls
             "Care Store SCU Service",
         };
 
+        private const string VersionMismatchTitle = "CARE DICOM Enabler - Service Version Mismatch";
+
         /// <summary>
         /// When the CARE services are installed from another build's folder (e.g. an older build that was
         /// closed while its services kept running), says so and offers to stop and uninstall them, so this
@@ -149,31 +151,35 @@ namespace Plexus_DICOM_Enabler.UserControls
             if (others.Count == 0)
                 return;
 
-            cls_AppLog.Info("SERVICES", "CARE services installed from another build: " +
+            cls_AppLog.Info("SERVICES", "CARE services installed from a different version: " +
                 string.Join("; ", others.Select(o => $"{o.Service} ({(o.Running ? "running" : "stopped")}) - {o.Current}")));
 
-            var lines = others.Select(o => $"{o.Service} ({(o.Running ? "running" : "stopped")}): {o.Current}").ToList();
-            lines.Add(string.Empty);
-            lines.Add("This build: " + thisFolder);
-
-            DialogResult answer = cls_ConfirmDialog.Show(FindForm(), "Services from another build",
-                "The CARE DICOM Enabler services on this computer are installed from another build. " +
-                "Stop them and uninstall them? Then install and start this build's services from Server Manager.",
-                lines, ("Stop", DialogResult.Yes), ("Cancel", DialogResult.Cancel));
+            // The services' paths are in the App Log above; the message names only the other version's folder(s)
+            string nl = Environment.NewLine;
+            string otherFolders = string.Join(nl, others.Select(o => Path.GetDirectoryName(o.Current))
+                                                        .Distinct(StringComparer.OrdinalIgnoreCase));
+            DialogResult answer = MessageBox.Show(FindForm(),
+                (others.Any(o => o.Running) ? "CARE DICOM Enabler services from a different version are currently running on this computer."
+                                            : "CARE DICOM Enabler services from a different version are installed on this computer.") +
+                nl + nl + "Installed from:" + nl + otherFolders + nl + nl +
+                "To use this version, these services must be stopped and uninstalled. Do you want to continue?" + nl + nl +
+                "Once they are removed, install and start the services for this version from Server Manager.",
+                VersionMismatchTitle, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
             if (answer != DialogResult.Yes)
             {
-                cls_AppLog.Info("SERVICES", "Removing the services from another build declined by the user");
+                cls_AppLog.Info("SERVICES", "Removing the services from a different version declined by the user");
                 return;
             }
 
             // Stopping and uninstalling services needs Administrator rights
             if (!cls_ServiceControl.IsAdministrator())
             {
-                cls_AppLog.Warning("SERVICES", "Services from another build not removed: the application is not running as Administrator");
+                cls_AppLog.Warning("SERVICES", "Services from a different version not removed: the application is not running as Administrator");
                 MessageBox.Show(FindForm(),
-                    "Stopping and uninstalling the services needs the application to run as Administrator. " +
-                    "Nothing was changed. Close the application, run it as Administrator and try again.",
-                    "Run as Administrator", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    "Administrator privileges are required to stop and uninstall the services. No changes were made." +
+                    Environment.NewLine + Environment.NewLine +
+                    "Please restart the application as Administrator and try again.",
+                    "Administrator Privileges Required", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -187,7 +193,9 @@ namespace Plexus_DICOM_Enabler.UserControls
                 List<string> stopped = await Task.Run(() => cls_ServiceControl.StopServices(others.Select(o => o.Service), out error));
                 if (stopped == null)
                 {
-                    MessageBox.Show(FindForm(), error + " Nothing was uninstalled.", "Services from another build", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(FindForm(), "The services could not be stopped, so none were uninstalled." +
+                                    Environment.NewLine + Environment.NewLine + "Details: " + error,
+                                    VersionMismatchTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
 
@@ -196,13 +204,14 @@ namespace Plexus_DICOM_Enabler.UserControls
                     if (!cls_ServiceControl.UninstallService(other.Service, out string uninstallError))
                         failed.Add(uninstallError);
                 if (failed.Count > 0)
-                    MessageBox.Show(FindForm(), "The services are stopped, but not all of them could be uninstalled:" +
+                    MessageBox.Show(FindForm(), "The services were stopped, but the following could not be uninstalled:" +
                                     Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, failed),
-                                    "Services from another build", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                                    VersionMismatchTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 else
-                    MessageBox.Show(FindForm(), "The services from the other build are stopped and uninstalled. " +
-                                    "Install and start this build's services with Install Service(s) and Start Service(s).",
-                                    "Services from another build", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show(FindForm(), "The services from the different version have been stopped and uninstalled." +
+                                    Environment.NewLine + Environment.NewLine +
+                                    "To continue, click Install Service(s) and then Start Service(s) in Server Manager.",
+                                    VersionMismatchTitle, MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             finally
             {
