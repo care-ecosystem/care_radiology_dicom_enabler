@@ -54,10 +54,11 @@ namespace Plexus_DICOM_Enabler
 
         protected override void OnDrawItem(DrawItemEventArgs e)
         {
-            // The closed box (ComboBoxEdit) is MaterialComboBox's to draw
             if (e.Index < 0 || e.Index >= Items.Count || (e.State & DrawItemState.ComboBoxEdit) != 0 || !DroppedDown)
             {
                 base.OnDrawItem(e);
+                if ((e.State & DrawItemState.ComboBoxEdit) != 0)
+                    Invalidate();
                 return;
             }
 
@@ -77,6 +78,12 @@ namespace Plexus_DICOM_Enabler
             if (IsSaved != null && IsSaved(item))
                 TextRenderer.DrawText(e.Graphics, Tick, TickFont, new Rectangle(left, top, TickWidth, font.Height), textColor, SingleLine);
             TextRenderer.DrawText(e.Graphics, text, font, new Rectangle(left + TickWidth, top, width, textHeight), textColor, Wrap);
+        }
+
+        protected override void OnSelectedIndexChanged(EventArgs e)
+        {
+            base.OnSelectedIndexChanged(e);
+            Invalidate();
         }
 
         protected override void Dispose(bool disposing)
