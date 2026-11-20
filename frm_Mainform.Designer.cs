@@ -126,11 +126,11 @@ namespace Plexus_DICOM_Enabler
             this.grpb_UploadSettings = new System.Windows.Forms.GroupBox();
             this.mtchkb_WorklistAllDevices = new MaterialSkin.Controls.MaterialCheckbox();
             this.lbl_FacilityId = new MaterialSkin.Controls.MaterialLabel();
-            this.mcb_Facility = new MaterialSkin.Controls.MaterialComboBox();
+            this.mcb_Facility = new Plexus_DICOM_Enabler.cls_WrappingComboBox();
             this.lbl_CareFromDate = new MaterialSkin.Controls.MaterialLabel();
             this.mtxtb_CareFromDate = new MaterialSkin.Controls.MaterialTextBox();
             this.lbl_DicomEnabler = new MaterialSkin.Controls.MaterialLabel();
-            this.mcb_DicomEnabler = new MaterialSkin.Controls.MaterialComboBox();
+            this.mcb_DicomEnabler = new Plexus_DICOM_Enabler.cls_WrappingComboBox();
             this.mbtn_DicomEnablerRefresh = new MaterialSkin.Controls.MaterialButton();
             this.lbl_DicomEnablerBanner = new System.Windows.Forms.Label();
             this.spn_DicomEnablerRefresh = new Plexus_DICOM_Enabler.cls_Spinner();
@@ -1861,11 +1861,11 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.GroupBox grpb_CareSettings;
         private System.Windows.Forms.GroupBox grpb_UploadSettings;
         private MaterialSkin.Controls.MaterialLabel lbl_FacilityId;
-        private MaterialSkin.Controls.MaterialComboBox mcb_Facility;
+        private Plexus_DICOM_Enabler.cls_WrappingComboBox mcb_Facility;
         private MaterialSkin.Controls.MaterialLabel lbl_CareFromDate;
         private MaterialSkin.Controls.MaterialTextBox mtxtb_CareFromDate;
         private MaterialSkin.Controls.MaterialLabel lbl_DicomEnabler;
-        private MaterialSkin.Controls.MaterialComboBox mcb_DicomEnabler;
+        private Plexus_DICOM_Enabler.cls_WrappingComboBox mcb_DicomEnabler;
         private MaterialSkin.Controls.MaterialButton mbtn_DicomEnablerRefresh;
         private System.Windows.Forms.Label lbl_DicomEnablerBanner;
         private Plexus_DICOM_Enabler.cls_Spinner spn_DicomEnablerRefresh;
