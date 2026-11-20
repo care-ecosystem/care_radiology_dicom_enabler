@@ -1392,7 +1392,7 @@ namespace Plexus_DICOM_Enabler
             this.mcb_Facility.DrawMode = System.Windows.Forms.DrawMode.OwnerDrawVariable;
             this.mcb_Facility.DropDownHeight = 344;
             this.mcb_Facility.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.mcb_Facility.DropDownWidth = 420;
+            this.mcb_Facility.DropDownWidth = 220;
             this.mcb_Facility.Font = new System.Drawing.Font("Microsoft Sans Serif", 14F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Pixel);
             this.mcb_Facility.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
             this.mcb_Facility.FormattingEnabled = true;
@@ -1711,7 +1711,7 @@ namespace Plexus_DICOM_Enabler
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.MaximizeBox = false;
-            this.MinimizeBox = false;
+            this.MinimizeBox = true;
             this.Name = "frm_Mainform";
             this.Padding = new System.Windows.Forms.Padding(3, 64, 3, 2);
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;

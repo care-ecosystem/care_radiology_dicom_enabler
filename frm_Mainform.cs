@@ -39,6 +39,9 @@ namespace Plexus_DICOM_Enabler
             mtxtb_ScpFolder.TrailingIcon = CreateFolderIcon();
             mtxtb_FailedScpFolder.TrailingIcon = CreateFolderIcon();
 
+            mcb_Facility.DropDown += (s, e) => mcb_Facility.DropDownWidth = mcb_Facility.Width;
+            mcb_DicomEnabler.DropDown += (s, e) => mcb_DicomEnabler.DropDownWidth = mcb_DicomEnabler.Width;
+
             // Server List is hidden for now, unless checkserver is on: the DICOM services then reject any
             // scanner not listed there, and the tab is the only place to list it or turn checkserver off.
             // Removed before the colour scheme is set below: the drawer bakes each icon at its tab's position
@@ -1735,6 +1738,8 @@ namespace Plexus_DICOM_Enabler
             if (!IsSavedFacilitySelected())
                 savedEnablerId = null;
 
+            bool haveSaved = false;
+            bool haveOthers = false;
             rebuildingDicomEnablerItems = true;
             try
             {
@@ -1775,6 +1780,8 @@ namespace Plexus_DICOM_Enabler
                     mcb_DicomEnabler.Items.Add(item);
                 mcb_DicomEnabler.SelectedItem = toSelect;
                 selectedDicomEnabler = toSelect.Id == null ? null : toSelect;
+                haveSaved = items.Any(item => item.IsSaved);
+                haveOthers = items.Any(item => !item.IsSaved);
             }
             finally
             {
@@ -1783,7 +1790,7 @@ namespace Plexus_DICOM_Enabler
 
             if (enablers == null)
                 ShowBanner(lbl_DicomEnablerBanner, tt_DicomEnablerBanner, messageKind, message);
-            else if (enablers.Count == 0)
+            else if (!haveOthers && !haveSaved)
                 ShowBanner(lbl_DicomEnablerBanner, tt_DicomEnablerBanner, BannerKind.Warning, "No unassigned DICOM Enablers in this facility in CARE.");
             else
                 HideBanner(lbl_DicomEnablerBanner, tt_DicomEnablerBanner);
