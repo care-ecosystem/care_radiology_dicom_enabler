@@ -721,6 +721,7 @@ namespace Plexus_DICOM_Enabler
                 HideControlsForServer(Global.deployType);
             }
             uctrl_ServerManager1.EnableDisableButtons();
+            Shown += async (s, args) => await uctrl_ServerManager1.OfferToRemoveServicesFromOtherBuild();
 
             // On small or scaled screens the window can be taller than the screen, which hides the
             // bottom of every tab. Fit it to the screen so tabs that scroll show their scroll bar.

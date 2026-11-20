@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using Microsoft.Win32;
 using System.Security.Principal;
 using System.ServiceProcess;
 using System.Windows.Forms;
@@ -172,6 +174,86 @@ namespace Plexus_DICOM_Enabler
             if (error != null)
                 cls_AppLog.Error(Area, error);
             return failed.Count == 0;
+        }
+
+        // ---------------------------------------------------------------- build the services run from
+
+        /// <summary>
+        /// </summary>
+        public static string GetServiceExecutable(string serviceName)
+        {
+            try
+            {
+                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\" + serviceName))
+                {
+                    string imagePath = key?.GetValue("ImagePath", null, RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
+                    if (string.IsNullOrWhiteSpace(imagePath))
+                        return null;
+                    imagePath = Environment.ExpandEnvironmentVariables(imagePath.Trim());
+                    if (imagePath.StartsWith("\""))
+                    {
+                        int end = imagePath.IndexOf('"', 1);
+                        imagePath = end > 0 ? imagePath.Substring(1, end - 1) : imagePath.Substring(1);
+                    }
+                    return Path.GetFullPath(imagePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                cls_AppLog.Warning("SERVICES", $"The executable of {serviceName} could not be read: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>The status of an installed service, or null when it cannot be read.</summary>
+        public static ServiceControllerStatus? GetStatus(string serviceName)
+        {
+            try
+            {
+                using (var service = new ServiceController(serviceName))
+                    return service.Status;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Uninstalls a stopped service (sc delete). Returns false with error set when sc refuses it (it needs
+        /// Administrator rights).
+        /// </summary>
+        public static bool UninstallService(string serviceName, out string error)
+        {
+            error = null;
+            try
+            {
+                var startInfo = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "sc.exe"),
+                                                     $"delete \"{serviceName}\"")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using (Process process = Process.Start(startInfo))
+                {
+                    string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+                    process.WaitForExit();
+                    if (process.ExitCode == 0)
+                    {
+                        cls_AppLog.Info("SERVICES", $"{serviceName} uninstalled");
+                        return true;
+                    }
+                    error = $"{serviceName} could not be uninstalled (sc exit code {process.ExitCode}): {output.Trim()}";
+                }
+            }
+            catch (Exception ex)
+            {
+                error = $"{serviceName} could not be uninstalled: {ex.Message}";
+            }
+            cls_AppLog.Error("SERVICES", error);
+            return false;
         }
 
     }

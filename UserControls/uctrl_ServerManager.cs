@@ -115,6 +115,103 @@ namespace Plexus_DICOM_Enabler.UserControls
             }
         }
 
+        // The CARE services
+        private static readonly string[] CareServices =
+        {
+            "Care MWL SCP Service",
+            "Care Store SCP Service",
+            "Care Store SCU Service",
+        };
+
+        /// <summary>
+        /// When the CARE services are installed from another build's folder (e.g. an older build that was
+        /// closed while its services kept running), says so and offers to stop and uninstall them, so this
+        /// build can install its own with Install Service(s). Called once the main form is shown.
+        /// </summary>
+        public async Task OfferToRemoveServicesFromOtherBuild()
+        {
+            if (Global.deployType != 1)
+                return;
+
+            string thisFolder = Path.GetFullPath(Global._applicationPath).TrimEnd(Path.DirectorySeparatorChar);
+            var others = new List<(string Service, string Current, bool Running)>();
+            foreach (string service in CareServices)
+            {
+                string current = cls_ServiceControl.GetServiceExecutable(service);
+                if (current == null)
+                    continue;
+                string currentFolder = Path.GetDirectoryName(current)?.TrimEnd(Path.DirectorySeparatorChar);
+                if (string.Equals(currentFolder, thisFolder, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                ServiceControllerStatus? status = cls_ServiceControl.GetStatus(service);
+                others.Add((service, current, status != null && status != ServiceControllerStatus.Stopped));
+            }
+            if (others.Count == 0)
+                return;
+
+            cls_AppLog.Info("SERVICES", "CARE services installed from another build: " +
+                string.Join("; ", others.Select(o => $"{o.Service} ({(o.Running ? "running" : "stopped")}) - {o.Current}")));
+
+            var lines = others.Select(o => $"{o.Service} ({(o.Running ? "running" : "stopped")}): {o.Current}").ToList();
+            lines.Add(string.Empty);
+            lines.Add("This build: " + thisFolder);
+
+            DialogResult answer = cls_ConfirmDialog.Show(FindForm(), "Services from another build",
+                "The CARE DICOM Enabler services on this computer are installed from another build. " +
+                "Stop them and uninstall them? Then install and start this build's services from Server Manager.",
+                lines, ("Stop", DialogResult.Yes), ("Cancel", DialogResult.Cancel));
+            if (answer != DialogResult.Yes)
+            {
+                cls_AppLog.Info("SERVICES", "Removing the services from another build declined by the user");
+                return;
+            }
+
+            // Stopping and uninstalling services needs Administrator rights
+            if (!cls_ServiceControl.IsAdministrator())
+            {
+                cls_AppLog.Warning("SERVICES", "Services from another build not removed: the application is not running as Administrator");
+                MessageBox.Show(FindForm(),
+                    "Stopping and uninstalling the services needs the application to run as Administrator. " +
+                    "Nothing was changed. Close the application, run it as Administrator and try again.",
+                    "Run as Administrator", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // The MWL service sets its DICOM Enabler and devices to unassigned in CARE while it stops, which can
+            // take a while: stop them off the UI thread
+            Enabled = false;
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                string error = null;
+                List<string> stopped = await Task.Run(() => cls_ServiceControl.StopServices(others.Select(o => o.Service), out error));
+                if (stopped == null)
+                {
+                    MessageBox.Show(FindForm(), error + " Nothing was uninstalled.", "Services from another build", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                var failed = new List<string>();
+                foreach (var other in others)
+                    if (!cls_ServiceControl.UninstallService(other.Service, out string uninstallError))
+                        failed.Add(uninstallError);
+                if (failed.Count > 0)
+                    MessageBox.Show(FindForm(), "The services are stopped, but not all of them could be uninstalled:" +
+                                    Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, failed),
+                                    "Services from another build", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                else
+                    MessageBox.Show(FindForm(), "The services from the other build are stopped and uninstalled. " +
+                                    "Install and start this build's services with Install Service(s) and Start Service(s).",
+                                    "Services from another build", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+                Enabled = true;
+                EnableDisableButtons();
+            }
+        }
+
         private bool CheckIfServiceInstalled(string serviceName)
         {
             return ServiceController.GetServices().Any(serviceController => serviceController.ServiceName.Equals(serviceName));
