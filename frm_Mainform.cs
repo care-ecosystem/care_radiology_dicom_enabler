@@ -42,6 +42,9 @@ namespace Plexus_DICOM_Enabler
             mcb_Facility.DropDown += (s, e) => mcb_Facility.DropDownWidth = mcb_Facility.Width;
             mcb_DicomEnabler.DropDown += (s, e) => mcb_DicomEnabler.DropDownWidth = mcb_DicomEnabler.Width;
 
+            WrapListItems(mcb_Facility);
+            WrapListItems(mcb_DicomEnabler);
+
             // Server List is hidden for now, unless checkserver is on: the DICOM services then reject any
             // scanner not listed there, and the tab is the only place to list it or turn checkserver off.
             // Removed before the colour scheme is set below: the drawer bakes each icon at its tab's position
@@ -58,9 +61,13 @@ namespace Plexus_DICOM_Enabler
             // setting itself is left as care_config holds it - Save writes back the value the hidden
             // checkbox was loaded with, so it is not changed by a Release build.
 #if !DEBUG
+            int careBottomMargin = grpb_CareSettings.Height - mtchkb_WorklistAllDevices.Bottom;
+            int groupGap = grpb_UploadSettings.Top - grpb_CareSettings.Bottom;
+            int saveGap = mbtn_SaveConfig.Top - grpb_UploadSettings.Bottom;
             mtchkb_WorklistAllDevices.Visible = false;
-            grpb_CareSettings.Size = new Size(grpb_CareSettings.Width, 230);
-            grpb_UploadSettings.Location = new Point(grpb_UploadSettings.Left, 256);
+            grpb_CareSettings.Height = mtxtb_CareFromDate.Bottom + careBottomMargin;
+            grpb_UploadSettings.Top = grpb_CareSettings.Bottom + groupGap;
+            mbtn_SaveConfig.Top = grpb_UploadSettings.Bottom + saveGap;
 #endif
 
             var materialSkinManager = MaterialSkinManager.Instance;
@@ -2000,6 +2007,45 @@ namespace Plexus_DICOM_Enabler
             {
                 rebuildingFacilityItems = false;
             }
+        }
+
+        private static void WrapListItems(MaterialComboBox combo)
+        {
+            const TextFormatFlags wrap = TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.Left;
+            MaterialSkinManager skin = MaterialSkinManager.Instance;
+            int minHeight = combo.ItemHeight;
+            const int verticalPadding = 10;
+
+            int TextWidth() => Math.Max(1, combo.Width - skin.FORM_PADDING * 2);
+            Font ItemFont() => skin.getFontByType(MaterialSkinManager.fontType.Subtitle1);
+
+            combo.MeasureItem += (s, e) =>
+            {
+                if (e.Index < 0 || e.Index >= combo.Items.Count)
+                    return;
+                string text = combo.GetItemText(combo.Items[e.Index]);
+                int textHeight = TextRenderer.MeasureText(text, ItemFont(), new Size(TextWidth(), int.MaxValue), wrap).Height;
+                e.ItemHeight = Math.Max(minHeight, textHeight + verticalPadding * 2);
+            };
+
+            combo.DrawItem += (s, e) =>
+            {
+                if (e.Index < 0 || e.Index >= combo.Items.Count)
+                    return;
+                string text = combo.GetItemText(combo.Items[e.Index]);
+                Font font = ItemFont();
+                bool hovered = (e.State & (DrawItemState.Selected | DrawItemState.Focus)) != 0;
+                using (var background = new SolidBrush(hovered ? skin.BackgroundHoverColor : skin.BackgroundColor))
+                    e.Graphics.FillRectangle(background, e.Bounds);
+
+                // Wrapped text is centred by hand: GDI centres vertically only on a single line
+                int width = TextWidth();
+                int textHeight = TextRenderer.MeasureText(e.Graphics, text, font, new Size(width, int.MaxValue), wrap).Height;
+                var textBounds = new Rectangle(e.Bounds.Left + skin.FORM_PADDING,
+                                               e.Bounds.Top + Math.Max(0, (e.Bounds.Height - textHeight) / 2),
+                                               width, textHeight);
+                TextRenderer.DrawText(e.Graphics, text, font, textBounds, skin.TextHighEmphasisColor, wrap);
+            };
         }
 
         private static void LogFacilityLoad(string message, bool success)
