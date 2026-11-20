@@ -2023,7 +2023,7 @@ namespace Plexus_DICOM_Enabler
             int TickWidth() => TextRenderer.MeasureText(tick + " ", TickFont(), Size.Empty, single).Width;
             int TextWidth() => Math.Max(1, combo.Width - skin.FORM_PADDING * 2 - TickWidth());
 
-            combo.MeasureItem += (s, e) =>
+            MeasureItemEventHandler measure = (s, e) =>
             {
                 if (e.Index < 0 || e.Index >= combo.Items.Count)
                     return;
@@ -2032,7 +2032,7 @@ namespace Plexus_DICOM_Enabler
                 e.ItemHeight = Math.Max(minHeight, textHeight + verticalPadding * 2);
             };
 
-            combo.DrawItem += (s, e) =>
+            DrawItemEventHandler draw = (s, e) =>
             {
                 if (e.Index < 0 || e.Index >= combo.Items.Count || (e.State & DrawItemState.ComboBoxEdit) != 0 || !combo.DroppedDown)
                     return;
@@ -2054,6 +2054,17 @@ namespace Plexus_DICOM_Enabler
                 TextRenderer.DrawText(e.Graphics, text, font, new Rectangle(textLeft, textTop, width, textHeight),
                                       skin.TextHighEmphasisColor, wrap);
             };
+
+            void MoveToEnd()
+            {
+                combo.MeasureItem -= measure;
+                combo.MeasureItem += measure;
+                combo.DrawItem -= draw;
+                combo.DrawItem += draw;
+            }
+            MoveToEnd();
+            combo.HandleCreated += (s, e) => combo.BeginInvoke((Action)MoveToEnd);
+            combo.DropDown += (s, e) => MoveToEnd();
         }
 
         private static void LogFacilityLoad(string message, bool success)
