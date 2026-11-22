@@ -35,7 +35,8 @@ namespace Plexus_DICOM_Enabler
 
         /// <summary>
         /// Saved devices whose study_uid_root in CARE differs from the saved one (device id -> CARE's root). Not a
-        /// change to confirm: AssignInCare saves them on every Sync, without the confirmation window.
+        /// change to confirm: SaveStudyUidRoots saves them without the confirmation window, from the Devices tab's
+        /// Sync (through AssignInCare) and from Start Service(s).
         /// </summary>
         public Dictionary<string, string> StudyUidRootChanges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -315,13 +316,14 @@ namespace Plexus_DICOM_Enabler
         }
 
         /// <summary>
-        /// Saves the study_uid_root CARE has for the saved devices whose root changed, without asking: the MWL
-        /// service builds the Study Instance UIDs it gives each device under it. Failures are logged and added
-        /// to check.Warnings.
+        /// Saves the study_uid_root CARE has for the saved devices whose root changed, without asking and whether
+        /// or not the other changes are applied: the MWL service builds the Study Instance UIDs it gives each
+        /// device under it. Once saved they are cleared from the check, so calling it again does nothing.
+        /// Blocking (database). Failures are logged and added to check.Warnings.
         /// </summary>
-        private static void SaveStudyUidRoots(CareSyncCheck check)
+        public static void SaveStudyUidRoots(CareSyncCheck check)
         {
-            if (check.StudyUidRootChanges.Count == 0)
+            if (check == null || !check.Checked || check.StudyUidRootChanges.Count == 0)
                 return;
             var dal = new ucls_DAL(Global._applicationPath);
             try
@@ -332,6 +334,7 @@ namespace Plexus_DICOM_Enabler
                 {
                     cls_AppLog.Info(Area, $"care_devices: study_uid_root saved for {updated} device(s), as in CARE: " +
                                           string.Join(", ", check.StudyUidRootChanges.Select(change => $"{change.Key}={change.Value}")));
+                    check.StudyUidRootChanges.Clear();
                 }
                 else
                 {
