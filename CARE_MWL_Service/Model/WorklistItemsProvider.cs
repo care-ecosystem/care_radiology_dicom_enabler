@@ -205,9 +205,13 @@ namespace Worklist_SCP.Model
                     return objWorkListItems;
                 }
 
+                Dictionary<string, string> studyUidRoots = GetStudyUidRootsByAET(objDal, objReadWriteLog);
+
                 foreach (CareWorklistRecord record in records)
                 {
-                    objWorkListItems.Add(ToWorklistItem(record, modality));
+                    WorklistItem mwlItem = ToWorklistItem(record, modality);
+                    mwlItem.StudyUIDsByAET = BuildStudyUidsByAET(studyUidRoots, record);
+                    objWorkListItems.Add(mwlItem);
                     // An AE title is at most 16 characters: a longer one is never sent as Scheduled Station AE Title
                     var tooLong = (record.DeviceAeTitles ?? new List<string>()).Select(aet => aet.Trim()).Where(aet => aet.Length > 16).Distinct().ToList();
                     if (tooLong.Count > 0)
@@ -342,9 +346,9 @@ namespace Worklist_SCP.Model
             // resolve to the first CurrentWorklistItems entry regardless of which procedure was performed.
             mwlItem.ProcedureStepID = mwlItem.AccessionNumber;
             mwlItem.ProcedureID = DeriveProcedureIdFromAccessionNumber(mwlItem.AccessionNumber);
-            // Modalities copy this onto every image they take for the order, so it must be the same on
-            // every C-FIND - derived from the order rather than generated per query.
-            mwlItem.StudyUID = DeriveStudyUidFromAccessionNumber(mwlItem.FacilityId, mwlItem.AccessionNumber);
+            // No Study Instance UID of its own: a device with a Study UID root in CARE gets the one built under
+            // it (StudyUIDsByAET); a device without one generates its own.
+            mwlItem.StudyUID = string.Empty;
             // Scheduled Station AE Title (0040,0001): the ae_title of each DICOM device the request is
             // scheduled on, from CARE - there is no fixed AE title for the DICOM Enabler. An AE title is
             // at most 16 characters, so a longer one is left out. With none the item has no AE title.
@@ -570,34 +574,100 @@ namespace Worklist_SCP.Model
         }
 
         /// <summary>
-        /// Builds a Study Instance UID that is the same every time for a given facility and accession
-        /// number: a name-based (MD5, version 3) UUID written as a "2.25." UID, per DICOM PS3.5 B.2.
-        /// Returns an empty string when there is no accession number.
+        /// A UID root as CARE validates study_uid_root: dot-separated numbers without leading zeros, at most
+        /// 40 characters, which leaves at least 23 digits of the 64-character UID for the suffix.
         /// </summary>
-        private static string DeriveStudyUidFromAccessionNumber(string facilityId, string accessionNumber)
+        private static readonly System.Text.RegularExpressions.Regex StudyUidRootPattern =
+            new System.Text.RegularExpressions.Regex(@"^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))*$");
+
+        private const int MaxStudyUidRootLength = 40;
+
+        /// <summary>A UI value (and so a Study Instance UID) is at most 64 characters.</summary>
+        private const int MaxUidLength = 64;
+
+        /// <summary>
+        /// The Study UID root of each DICOM device of the selected DICOM Enabler (care_devices, saved by Sync),
+        /// by AE title. Devices with no root are left out, as is one whose root is not a valid UID root (logged):
+        /// no Study Instance UID is sent to them, so they generate their own.
+        /// </summary>
+        private static Dictionary<string, string> GetStudyUidRootsByAET(ucls_DAL objDal, ucls_ReadWriteLog objReadWriteLog)
         {
-            if (string.IsNullOrWhiteSpace(accessionNumber))
+            var roots = new Dictionary<string, string>(StringComparer.Ordinal);
+            string dicomEnablerId = WorklistServer.GetConfigSetting("dicom_enabler_id", null)?.Trim() ?? string.Empty;
+            if (dicomEnablerId == string.Empty)
+                return roots;
+
+            string errorString = string.Empty;
+            List<CareDeviceRecord> devices = objDal.GetCareDevices(dicomEnablerId, ref errorString);
+            if (errorString != string.Empty)
             {
-                return string.Empty;
+                objReadWriteLog.WriteToLog("Study UID roots not read from care_devices, so no Study Instance UID is sent and the devices generate their own: " + errorString, false);
+                return roots;
             }
 
+            foreach (CareDeviceRecord device in devices.Where(d => d.DeviceType == ucls_CareModalities.CareTypeDicom && !string.IsNullOrWhiteSpace(d.AeTitle)))
+            {
+                string aet = device.AeTitle.Trim();
+                string root = device.StudyUidRoot?.Trim() ?? string.Empty;
+                // No root in CARE: the device generates its own Study Instance UID
+                if (root.Length == 0)
+                    continue;
+                if (root.Length > MaxStudyUidRootLength || !StudyUidRootPattern.IsMatch(root))
+                {
+                    objReadWriteLog.WriteToLog($"care_devices: Study UID root \"{root}\" of device {device.DeviceName} (AE {aet}) is not a UID root of at most {MaxStudyUidRootLength} characters " +
+                        "(numbers without leading zeros, separated by dots), so no Study Instance UID is sent and the device generates its own. Correct its study_uid_root in CARE and Sync.", false);
+                    continue;
+                }
+                if (roots.TryGetValue(aet, out string other) && other != root)
+                {
+                    objReadWriteLog.WriteToLog($"care_devices: more than one device has AE title {aet} with different Study UID roots; {other} is used.", false);
+                    continue;
+                }
+                roots[aet] = root;
+            }
+            return roots;
+        }
+
+        /// <summary>
+        /// The Study Instance UID of a worklist row for each device AE title that has a Study UID root. Empty
+        /// when the row has no accession number or creation time.
+        /// </summary>
+        private static Dictionary<string, string> BuildStudyUidsByAET(Dictionary<string, string> studyUidRoots, CareWorklistRecord record)
+        {
+            var uids = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (string.IsNullOrWhiteSpace(record.AccessionNumber) || !record.WorklistCreatedTime.HasValue)
+                return uids;
+            foreach (var entry in studyUidRoots)
+                uids[entry.Key] = BuildStudyUidUnderRoot(entry.Value, record.FacilityId, record.AccessionNumber, record.WorklistCreatedTime.Value);
+            return uids;
+        }
+
+        /// <summary>
+        /// A Study Instance UID under a device's root: &lt;root&gt;.&lt;suffix&gt;, where the suffix is the decimal
+        /// SHA-256 of facility ID, accession number and timestamp, cut to fill the UID to 64 characters. The
+        /// timestamp is when the care_worklist row was first saved, so every C-FIND gets the same UID for the
+        /// order, while an accession number reused later gets a new one.
+        /// </summary>
+        internal static string BuildStudyUidUnderRoot(string root, string facilityId, string accessionNumber, DateTime timestamp)
+        {
             byte[] hash;
-            using (var md5 = System.Security.Cryptography.MD5.Create())
+            using (var sha256 = System.Security.Cryptography.SHA256.Create())
             {
-                hash = md5.ComputeHash(Encoding.UTF8.GetBytes($"care-mwl|{facilityId}|{accessionNumber}"));
+                string seed = $"{(facilityId ?? string.Empty).Trim()}|{accessionNumber.Trim()}|{timestamp.ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture)}";
+                hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(seed));
             }
-
-            hash[6] = (byte)((hash[6] & 0x0F) | 0x30);  // version 3
-            hash[8] = (byte)((hash[8] & 0x3F) | 0x80);  // RFC 4122 variant
 
             // BigInteger reads little-endian two's complement: reverse, and add a zero byte to keep it positive.
             byte[] littleEndian = new byte[hash.Length + 1];
             for (int i = 0; i < hash.Length; i++)
-            {
                 littleEndian[i] = hash[hash.Length - 1 - i];
-            }
 
-            return "2.25." + new System.Numerics.BigInteger(littleEndian).ToString();
+            // A positive number's decimal form never starts with 0, as a UID component must not (unless it is 0)
+            string digits = new System.Numerics.BigInteger(littleEndian).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (digits == "0")
+                digits = "1";
+            int suffixLength = Math.Min(digits.Length, MaxUidLength - root.Length - 1);
+            return root + "." + digits.Substring(0, suffixLength);
         }
 
         private async Task<string> authAndGetDetailsAsync()

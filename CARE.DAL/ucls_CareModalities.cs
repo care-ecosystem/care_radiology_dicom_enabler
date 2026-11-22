@@ -272,6 +272,7 @@ namespace Plexus.Common.Database
                 Modality = device.machine?.modality?.Trim().ToUpperInvariant(),
                 AeTitle = device.machine?.ae_title,
                 Ip = device.machine?.ip ?? device.ip,
+                StudyUidRoot = string.IsNullOrWhiteSpace(device.study_uid_root) ? null : device.study_uid_root.Trim(),
                 LocationId = device.location?.id,
                 LocationName = device.location?.name,
                 Status = device.device_status?.status,
@@ -588,6 +589,7 @@ namespace Plexus.Common.Database
                 Add("Modality Machine", "Modality", device.Modality);
                 Add("Modality Machine", "Station AE Title", device.AeTitle);
                 Add("Modality Machine", "IP Address", device.Ip);
+                Add("Modality Machine", "Study UID Root", device.StudyUidRoot);
             }
             else
             {
@@ -692,6 +694,12 @@ namespace Plexus.Common.Database
 
         /// <summary>DICOM device only: id of the DICOM Enabler the device is connected to.</summary>
         public string dicom_enabler { get; set; }
+
+        /// <summary>
+        /// DICOM device only, from the retrieve (not the list): the DICOM UID root the MWL service builds the
+        /// Study Instance UIDs it gives this device under (&lt;root&gt;.&lt;suffix&gt;).
+        /// </summary>
+        public string study_uid_root { get; set; }
 
         [JsonIgnore]
         public bool IsDicomEnabler => device_type == ucls_CareModalities.CareTypeDicomEnabler;

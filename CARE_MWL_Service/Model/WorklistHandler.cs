@@ -166,7 +166,8 @@ namespace Worklist_SCP.Model
                    $"Modality={item.Modality}, ScheduledStationAETitles=[{string.Join("|", item.ScheduledAETs ?? new List<string>())}], " +
                    $"ScheduledDateTime={(item.ExamDateAndTime != default ? item.ExamDateAndTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) : "(none)")}, " +
                    $"ProcedureDescription={item.ExamDescription}, ProcedureCode={item.ProcedureCode}, RequestedProcedureID={item.ProcedureID}, " +
-                   $"ScheduledProcedureStepID={item.ProcedureStepID}, StudyInstanceUID={item.StudyUID}, Priority={item.Priority}, " +
+                   $"ScheduledProcedureStepID={item.ProcedureStepID}, StudyInstanceUID={item.StudyUID}, " +
+                   $"StudyInstanceUIDByAETitle=[{string.Join("|", (item.StudyUIDsByAET ?? new Dictionary<string, string>()).Select(e => e.Key + "=" + e.Value))}], Priority={item.Priority}, " +
                    $"BodySite={item.BodySite}, BodySiteId={item.BodySiteId}, " +
                    $"ReferringPhysician={item.ReferringPhysician}, Institution={item.HospitalName}";
         }
@@ -196,6 +197,19 @@ namespace Worklist_SCP.Model
         }
 
 
+        /// <summary>
+        /// The Study Instance UID for the device whose AE title the C-FIND asked for: the one built under its
+        /// Study UID root, or else the item's StudyUID - empty for a CARE item, so the device generates its own
+        /// (set for the List / Database backends).
+        /// </summary>
+        internal static string StudyUidFor(WorklistItem item, string requestedScheduledAET)
+        {
+            if (!string.IsNullOrEmpty(requestedScheduledAET) && item.StudyUIDsByAET != null &&
+                item.StudyUIDsByAET.TryGetValue(requestedScheduledAET, out string uid) && !string.IsNullOrEmpty(uid))
+                return uid;
+            return item.StudyUID;
+        }
+
         /// <summary>The C-FIND response dataset for one worklist item: the keys the query asked for.</summary>
         private static DicomDataset BuildResultDataset(DicomDataset request, DicomDataset procedureStep, string requestedScheduledAET, WorklistItem result, Action<LogEventLevel, string> log)
         {
@@ -222,7 +236,9 @@ namespace Worklist_SCP.Model
 
             // Modalities put this on every image of the study, so it comes from the worklist item
             // (stable per order) rather than DicomUID.Generate(), which would change on every C-FIND.
-            AddIfExistsInRequest(resultDataset, request, DicomTag.StudyInstanceUID, result.StudyUID); // T1
+            // The device that asked (its Scheduled Station AE Title) gets the one built under its own Study UID
+            // root from CARE. A device without one gets it empty and generates its own.
+            AddIfExistsInRequest(resultDataset, request, DicomTag.StudyInstanceUID, StudyUidFor(result, requestedScheduledAET)); // T1
 
             AddIfExistsInRequest(resultDataset, request, DicomTag.RequestingPhysician, result.ReferringPhysician); //T2
             AddIfExistsInRequest(resultDataset, request, DicomTag.RequestedProcedureDescription, result.ExamDescription); //T1C
