@@ -39,6 +39,13 @@ namespace Plexus_DICOM_Enabler
             mtxtb_ScpFolder.TrailingIcon = CreateFolderIcon();
             mtxtb_FailedScpFolder.TrailingIcon = CreateFolderIcon();
 
+            mcb_Facility.DropDown += (s, e) => mcb_Facility.DropDownWidth = mcb_Facility.Width;
+            mcb_DicomEnabler.DropDown += (s, e) => mcb_DicomEnabler.DropDownWidth = mcb_DicomEnabler.Width;
+
+            // The saved facility and DICOM Enabler are marked with a tick in the open list
+            mcb_Facility.IsSaved = item => item is FacilityItem facility && IsSavedFacilityId(facility.Id);
+            mcb_DicomEnabler.IsSaved = item => item is DicomEnablerItem enabler && enabler.IsSaved;
+
             // Server List is hidden for now, unless checkserver is on: the DICOM services then reject any
             // scanner not listed there, and the tab is the only place to list it or turn checkserver off.
             // Removed before the colour scheme is set below: the drawer bakes each icon at its tab's position
@@ -55,9 +62,13 @@ namespace Plexus_DICOM_Enabler
             // setting itself is left as care_config holds it - Save writes back the value the hidden
             // checkbox was loaded with, so it is not changed by a Release build.
 #if !DEBUG
+            int careBottomMargin = grpb_CareSettings.Height - mtchkb_WorklistAllDevices.Bottom;
+            int groupGap = grpb_UploadSettings.Top - grpb_CareSettings.Bottom;
+            int saveGap = mbtn_SaveConfig.Top - grpb_UploadSettings.Bottom;
             mtchkb_WorklistAllDevices.Visible = false;
-            grpb_CareSettings.Size = new Size(grpb_CareSettings.Width, 230);
-            grpb_UploadSettings.Location = new Point(grpb_UploadSettings.Left, 256);
+            grpb_CareSettings.Height = mtxtb_CareFromDate.Bottom + careBottomMargin;
+            grpb_UploadSettings.Top = grpb_CareSettings.Bottom + groupGap;
+            mbtn_SaveConfig.Top = grpb_UploadSettings.Bottom + saveGap;
 #endif
 
             var materialSkinManager = MaterialSkinManager.Instance;
@@ -718,6 +729,7 @@ namespace Plexus_DICOM_Enabler
                 HideControlsForServer(Global.deployType);
             }
             uctrl_ServerManager1.EnableDisableButtons();
+            Shown += async (s, args) => await uctrl_ServerManager1.OfferToRemoveServicesFromOtherBuild();
 
             // On small or scaled screens the window can be taller than the screen, which hides the
             // bottom of every tab. Fit it to the screen so tabs that scroll show their scroll bar.
@@ -1596,8 +1608,6 @@ namespace Plexus_DICOM_Enabler
         private int dicomEnablerLoadVersion;
         // Set while the dropdown items are rebuilt, so that does not change selectedDicomEnabler
         private bool rebuildingDicomEnablerItems;
-        // True while the dropdown list is open: the saved enabler is shown with a tick only there
-        private static bool dicomEnablerListOpen;
 
         /// <summary>
         /// A DICOM Enabler in the dropdown. Id is null for the "(None)" entry, which clears the selection.
@@ -1605,7 +1615,6 @@ namespace Plexus_DICOM_Enabler
         private sealed class DicomEnablerItem
         {
             public static readonly DicomEnablerItem None = new DicomEnablerItem(null, null, null);
-            private const string Tick = "\u2714 ";
 
             public DicomEnablerItem(string id, string name, string ip)
             {
@@ -1627,8 +1636,6 @@ namespace Plexus_DICOM_Enabler
                 string text = Name ?? Id;
                 if (!string.IsNullOrEmpty(Detail))
                     text += " - " + Detail;
-                if (IsSaved && dicomEnablerListOpen)
-                    text = Tick + text;
                 return text;
             }
         }
@@ -1735,6 +1742,8 @@ namespace Plexus_DICOM_Enabler
             if (!IsSavedFacilitySelected())
                 savedEnablerId = null;
 
+            bool haveSaved = false;
+            bool haveOthers = false;
             rebuildingDicomEnablerItems = true;
             try
             {
@@ -1775,6 +1784,8 @@ namespace Plexus_DICOM_Enabler
                     mcb_DicomEnabler.Items.Add(item);
                 mcb_DicomEnabler.SelectedItem = toSelect;
                 selectedDicomEnabler = toSelect.Id == null ? null : toSelect;
+                haveSaved = items.Any(item => item.IsSaved);
+                haveOthers = items.Any(item => !item.IsSaved);
             }
             finally
             {
@@ -1783,7 +1794,7 @@ namespace Plexus_DICOM_Enabler
 
             if (enablers == null)
                 ShowBanner(lbl_DicomEnablerBanner, tt_DicomEnablerBanner, messageKind, message);
-            else if (enablers.Count == 0)
+            else if (!haveOthers && !haveSaved)
                 ShowBanner(lbl_DicomEnablerBanner, tt_DicomEnablerBanner, BannerKind.Warning, "No unassigned DICOM Enablers in this facility in CARE.");
             else
                 HideBanner(lbl_DicomEnablerBanner, tt_DicomEnablerBanner);
@@ -1809,13 +1820,11 @@ namespace Plexus_DICOM_Enabler
 
         private void mcb_DicomEnabler_DropDown(object sender, EventArgs e)
         {
-            dicomEnablerListOpen = true;
             mcb_DicomEnabler.Invalidate();
         }
 
         private void mcb_DicomEnabler_DropDownClosed(object sender, EventArgs e)
         {
-            dicomEnablerListOpen = false;
             mcb_DicomEnabler.Invalidate();
         }
 
@@ -2013,6 +2022,13 @@ namespace Plexus_DICOM_Enabler
             selectedDicomEnabler = null;
             ShowDicomEnablers(null, BannerKind.Info, $"Loading the DICOM Enablers of {selectedFacility?.ToString() ?? "the facility"} from CARE...");
             LoadDicomEnablers();
+        }
+
+        private bool IsSavedFacilityId(string facilityId)
+        {
+            loadedConfigValues.TryGetValue(FacilityIdKey, out string savedFacilityId);
+            return !string.IsNullOrWhiteSpace(savedFacilityId) && facilityId != null &&
+                   string.Equals(facilityId.Trim(), savedFacilityId.Trim(), StringComparison.OrdinalIgnoreCase);
         }
 
         private bool IsSavedFacilitySelected()
