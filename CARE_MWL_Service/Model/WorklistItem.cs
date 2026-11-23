@@ -2,6 +2,7 @@
 // Licensed under the Microsoft Public License (MS-PL).
 
 using System;
+using System.Collections.Generic;
 
 namespace Worklist_SCP.Model
 {
@@ -40,6 +41,8 @@ namespace Worklist_SCP.Model
         public string ExamDescription { get; set; }
 
         public string StudyUID { get; set; }
+
+        public Dictionary<string, string> StudyUIDsByAET { get; set; } = new Dictionary<string, string>(StringComparer.Ordinal);
 
         public string ProcedureID { get; set; }
 

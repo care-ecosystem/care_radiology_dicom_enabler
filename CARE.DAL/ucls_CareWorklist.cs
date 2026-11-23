@@ -276,15 +276,11 @@ namespace Plexus.Common.Database
                         writeToLog(
                             $"CARE Worklist API returned {(int)response.StatusCode} ({response.ReasonPhrase}). Response body: {Truncate(responseBody, 1000)}", false);
 
-                        // A 401/403 is nearly always the token not matching the server's
-                        // CARE_RADIOLOGY_WEBHOOK_SECRET. Log a fingerprint of the token in use so
-                        // it can be compared against the server without either side echoing it:
-                        //   echo -n "$SECRET" | sha256sum
                         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
                             response.StatusCode == System.Net.HttpStatusCode.Forbidden)
                         {
                             writeToLog(
-                                $"Authorization rejected by CARE. Token in use: {DescribeToken(token)}. Verify it matches CARE_RADIOLOGY_WEBHOOK_SECRET on the server.", false);
+                                $"Authorization rejected by CARE. Token in use: {DescribeToken(token)}. Verify it is this facility's service-account token in CARE (compare the fingerprint Initializer.bat showed); a 403 can also mean the service account lacks permission for this API.", false);
                         }
 
                         response.EnsureSuccessStatusCode();
@@ -317,10 +313,15 @@ namespace Plexus.Common.Database
 
         /// <summary>
         /// Describes the configured token without writing it to the log: its length plus a short
-        /// SHA-256 fingerprint, which is enough to compare against the server's own secret.
+        /// SHA-256 fingerprint, which is enough to compare against the server's own copy. An
+        /// Authorization header value ("Token <token>") is described by the token alone, so the
+        /// fingerprint matches the one Initializer.bat shows.
         /// </summary>
         internal static string DescribeToken(string token)
         {
+            string schemePrefix = ucls_ServiceToken.AuthScheme + " ";
+            if (token != null && token.StartsWith(schemePrefix, StringComparison.Ordinal))
+                token = token.Substring(schemePrefix.Length);
             if (string.IsNullOrEmpty(token)) return "(not configured)";
 
             using (var sha = System.Security.Cryptography.SHA256.Create())

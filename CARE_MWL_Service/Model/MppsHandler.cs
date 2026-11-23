@@ -120,14 +120,17 @@ namespace Worklist_SCP.Model
                 string resolvedFrom = string.Empty;
                 string facilityId = dal.GetFacilityId(string.Empty, ref resolvedFrom, ref errorString);
                 string baseUrl = ConfigurationManager.AppSettings["careBaseUrl"];
-                string token = ConfigurationManager.AppSettings["careToken"];
                 string statusPath = ConfigurationManager.AppSettings["statusURL"];
+                string token = null;
+                string tokenError = null;
 
                 bool sent = false;
                 if (!string.IsNullOrEmpty(errorString) || string.IsNullOrWhiteSpace(facilityId))
                     LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: no Facility ID - {(string.IsNullOrEmpty(errorString) ? resolvedFrom : errorString)}. The SCU service will send it.");
-                else if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(statusPath))
-                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: careBaseUrl, careToken or statusURL is not set in App.config. The SCU service will send it.");
+                else if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(statusPath))
+                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: careBaseUrl or statusURL is not set in App.config. The SCU service will send it.");
+                else if (!ucls_ServiceToken.TryGetAuthorizationHeader(dal, out token, out tokenError))
+                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: {tokenError.TrimEnd('.')}. The SCU service will send it.");
                 else
                     sent = ucls_CareScanStatus.Send(ucls_CareScanStatus.BuildStatusURL(baseUrl, statusPath, facilityId), token, serviceRequestId, accessionNumber, studyStatus,
                         (message, isInfo) => { if (isInfo) LogInfo("[MPPS] " + message); else LogWarn("[MPPS] " + message + ". The SCU service will send it."); });

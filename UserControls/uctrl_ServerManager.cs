@@ -115,6 +115,112 @@ namespace Plexus_DICOM_Enabler.UserControls
             }
         }
 
+        // The CARE services
+        private static readonly string[] CareServices =
+        {
+            "Care MWL SCP Service",
+            "Care Store SCP Service",
+            "Care Store SCU Service",
+        };
+
+        private const string VersionMismatchTitle = "CARE DICOM Enabler - Service Version Mismatch";
+
+        /// <summary>
+        /// When the CARE services are installed from another build's folder (e.g. an older build that was
+        /// closed while its services kept running), says so and offers to stop and uninstall them, so this
+        /// build can install its own with Install Service(s). Called once the main form is shown.
+        /// </summary>
+        public async Task OfferToRemoveServicesFromOtherBuild()
+        {
+            if (Global.deployType != 1)
+                return;
+
+            string thisFolder = Path.GetFullPath(Global._applicationPath).TrimEnd(Path.DirectorySeparatorChar);
+            var others = new List<(string Service, string Current, bool Running)>();
+            foreach (string service in CareServices)
+            {
+                string current = cls_ServiceControl.GetServiceExecutable(service);
+                if (current == null)
+                    continue;
+                string currentFolder = Path.GetDirectoryName(current)?.TrimEnd(Path.DirectorySeparatorChar);
+                if (string.Equals(currentFolder, thisFolder, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                ServiceControllerStatus? status = cls_ServiceControl.GetStatus(service);
+                others.Add((service, current, status != null && status != ServiceControllerStatus.Stopped));
+            }
+            if (others.Count == 0)
+                return;
+
+            cls_AppLog.Info("SERVICES", "CARE services installed from a different version: " +
+                string.Join("; ", others.Select(o => $"{o.Service} ({(o.Running ? "running" : "stopped")}) - {o.Current}")));
+
+            // The services' paths are in the App Log above; the message names only the other version's folder(s)
+            string nl = Environment.NewLine;
+            string otherFolders = string.Join(nl, others.Select(o => Path.GetDirectoryName(o.Current))
+                                                        .Distinct(StringComparer.OrdinalIgnoreCase));
+            DialogResult answer = MessageBox.Show(FindForm(),
+                (others.Any(o => o.Running) ? "CARE DICOM Enabler services from a different version are currently running on this computer."
+                                            : "CARE DICOM Enabler services from a different version are installed on this computer.") +
+                nl + nl + "Installed from:" + nl + otherFolders + nl + nl +
+                "To use this version, these services must be stopped and uninstalled. Do you want to continue?" + nl + nl +
+                "Once they are removed, install and start the services for this version from Server Manager.",
+                VersionMismatchTitle, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes)
+            {
+                cls_AppLog.Info("SERVICES", "Removing the services from a different version declined by the user");
+                return;
+            }
+
+            // Stopping and uninstalling services needs Administrator rights
+            if (!cls_ServiceControl.IsAdministrator())
+            {
+                cls_AppLog.Warning("SERVICES", "Services from a different version not removed: the application is not running as Administrator");
+                MessageBox.Show(FindForm(),
+                    "Administrator privileges are required to stop and uninstall the services. No changes were made." +
+                    Environment.NewLine + Environment.NewLine +
+                    "Please restart the application as Administrator and try again.",
+                    "Administrator Privileges Required", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // The MWL service sets its DICOM Enabler and devices to unassigned in CARE while it stops, which can
+            // take a while: stop them off the UI thread
+            Enabled = false;
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                string error = null;
+                List<string> stopped = await Task.Run(() => cls_ServiceControl.StopServices(others.Select(o => o.Service), out error));
+                if (stopped == null)
+                {
+                    MessageBox.Show(FindForm(), "The services could not be stopped, so none were uninstalled." +
+                                    Environment.NewLine + Environment.NewLine + "Details: " + error,
+                                    VersionMismatchTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                var failed = new List<string>();
+                foreach (var other in others)
+                    if (!cls_ServiceControl.UninstallService(other.Service, out string uninstallError))
+                        failed.Add(uninstallError);
+                if (failed.Count > 0)
+                    MessageBox.Show(FindForm(), "The services were stopped, but the following could not be uninstalled:" +
+                                    Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, failed),
+                                    VersionMismatchTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                else
+                    MessageBox.Show(FindForm(), "The services from the different version have been stopped and uninstalled." +
+                                    Environment.NewLine + Environment.NewLine +
+                                    "To continue, click Install Service(s) and then Start Service(s) in Server Manager.",
+                                    VersionMismatchTitle, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+                Enabled = true;
+                EnableDisableButtons();
+            }
+        }
+
         private bool CheckIfServiceInstalled(string serviceName)
         {
             return ServiceController.GetServices().Any(serviceController => serviceController.ServiceName.Equals(serviceName));
@@ -273,9 +379,12 @@ namespace Plexus_DICOM_Enabler.UserControls
                     // Only the CARE services read care_config and need the Facility Id
                     if (!ApplyDefaults())
                         return;
+                    if (!ConfirmServiceToken(out bool tokenSet))
+                        return;
                     // Check CARE for changes to the DICOM Enabler, its devices and the SCP settings first;
-                    // any change is applied only once the user confirms it
-                    if (!SyncWithCareBeforeStart())
+                    // any change is applied only once the user confirms it. Without the service token CARE
+                    // cannot be checked, so the saved DICOM Enabler's endpoints are used as they are.
+                    if (tokenSet ? !SyncWithCareBeforeStart() : !ApplySavedEndpoints())
                         return;
 
                     //StartStopService("Plexus_Auth_Service", true);
@@ -388,6 +497,31 @@ namespace Plexus_DICOM_Enabler.UserControls
         }
 
         /// <summary>
+        /// Checks that the CARE service token (entered in Initializer.bat) is set and can be decrypted on this
+        /// machine. When it cannot, warns that the services will not reach CARE and asks whether to start them
+        /// anyway. tokenSet is whether the token is usable. Returns whether to start the services.
+        /// </summary>
+        private bool ConfirmServiceToken(out bool tokenSet)
+        {
+            tokenSet = ucls_ServiceToken.TryGetAuthorizationHeader(Global._applicationPath, out _, out string tokenError);
+            if (tokenSet)
+                return true;
+
+            cls_AppLog.Warning("SERVICES", "CARE service token not available at Start Service(s): " + tokenError);
+            string reason = char.ToUpperInvariant(tokenError[0]) + tokenError.Substring(1);
+            DialogResult answer = MessageBox.Show(FindForm(),
+                reason + Environment.NewLine + Environment.NewLine +
+                "Without it the services cannot fetch the worklist from CARE, upload images or send scan status. " +
+                "Images received are kept in the SCP folder and uploaded once the token is set." + Environment.NewLine + Environment.NewLine +
+                "Start the services anyway?",
+                "Start Services - CARE service token", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes)
+                return false;
+            cls_AppLog.Warning("SERVICES", "Starting the services without a CARE service token - confirmed by the user");
+            return true;
+        }
+
+        /// <summary>
         /// Calls the CARE Modalities APIs and checks for new DICOM devices, changes to the saved ones and to the
         /// DICOM Enabler, and Modality SCP / Store SCP settings that differ from the enabler's endpoints. When
         /// there are changes the user chooses to apply them and start, start without them, or cancel. Returns
@@ -407,6 +541,10 @@ namespace Plexus_DICOM_Enabler.UserControls
                 // The SCP settings must still be the saved DICOM Enabler's endpoints
                 return ApplySavedEndpoints();
             }
+
+            // A changed Study UID root is not a change to confirm: it is saved whatever is chosen below, so the
+            // MWL service builds the devices' Study Instance UIDs under CARE's current roots
+            System.Threading.Tasks.Task.Run(() => cls_CareSync.SaveStudyUidRoots(check)).GetAwaiter().GetResult();
 
             if (!check.HasChanges)
             {

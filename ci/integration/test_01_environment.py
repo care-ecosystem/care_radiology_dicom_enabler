@@ -120,7 +120,7 @@ def test_store_rejects_unsupported_sop_class(cfg, dicom, record):
 
 def test_care_preflight(cfg, api, ctx, record):
     """CARE instance, facility, patient and imaging activity definitions are usable
-    Logs in as the test user, checks the static key against the worklist API, and works out
+    Logs in as the test user, checks the service token against the worklist API, and works out
     which imaging activity definitions target the configured device: those whose locations hold a
     device registered as the configured modality."""
     api.login()
@@ -134,8 +134,8 @@ def test_care_preflight(cfg, api, ctx, record):
     record["encounter_id"] = f"{encounter['id']} ({'created' if created else 'existing'})"
 
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    api.worklist(now, now)  # raises unless the static key is accepted
-    record["static_key"] = "accepted by worklist API"
+    api.worklist(now, now)  # raises unless the service token is accepted
+    record["service_token"] = "accepted by worklist API"
 
     wanted = {s.strip() for s in cfg.activity_definitions.split(",") if s.strip()}
     targeted, others = [], []

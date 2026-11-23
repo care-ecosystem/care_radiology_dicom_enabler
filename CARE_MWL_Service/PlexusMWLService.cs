@@ -165,9 +165,14 @@ namespace Plexus_MWL_Service
             try
             {
                 dal = new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
+                if (!ucls_ServiceToken.TryGetAuthorizationHeader(dal, out string authorization, out string tokenError))
+                {
+                    AppLog.Error(AssignmentArea, $"Not setting the DICOM Enabler to {assignmentStatus} in CARE: {tokenError}");
+                    return;
+                }
                 ucls_CareModalities.TrySetEnablerAssignment(dal,
                     ConfigurationManager.AppSettings["careBaseUrl"] ?? string.Empty,
-                    ConfigurationManager.AppSettings["careToken"] ?? string.Empty,
+                    authorization,
                     ConfigurationManager.AppSettings["modalitiesURL"],
                     assignmentStatus,
                     (message, success) =>

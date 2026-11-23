@@ -17,8 +17,8 @@ Flow: CARE order → device worklist query → acquire → C-STORE → `./SCP` �
 1. Install **MySQL** (root password `care`, or note your own).
 2. Download the ZIP from the [Releases page](https://github.com/care-ecosystem/care_radiology_dicom_enabler/releases) and extract it (right-click → **Properties** → **Unblock** first if Windows marks it blocked).
 3. Create two empty folders next to the EXE: `SCP` and `FAILED_SCP`.
-4. Run `scripts\Initializer.bat` **as administrator** to create the local database.
-5. Run `CARE_DICOM_Enabler.exe` **as administrator** → **Configuration** tab → set AE titles and the **Facility ID** → **Save**.
+4. Run `scripts\Initializer.bat` **as administrator** to create the local database. When asked, paste the facility's **CARE service-account token** (input is hidden). It is stored encrypted for this machine only; re-run the Initializer to replace it.
+5. Run `CARE_DICOM_Enabler.exe` **as administrator** → **Configuration** tab → select the **Facility** (the list shows the facilities the service-account token can access) and the **DICOM Enabler** → **Save**.
 6. **Install Services**, then **Start Services**. Check the **Log** tab for errors.
 
 Verify: all three services **Running** in `services.msc`, and ports 2007/2008 listening —
@@ -31,22 +31,23 @@ Full step-by-step with screenshots, troubleshooting and DCMTK test commands: **[
 **[v0.0.2](https://github.com/care-ecosystem/care_radiology_dicom_enabler/releases/tag/v0.0.2)** (pre-release, staging) — asset `CARE_DICOM_Enabler-v0.0.2.zip`.
 Debug builds can fetch the full worklist without device linkage ([#75](https://github.com/care-ecosystem/care_radiology_dicom_enabler/pull/75)) · [full changelog](https://github.com/care-ecosystem/care_radiology_dicom_enabler/compare/v0.0.1...v0.0.2).
 
-Releases are cut by pushing a tag; the CARE server URL and token for that environment are baked into the build:
+Releases are cut by pushing a tag; the CARE server URL and static API key for that environment are baked into the build:
 
 ```
 git tag v0.0.3    && git push origin v0.0.3      # -> staging release
 git tag jh-v1.0.0 && git push origin jh-v1.0.0   # -> built with the "jh" environment
 ```
 
-> The baked token is readable in the `.exe.config` files inside a published ZIP. Treat these tokens as rotatable.
+> The baked static API key is readable in the `.exe.config` files inside a published ZIP. Treat it as rotatable.
+> The CARE APIs the enabler calls today (worklist, modalities, DICOM upload, scan status) are authenticated with the facility's service-account token (`Authorization: Token <token>`). It is never baked into a build: the Initializer stores it in `care_config` (`care_service_token`), encrypted with Windows DPAPI for the machine, and the services decrypt it only when they make a call.
 
 ## Build from source
 
 - Visual Studio 2019 or later, .NET Framework 4.7.2, run as Administrator
 - `nuget restore CARE_DICOM_Enabler.sln` then build `CARE_DICOM_Enabler.sln` (fo-dicom, MySql.Data, Serilog, MaterialSkin.2 — see `packages.config`)
-- CARE settings live in each service's `App.config` (`careBaseUrl`, `careToken`); the UI's **Configuration** tab writes the rest to `cfg/common.cfg` and the `care_config` table
+- CARE settings live in each service's `App.config` (`careBaseUrl`, static API key in `careToken` / `staticAPIKey`); the service-account token is set by `Initializer.bat`; the UI's **Configuration** tab writes the rest to `cfg/common.cfg` and the `care_config` table
 
-CI (`.github/workflows/build.yml`) builds on every push/PR to `main` and on tags, and can be run manually with overrides for build configuration, platform, CARE server URL/token, worklist from-date, refresh interval and upload retries. Values resolve as: manual input → environment secret/var → workflow default → committed `App.config`.
+CI (`.github/workflows/build.yml`) builds on every push/PR to `main` and on tags, and can be run manually with overrides for build configuration, platform, CARE server URL/token, worklist from-date, refresh interval, upload retries and the scan-completed wait (`CARE_SCAN_COMPLETED_WAIT_SECONDS`, seconds after a study's last upload before COMPLETED is sent to CARE). Values resolve as: manual input → environment secret/var → workflow default → committed `App.config`.
 
 ## Know more
 
