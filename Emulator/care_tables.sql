@@ -100,7 +100,8 @@ DEALLOCATE PREPARE care_device_modality_index_stmt;
 --    store_scp_* and modality_scp_* columns - the only source of the Modality SCP / Store SCP settings;
 --  - its DICOM devices (device_type dicom, dicom_enabler_id = the enabler), from GET
 --    .../external/modalities/?device_id={id}, with their machine in modality / ae_title (the
---    Scheduled Station AE Title) / ip.
+--    Scheduled Station AE Title) / ip, and study_uid_root from GET .../external/modalities/{device_id}/:
+--    the UID root the MWL service builds the Study Instance UIDs it gives that device under.
 -- Refreshed by the Devices tab's Sync and by Start Service(s), only once the user confirms the changes
 -- found: rows are inserted or updated with CARE's latest values, and the enabler's device rows CARE no
 -- longer lists are deleted. A replaced or cleared DICOM Enabler's rows are deleted with it.
@@ -114,6 +115,7 @@ CREATE TABLE IF NOT EXISTS `care_devices` (
   `modality` varchar(16) DEFAULT NULL,
   `ae_title` varchar(64) DEFAULT NULL,
   `ip` varchar(64) DEFAULT NULL,
+  `study_uid_root` varchar(64) DEFAULT NULL,
   `location_id` varchar(64) DEFAULT NULL,
   `location_name` varchar(255) DEFAULT NULL,
   `status` varchar(32) DEFAULT NULL,
@@ -143,6 +145,7 @@ CALL `care_add_column`('care_devices', 'modality_scp_ae_title', 'varchar(64) DEF
 CALL `care_add_column`('care_devices', 'modality_scp_host', 'varchar(255) DEFAULT NULL AFTER `modality_scp_ae_title`');
 CALL `care_add_column`('care_devices', 'modality_scp_port', 'int(11) DEFAULT NULL AFTER `modality_scp_host`');
 CALL `care_drop_column`('care_devices', 'details');
+CALL `care_add_column`('care_devices', 'study_uid_root', 'varchar(64) DEFAULT NULL AFTER `ip`');
 DROP PROCEDURE IF EXISTS `care_add_column`;
 DROP PROCEDURE IF EXISTS `care_drop_column`;
 

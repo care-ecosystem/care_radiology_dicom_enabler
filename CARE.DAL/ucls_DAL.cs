@@ -1010,19 +1010,56 @@ namespace Plexus.Common.Database
             }
         }
 
+        /// <summary>
+        /// Sets study_uid_root of the given care_devices rows (device id -> root). updatedCount is the number of
+        /// rows whose root changed. Returns false with errorString set when they cannot be updated.
+        /// </summary>
+        public bool SetCareDeviceStudyUidRoots(IDictionary<string, string> rootsByDeviceId, ref int updatedCount, ref string errorString)
+        {
+            updatedCount = 0;
+            var roots = (rootsByDeviceId ?? new Dictionary<string, string>())
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && !string.IsNullOrWhiteSpace(entry.Value)).ToList();
+            if (roots.Count == 0)
+                return true;
+            try
+            {
+                if (!openDBConnection(ref errorString))
+                    return false;
+                foreach (var entry in roots)
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "UPDATE care_devices SET study_uid_root = @root, updated_time = CURRENT_TIMESTAMP " +
+                        "WHERE device_id = @id AND (study_uid_root IS NULL OR study_uid_root <> @root)", conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@root", entry.Value.Trim());
+                        cmd.Parameters.AddWithValue("@id", entry.Key.Trim());
+                        updatedCount += cmd.ExecuteNonQuery();
+                    }
+                }
+                closeDBConnection(ref errorString);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                closeDBConnection(ref errorString);
+                errorString = "Updating study_uid_root in care_devices failed with exception " + ex.Message;
+                return false;
+            }
+        }
+
         /// <summary>One care_devices row inserted, or updated with the record's values, inside the given transaction.</summary>
         private void UpsertCareDevice(CareDeviceRecord device, string dicomEnablerId, MySqlTransaction transaction)
         {
             const string upsertQuery =
-                "INSERT INTO care_devices (device_id, facility_id, dicom_enabler_id, device_name, device_type, modality, ae_title, ip, " +
+                "INSERT INTO care_devices (device_id, facility_id, dicom_enabler_id, device_name, device_type, modality, ae_title, ip, study_uid_root, " +
                 "location_id, location_name, status, availability_status, assignment_status, last_synced_at, " +
                 "store_scp_ae_title, store_scp_host, store_scp_port, modality_scp_ae_title, modality_scp_host, modality_scp_port) VALUES " +
-                "(@device_id, @facility_id, @dicom_enabler_id, @device_name, @device_type, @modality, @ae_title, @ip, " +
+                "(@device_id, @facility_id, @dicom_enabler_id, @device_name, @device_type, @modality, @ae_title, @ip, @study_uid_root, " +
                 "@location_id, @location_name, @status, @availability_status, @assignment_status, @last_synced_at, " +
                 "@store_scp_ae_title, @store_scp_host, @store_scp_port, @modality_scp_ae_title, @modality_scp_host, @modality_scp_port) " +
                 "ON DUPLICATE KEY UPDATE facility_id = VALUES(facility_id), dicom_enabler_id = VALUES(dicom_enabler_id), " +
                 "device_name = VALUES(device_name), device_type = VALUES(device_type), modality = VALUES(modality), ae_title = VALUES(ae_title), " +
-                "ip = VALUES(ip), location_id = VALUES(location_id), location_name = VALUES(location_name), status = VALUES(status), " +
+                "ip = VALUES(ip), study_uid_root = COALESCE(VALUES(study_uid_root), study_uid_root), location_id = VALUES(location_id), location_name = VALUES(location_name), status = VALUES(status), " +
                 "availability_status = VALUES(availability_status), assignment_status = VALUES(assignment_status), " +
                 "last_synced_at = VALUES(last_synced_at), store_scp_ae_title = VALUES(store_scp_ae_title), " +
                 "store_scp_host = VALUES(store_scp_host), store_scp_port = VALUES(store_scp_port), " +
@@ -1039,6 +1076,7 @@ namespace Plexus.Common.Database
                 cmd.Parameters.AddWithValue("@modality", DbValue(device.Modality));
                 cmd.Parameters.AddWithValue("@ae_title", DbValue(device.AeTitle));
                 cmd.Parameters.AddWithValue("@ip", DbValue(device.Ip));
+                cmd.Parameters.AddWithValue("@study_uid_root", DbValue(device.StudyUidRoot));
                 cmd.Parameters.AddWithValue("@location_id", DbValue(device.LocationId));
                 cmd.Parameters.AddWithValue("@location_name", DbValue(device.LocationName));
                 cmd.Parameters.AddWithValue("@status", DbValue(device.Status));
@@ -1136,6 +1174,7 @@ namespace Plexus.Common.Database
                 Modality = DbString(reader, "modality"),
                 AeTitle = DbString(reader, "ae_title"),
                 Ip = DbString(reader, "ip"),
+                StudyUidRoot = DbString(reader, "study_uid_root"),
                 LocationId = DbString(reader, "location_id"),
                 LocationName = DbString(reader, "location_name"),
                 Status = DbString(reader, "status"),
@@ -1175,7 +1214,7 @@ namespace Plexus.Common.Database
                 if (openDBConnection(ref errorString))
                 {
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "SELECT w.accession_number, w.facility_id, w.facility_name, " +
+                        "SELECT w.accession_number, w.facility_id, w.facility_name, w.created_time AS worklist_created_time, " +
                         "sr.service_request_id, sr.name AS sr_name, sr.date AS sr_date, sr.body_site, sr.body_site_id, sr.description, sr.modality, " +
                         "sr.referring_physician, sr.procedure_id, sr.priority, sr.technician_instruction, sr.patient_instruction, " +
                         // The Scheduled Station AE Titles: the AE titles of the request's DICOM devices of the
@@ -1208,6 +1247,7 @@ namespace Plexus.Common.Database
                                     AccessionNumber = DbString(reader, "accession_number"),
                                     FacilityId = DbString(reader, "facility_id"),
                                     FacilityName = DbString(reader, "facility_name"),
+                                    WorklistCreatedTime = reader["worklist_created_time"] == DBNull.Value ? (DateTime?)null : Convert.ToDateTime(reader["worklist_created_time"]),
                                     ServiceRequestId = DbString(reader, "service_request_id"),
                                     ServiceRequestName = DbString(reader, "sr_name"),
                                     ServiceRequestDate = reader["sr_date"] == DBNull.Value ? (DateTime?)null : Convert.ToDateTime(reader["sr_date"]),
@@ -1635,6 +1675,11 @@ namespace Plexus.Common.Database
         /// Such a request is only sent to its devices' AE titles; one with no device goes to every device.
         /// </summary>
         public bool HasDevices { get; set; }
+        /// <summary>
+        /// Read by GetScheduledCareWorklist: when the care_worklist row was first saved (created_time). It is
+        /// set once per accession number, so it is the timestamp the Study Instance UID is built from.
+        /// </summary>
+        public DateTime? WorklistCreatedTime { get; set; }
     }
 
 
@@ -1669,6 +1714,12 @@ namespace Plexus.Common.Database
         public string Modality { get; set; }
         public string AeTitle { get; set; }
         public string Ip { get; set; }
+        /// <summary>
+        /// DICOM device only: the DICOM UID root CARE gives it (study_uid_root), which the MWL service builds
+        /// the Study Instance UIDs it gives this device under. Null when CARE has none or did not return it;
+        /// saving a null keeps the saved value.
+        /// </summary>
+        public string StudyUidRoot { get; set; }
         public string LocationId { get; set; }
         public string LocationName { get; set; }
         public string Status { get; set; }

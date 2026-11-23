@@ -33,6 +33,13 @@ namespace Plexus_DICOM_Enabler
         /// <summary>The ids of the devices saved in care_devices when the check ran.</summary>
         public HashSet<string> SavedDeviceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// Saved devices whose study_uid_root in CARE differs from the saved one (device id -> CARE's root). Not a
+        /// change to confirm: SaveStudyUidRoots saves them without the confirmation window, from the Devices tab's
+        /// Sync (through AssignInCare) and from Start Service(s).
+        /// </summary>
+        public Dictionary<string, string> StudyUidRootChanges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>Modality SCP / Store SCP settings in cfg/common.cfg that differ from the enabler's endpoints.</summary>
         public Dictionary<string, string> ScpSettingChanges = new Dictionary<string, string>();
 
@@ -304,6 +311,41 @@ namespace Plexus_DICOM_Enabler
                 cls_AppLog.Error(Area, "Could not set to assigned in CARE: " + failure);
                 check.Warnings.Add("Could not be set to assigned in CARE: " + failure);
             }
+
+            SaveStudyUidRoots(check);
+        }
+
+        /// <summary>
+        /// Saves the study_uid_root CARE has for the saved devices whose root changed, without asking and whether
+        /// or not the other changes are applied: the MWL service builds the Study Instance UIDs it gives each
+        /// device under it. Once saved they are cleared from the check, so calling it again does nothing.
+        /// Blocking (database). Failures are logged and added to check.Warnings.
+        /// </summary>
+        public static void SaveStudyUidRoots(CareSyncCheck check)
+        {
+            if (check == null || !check.Checked || check.StudyUidRootChanges.Count == 0)
+                return;
+            var dal = new ucls_DAL(Global._applicationPath);
+            try
+            {
+                int updated = 0;
+                string errorString = string.Empty;
+                if (dal.SetCareDeviceStudyUidRoots(check.StudyUidRootChanges, ref updated, ref errorString))
+                {
+                    cls_AppLog.Info(Area, $"care_devices: study_uid_root saved for {updated} device(s), as in CARE: " +
+                                          string.Join(", ", check.StudyUidRootChanges.Select(change => $"{change.Key}={change.Value}")));
+                    check.StudyUidRootChanges.Clear();
+                }
+                else
+                {
+                    cls_AppLog.Error(Area, errorString);
+                    check.Warnings.Add("The Study UID root of the devices could not be saved in care_devices: " + errorString);
+                }
+            }
+            finally
+            {
+                dal.Dispose();
+            }
         }
 
         /// <summary>
@@ -411,6 +453,11 @@ namespace Plexus_DICOM_Enabler
                                             $"IP {device.Ip ?? "N/A"}, location {device.LocationName ?? "N/A"}");
                     continue;
                 }
+                // Only the retrieve returns study_uid_root: when the list entry was used, the saved one is kept
+                if (device.StudyUidRoot == null)
+                    device.StudyUidRoot = old.StudyUidRoot;
+                else if (device.StudyUidRoot != old.StudyUidRoot)
+                    check.StudyUidRootChanges[device.DeviceId] = device.StudyUidRoot;
                 var differences = DeviceFields
                     .Where(field => (field.Value(old) ?? string.Empty) != (field.Value(device) ?? string.Empty))
                     .Select(field => $"{field.Name} {field.Value(old) ?? "N/A"} -> {field.Value(device) ?? "N/A"}")

@@ -542,6 +542,10 @@ namespace Plexus_DICOM_Enabler.UserControls
                 return ApplySavedEndpoints();
             }
 
+            // A changed Study UID root is not a change to confirm: it is saved whatever is chosen below, so the
+            // MWL service builds the devices' Study Instance UIDs under CARE's current roots
+            System.Threading.Tasks.Task.Run(() => cls_CareSync.SaveStudyUidRoots(check)).GetAwaiter().GetResult();
+
             if (!check.HasChanges)
             {
                 if (check.Warnings.Count > 0 &&
