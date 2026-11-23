@@ -1162,6 +1162,55 @@ namespace Plexus.Common.Database
             return device;
         }
 
+        public DeviceWorklistCounts GetDeviceWorklistCounts(string deviceId, DateTime day, ref string errorString)
+        {
+            if (string.IsNullOrWhiteSpace(deviceId))
+                return new DeviceWorklistCounts();
+            DeviceWorklistCounts counts = null;
+            try
+            {
+                if (openDBConnection(ref errorString))
+                {
+                    using (MySqlCommand cmd = new MySqlCommand(
+                        "SELECT COUNT(*) AS total, " +
+                        "COALESCE(SUM(w.scan_status IS NULL AND w.status = 'SCHEDULED'), 0) AS scheduled, " +
+                        "COALESCE(SUM(w.scan_status IN ('START_PENDING', 'STARTED')), 0) AS in_progress, " +
+                        "COALESCE(SUM(w.scan_status = 'COMPLETED' OR (w.scan_status IS NULL AND w.status = 'COMPLETED')), 0) AS completed, " +
+                        "COALESCE(SUM(w.scan_status IN ('CANCEL_PENDING', 'CANCELLED')), 0) AS cancelled " +
+                        "FROM care_worklist w " +
+                        "JOIN care_service_request sr ON sr.pk = w.service_request_pk " +
+                        "WHERE EXISTS (SELECT 1 FROM care_service_request_device d WHERE d.service_request_pk = sr.pk AND d.device_id = @device_id) " +
+                        "AND COALESCE(sr.date, w.created_time) >= @day_start AND COALESCE(sr.date, w.created_time) < @day_end",
+                        conConnection))
+                    {
+                        cmd.Parameters.AddWithValue("@device_id", deviceId.Trim());
+                        cmd.Parameters.AddWithValue("@day_start", day.Date);
+                        cmd.Parameters.AddWithValue("@day_end", day.Date.AddDays(1));
+                        using (MySqlDataReader reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                                counts = new DeviceWorklistCounts
+                                {
+                                    Total = Convert.ToInt32(reader["total"]),
+                                    Scheduled = Convert.ToInt32(reader["scheduled"]),
+                                    InProgress = Convert.ToInt32(reader["in_progress"]),
+                                    Completed = Convert.ToInt32(reader["completed"]),
+                                    Cancelled = Convert.ToInt32(reader["cancelled"])
+                                };
+                        }
+                    }
+                }
+                closeDBConnection(ref errorString);
+            }
+            catch (Exception ex)
+            {
+                closeDBConnection(ref errorString);
+                errorString = "Reading the device's worklist counts failed with exception " + ex.Message;
+                counts = null;
+            }
+            return string.IsNullOrEmpty(errorString) ? counts ?? new DeviceWorklistCounts() : null;
+        }
+
         private static CareDeviceRecord ReadCareDevice(MySqlDataReader reader)
         {
             return new CareDeviceRecord
@@ -1621,6 +1670,17 @@ namespace Plexus.Common.Database
         }
 
 
+    }
+
+
+    /// <summary>A DICOM device's worklist for one day, by state (GetDeviceWorklistCounts). Total is their sum.</summary>
+    public class DeviceWorklistCounts
+    {
+        public int Total { get; set; }
+        public int Scheduled { get; set; }
+        public int InProgress { get; set; }
+        public int Completed { get; set; }
+        public int Cancelled { get; set; }
     }
 
 
