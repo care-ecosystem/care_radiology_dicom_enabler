@@ -2374,7 +2374,31 @@ namespace Plexus_DICOM_Enabler
             if (!string.IsNullOrWhiteSpace(device.Modality))
                 title += " - " + device.Modality.Trim();
             string note = device.UpdatedTime.HasValue ? "As CARE returned it on " + device.UpdatedTime.Value.ToString("dd-MMM-yyyy HH:mm") : null;
-            ShowReadableDetails(title, device, note);
+            ShowReadableDetails(title, device, note, DeviceWorklistRows(deviceId));
+        }
+
+        /// <summary>
+        /// The "Today's Worklist" section of a device's details: its worklist for today (by the service
+        /// request date) from care_worklist, in total and by state. Each count is shown as "N/A" when it
+        /// cannot be read.
+        /// </summary>
+        private List<string[]> DeviceWorklistRows(string deviceId)
+        {
+            DateTime today = DateTime.Today;
+            string section = "Today's Worklist (" + today.ToString("dd-MMM-yyyy") + ")";
+            string errorString = string.Empty;
+            DeviceWorklistCounts counts = objDAL.GetDeviceWorklistCounts(deviceId, today, ref errorString);
+            if (counts == null)
+                cls_AppLog.Error("DEVICES", $"Could not read the worklist counts of device {deviceId}: {errorString}");
+            string Count(Func<DeviceWorklistCounts, int> value) => counts == null ? ucls_CareModalities.NotAvailable : value(counts).ToString();
+            return new List<string[]>
+            {
+                new[] { section, "Total", Count(c => c.Total) },
+                new[] { section, "Scheduled", Count(c => c.Scheduled) },
+                new[] { section, "In Progress", Count(c => c.InProgress) },
+                new[] { section, "Completed", Count(c => c.Completed) },
+                new[] { section, "Cancelled", Count(c => c.Cancelled) }
+            };
         }
 
         /// <summary>
@@ -2400,9 +2424,12 @@ namespace Plexus_DICOM_Enabler
         /// A read-only window with a device's details as labelled fields grouped in sections (General,
         /// Modality Machine, Store SCP, ...). Nothing in it can be edited: the details come from CARE.
         /// </summary>
-        private void ShowReadableDetails(string title, CareDeviceRecord device, string note)
+        /// <param name="extraRows">Further sections (section, field, value) shown after the device's own details.</param>
+        private void ShowReadableDetails(string title, CareDeviceRecord device, string note, List<string[]> extraRows = null)
         {
             List<string[]> rows = ucls_CareModalities.ReadableDetails(device);
+            if (extraRows != null)
+                rows.AddRange(extraRows);
             using (Form dialog = new Form())
             {
                 dialog.Text = title + " - Details";
