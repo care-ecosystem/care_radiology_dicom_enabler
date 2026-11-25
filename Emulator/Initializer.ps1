@@ -324,6 +324,28 @@ function Read-MaskedInput {
                 continue
             }
 
+            $ctrl  = ($key.ControlKeyState -band 0x0C) -ne 0                    # Left/Right Ctrl
+            $shift = ($key.ControlKeyState -band 0x10) -ne 0                    # Shift
+            if (($ctrl -and $key.VirtualKeyCode -eq 86) -or ($shift -and $key.VirtualKeyCode -eq 45)) {
+                $clip = $null
+                try { $clip = Get-Clipboard -Raw -ErrorAction Stop } catch {
+                    try {
+                        Add-Type -AssemblyName System.Windows.Forms
+                        $clip = [System.Windows.Forms.Clipboard]::GetText()
+                    } catch { $clip = $null }
+                }
+                if ($clip) {
+                    $clip = $clip.Trim("`r", "`n")
+                    foreach ($ch in $clip.ToCharArray()) {
+                        if ([int]$ch -ge 32) {
+                            [void]$buffer.Append($ch)
+                            Write-Host "*" -NoNewline
+                        }
+                    }
+                }
+                continue
+            }
+
             # Ignore keys with no printable character (arrows, function keys, ...)
             if ($key.Character -and [int]$key.Character -ge 32) {
                 [void]$buffer.Append($key.Character)

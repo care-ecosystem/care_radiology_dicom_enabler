@@ -127,6 +127,9 @@ namespace Plexus_DICOM_Enabler
             this.mtchkb_WorklistAllDevices = new MaterialSkin.Controls.MaterialCheckbox();
             this.lbl_FacilityId = new MaterialSkin.Controls.MaterialLabel();
             this.mcb_Facility = new Plexus_DICOM_Enabler.cls_WrappingComboBox();
+            this.lbl_ServiceToken = new MaterialSkin.Controls.MaterialLabel();
+            this.mtxtb_ServiceToken = new MaterialSkin.Controls.MaterialTextBox();
+            this.mbtn_SaveServiceToken = new MaterialSkin.Controls.MaterialButton();
             this.lbl_CareFromDate = new MaterialSkin.Controls.MaterialLabel();
             this.mtxtb_CareFromDate = new MaterialSkin.Controls.MaterialTextBox();
             this.lbl_DicomEnabler = new MaterialSkin.Controls.MaterialLabel();
@@ -1338,7 +1341,7 @@ namespace Plexus_DICOM_Enabler
             this.mbtn_SaveConfig.Depth = 0;
             this.mbtn_SaveConfig.HighEmphasis = true;
             this.mbtn_SaveConfig.Icon = null;
-            this.mbtn_SaveConfig.Location = new System.Drawing.Point(912, 580);
+            this.mbtn_SaveConfig.Location = new System.Drawing.Point(912, 660);
             this.mbtn_SaveConfig.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
             this.mbtn_SaveConfig.MouseState = MaterialSkin.MouseState.HOVER;
             this.mbtn_SaveConfig.Name = "mbtn_SaveConfig";
@@ -1353,6 +1356,9 @@ namespace Plexus_DICOM_Enabler
             //
             // grpb_CareSettings
             //
+            this.grpb_CareSettings.Controls.Add(this.lbl_ServiceToken);
+            this.grpb_CareSettings.Controls.Add(this.mtxtb_ServiceToken);
+            this.grpb_CareSettings.Controls.Add(this.mbtn_SaveServiceToken);
             this.grpb_CareSettings.Controls.Add(this.lbl_FacilityId);
             this.grpb_CareSettings.Controls.Add(this.mcb_Facility);
             this.grpb_CareSettings.Controls.Add(this.lbl_CareFromDate);
@@ -1368,17 +1374,73 @@ namespace Plexus_DICOM_Enabler
             this.grpb_CareSettings.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.grpb_CareSettings.Name = "grpb_CareSettings";
             this.grpb_CareSettings.Padding = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.grpb_CareSettings.Size = new System.Drawing.Size(896, 330);
+            this.grpb_CareSettings.Size = new System.Drawing.Size(896, 410);
             this.grpb_CareSettings.TabIndex = 0;
             this.grpb_CareSettings.TabStop = false;
             this.grpb_CareSettings.Text = "CARE Settings";
+            //
+            // lbl_ServiceToken
+            //
+            this.lbl_ServiceToken.AutoSize = true;
+            this.lbl_ServiceToken.Depth = 0;
+            this.lbl_ServiceToken.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
+            this.lbl_ServiceToken.Location = new System.Drawing.Point(20, 50);
+            this.lbl_ServiceToken.MouseState = MaterialSkin.MouseState.HOVER;
+            this.lbl_ServiceToken.Name = "lbl_ServiceToken";
+            this.lbl_ServiceToken.TabIndex = 14;
+            this.lbl_ServiceToken.Text = "Service Account Token *";
+            //
+            // mtxtb_ServiceToken
+            //
+            this.mtxtb_ServiceToken.AnimateReadOnly = false;
+            this.mtxtb_ServiceToken.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.mtxtb_ServiceToken.Depth = 0;
+            this.mtxtb_ServiceToken.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
+            this.mtxtb_ServiceToken.LeadingIcon = null;
+            this.mtxtb_ServiceToken.Location = new System.Drawing.Point(230, 36);
+            this.mtxtb_ServiceToken.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
+            this.mtxtb_ServiceToken.MaxLength = 1000;
+            this.mtxtb_ServiceToken.MouseState = MaterialSkin.MouseState.OUT;
+            this.mtxtb_ServiceToken.Multiline = false;
+            this.mtxtb_ServiceToken.Name = "mtxtb_ServiceToken";
+            this.mtxtb_ServiceToken.Password = true;
+            this.mtxtb_ServiceToken.Size = new System.Drawing.Size(520, 50);
+            this.mtxtb_ServiceToken.TabIndex = 15;
+            this.mtxtb_ServiceToken.Text = "";
+            this.mtxtb_ServiceToken.TrailingIcon = null;
+            this.mtxtb_ServiceToken.TrailingIconClick += new System.EventHandler(this.mtxtb_ServiceToken_TrailingIconClick);
+            this.mtxtb_ServiceToken.Enter += new System.EventHandler(this.mtxtb_ServiceToken_Enter);
+            this.mtxtb_ServiceToken.Leave += new System.EventHandler(this.mtxtb_ServiceToken_Leave);
+            this.mtxtb_ServiceToken.TextChanged += new System.EventHandler(this.mtxtb_ServiceToken_TextChanged);
+            this.mtxtb_ServiceToken.KeyDown += new System.Windows.Forms.KeyEventHandler(this.mtxtb_ServiceToken_KeyDown);
+            //
+            // mbtn_SaveServiceToken
+            //
+            this.mbtn_SaveServiceToken.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.mbtn_SaveServiceToken.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this.mbtn_SaveServiceToken.Depth = 0;
+            this.mbtn_SaveServiceToken.Enabled = false;
+            this.mbtn_SaveServiceToken.HighEmphasis = true;
+            this.mbtn_SaveServiceToken.Icon = null;
+            this.mbtn_SaveServiceToken.Location = new System.Drawing.Point(766, 42);
+            this.mbtn_SaveServiceToken.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
+            this.mbtn_SaveServiceToken.MouseState = MaterialSkin.MouseState.HOVER;
+            this.mbtn_SaveServiceToken.Name = "mbtn_SaveServiceToken";
+            this.mbtn_SaveServiceToken.NoAccentTextColor = System.Drawing.Color.Empty;
+            this.mbtn_SaveServiceToken.Size = new System.Drawing.Size(64, 36);
+            this.mbtn_SaveServiceToken.TabIndex = 16;
+            this.mbtn_SaveServiceToken.Text = "Submit";
+            this.mbtn_SaveServiceToken.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Outlined;
+            this.mbtn_SaveServiceToken.UseAccentColor = false;
+            this.mbtn_SaveServiceToken.UseVisualStyleBackColor = true;
+            this.mbtn_SaveServiceToken.Click += new System.EventHandler(this.mbtn_SaveServiceToken_Click);
             //
             // lbl_FacilityId
             //
             this.lbl_FacilityId.AutoSize = true;
             this.lbl_FacilityId.Depth = 0;
             this.lbl_FacilityId.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_FacilityId.Location = new System.Drawing.Point(20, 50);
+            this.lbl_FacilityId.Location = new System.Drawing.Point(20, 130);
             this.lbl_FacilityId.MouseState = MaterialSkin.MouseState.HOVER;
             this.lbl_FacilityId.Name = "lbl_FacilityId";
             this.lbl_FacilityId.TabIndex = 0;
@@ -1399,7 +1461,7 @@ namespace Plexus_DICOM_Enabler
             this.mcb_Facility.Hint = "Select a facility";
             this.mcb_Facility.IntegralHeight = false;
             this.mcb_Facility.ItemHeight = 43;
-            this.mcb_Facility.Location = new System.Drawing.Point(230, 36);
+            this.mcb_Facility.Location = new System.Drawing.Point(230, 116);
             this.mcb_Facility.MaxDropDownItems = 8;
             this.mcb_Facility.MouseState = MaterialSkin.MouseState.OUT;
             this.mcb_Facility.Name = "mcb_Facility";
@@ -1413,7 +1475,7 @@ namespace Plexus_DICOM_Enabler
             this.lbl_CareFromDate.AutoSize = true;
             this.lbl_CareFromDate.Depth = 0;
             this.lbl_CareFromDate.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_CareFromDate.Location = new System.Drawing.Point(20, 230);
+            this.lbl_CareFromDate.Location = new System.Drawing.Point(20, 310);
             this.lbl_CareFromDate.MouseState = MaterialSkin.MouseState.HOVER;
             this.lbl_CareFromDate.Name = "lbl_CareFromDate";
             this.lbl_CareFromDate.TabIndex = 11;
@@ -1426,7 +1488,7 @@ namespace Plexus_DICOM_Enabler
             this.mtxtb_CareFromDate.Depth = 0;
             this.mtxtb_CareFromDate.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.6F);
             this.mtxtb_CareFromDate.LeadingIcon = null;
-            this.mtxtb_CareFromDate.Location = new System.Drawing.Point(230, 216);
+            this.mtxtb_CareFromDate.Location = new System.Drawing.Point(230, 296);
             this.mtxtb_CareFromDate.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.mtxtb_CareFromDate.MaxLength = 50;
             this.mtxtb_CareFromDate.MouseState = MaterialSkin.MouseState.OUT;
@@ -1443,7 +1505,7 @@ namespace Plexus_DICOM_Enabler
             this.lbl_DicomEnabler.AutoSize = true;
             this.lbl_DicomEnabler.Depth = 0;
             this.lbl_DicomEnabler.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.lbl_DicomEnabler.Location = new System.Drawing.Point(20, 130);
+            this.lbl_DicomEnabler.Location = new System.Drawing.Point(20, 210);
             this.lbl_DicomEnabler.MouseState = MaterialSkin.MouseState.HOVER;
             this.lbl_DicomEnabler.Name = "lbl_DicomEnabler";
             this.lbl_DicomEnabler.TabIndex = 6;
@@ -1464,7 +1526,7 @@ namespace Plexus_DICOM_Enabler
             this.mcb_DicomEnabler.Hint = "Select a DICOM Enabler";
             this.mcb_DicomEnabler.IntegralHeight = false;
             this.mcb_DicomEnabler.ItemHeight = 43;
-            this.mcb_DicomEnabler.Location = new System.Drawing.Point(230, 116);
+            this.mcb_DicomEnabler.Location = new System.Drawing.Point(230, 196);
             this.mcb_DicomEnabler.MaxDropDownItems = 8;
             this.mcb_DicomEnabler.MouseState = MaterialSkin.MouseState.OUT;
             this.mcb_DicomEnabler.Name = "mcb_DicomEnabler";
@@ -1482,7 +1544,7 @@ namespace Plexus_DICOM_Enabler
             this.mbtn_DicomEnablerRefresh.Depth = 0;
             this.mbtn_DicomEnablerRefresh.HighEmphasis = true;
             this.mbtn_DicomEnablerRefresh.Icon = null;
-            this.mbtn_DicomEnablerRefresh.Location = new System.Drawing.Point(766, 122);
+            this.mbtn_DicomEnablerRefresh.Location = new System.Drawing.Point(766, 202);
             this.mbtn_DicomEnablerRefresh.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
             this.mbtn_DicomEnablerRefresh.MouseState = MaterialSkin.MouseState.HOVER;
             this.mbtn_DicomEnablerRefresh.Name = "mbtn_DicomEnablerRefresh";
@@ -1497,7 +1559,7 @@ namespace Plexus_DICOM_Enabler
             //
             // spn_DicomEnablerRefresh
             //
-            this.spn_DicomEnablerRefresh.Location = new System.Drawing.Point(838, 128);
+            this.spn_DicomEnablerRefresh.Location = new System.Drawing.Point(838, 208);
             this.spn_DicomEnablerRefresh.Name = "spn_DicomEnablerRefresh";
             this.spn_DicomEnablerRefresh.Size = new System.Drawing.Size(24, 24);
             //
@@ -1505,7 +1567,7 @@ namespace Plexus_DICOM_Enabler
             //
             this.lbl_DicomEnablerBanner.AutoEllipsis = true;
             this.lbl_DicomEnablerBanner.Font = new System.Drawing.Font("Segoe UI", 9.75F, System.Drawing.FontStyle.Bold);
-            this.lbl_DicomEnablerBanner.Location = new System.Drawing.Point(230, 172);
+            this.lbl_DicomEnablerBanner.Location = new System.Drawing.Point(230, 252);
             this.lbl_DicomEnablerBanner.Name = "lbl_DicomEnablerBanner";
             this.lbl_DicomEnablerBanner.Padding = new System.Windows.Forms.Padding(10, 0, 10, 0);
             this.lbl_DicomEnablerBanner.Size = new System.Drawing.Size(600, 36);
@@ -1518,7 +1580,7 @@ namespace Plexus_DICOM_Enabler
             //
             this.mtchkb_WorklistAllDevices.AutoSize = true;
             this.mtchkb_WorklistAllDevices.Depth = 0;
-            this.mtchkb_WorklistAllDevices.Location = new System.Drawing.Point(226, 276);
+            this.mtchkb_WorklistAllDevices.Location = new System.Drawing.Point(226, 356);
             this.mtchkb_WorklistAllDevices.Margin = new System.Windows.Forms.Padding(0);
             this.mtchkb_WorklistAllDevices.MouseLocation = new System.Drawing.Point(-1, -1);
             this.mtchkb_WorklistAllDevices.MouseState = MaterialSkin.MouseState.HOVER;
@@ -1537,7 +1599,7 @@ namespace Plexus_DICOM_Enabler
             this.grpb_UploadSettings.Controls.Add(this.lbl_FailedScpFolder);
             this.grpb_UploadSettings.Controls.Add(this.mtxtb_FailedScpFolder);
             this.grpb_UploadSettings.Font = new System.Drawing.Font("Microsoft Tai Le", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.grpb_UploadSettings.Location = new System.Drawing.Point(80, 356);
+            this.grpb_UploadSettings.Location = new System.Drawing.Point(80, 436);
             this.grpb_UploadSettings.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.grpb_UploadSettings.Name = "grpb_UploadSettings";
             this.grpb_UploadSettings.Padding = new System.Windows.Forms.Padding(3, 2, 3, 2);
@@ -1862,6 +1924,9 @@ namespace Plexus_DICOM_Enabler
         private System.Windows.Forms.GroupBox grpb_UploadSettings;
         private MaterialSkin.Controls.MaterialLabel lbl_FacilityId;
         private Plexus_DICOM_Enabler.cls_WrappingComboBox mcb_Facility;
+        private MaterialSkin.Controls.MaterialLabel lbl_ServiceToken;
+        private MaterialSkin.Controls.MaterialTextBox mtxtb_ServiceToken;
+        private MaterialSkin.Controls.MaterialButton mbtn_SaveServiceToken;
         private MaterialSkin.Controls.MaterialLabel lbl_CareFromDate;
         private MaterialSkin.Controls.MaterialTextBox mtxtb_CareFromDate;
         private MaterialSkin.Controls.MaterialLabel lbl_DicomEnabler;
