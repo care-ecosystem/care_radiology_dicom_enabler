@@ -39,6 +39,13 @@ namespace Plexus_DICOM_Enabler
             mtxtb_ScpFolder.TrailingIcon = CreateFolderIcon();
             mtxtb_FailedScpFolder.TrailingIcon = CreateFolderIcon();
 
+            // The service token can be pasted in but never copied out
+            if (mtxtb_ServiceToken.ContextMenuStrip is TextBoxContextMenuStrip tokenMenu)
+                tokenMenu.Opening += (s, e) => { tokenMenu.Copy.Enabled = false; tokenMenu.Cut.Enabled = false; };
+
+            mtxtb_ServiceToken.HandleCreated += (s, e) =>
+                mtxtb_ServiceToken.BeginInvoke((Action)(() => SetServiceTokenMasked(mtxtb_ServiceToken.Password)));
+
             mcb_Facility.DropDown += (s, e) => mcb_Facility.DropDownWidth = mcb_Facility.Width;
             mcb_DicomEnabler.DropDown += (s, e) => mcb_DicomEnabler.DropDownWidth = mcb_DicomEnabler.Width;
 
@@ -889,6 +896,7 @@ namespace Plexus_DICOM_Enabler
                 loadedConfigValues.TryGetValue(FacilityIdKey, out string savedFacilityId);
                 selectedFacility = string.IsNullOrWhiteSpace(savedFacilityId) ? null : new FacilityItem(savedFacilityId.Trim(), null);
 
+                ShowServiceTokenStatus();
                 LoadFacilities();
             }
             catch (Exception ex)
@@ -1930,7 +1938,7 @@ namespace Plexus_DICOM_Enabler
             if (selectedFacility != null && !selectedFacility.Listed)
             {
                 ShowEnablersWithoutCare(BannerKind.Warning,
-                           $"The saved facility {selectedFacility.Id} is not one the service account can access in CARE. Select one of its facilities, or check the token entered in Initializer.bat.");
+                           $"The saved facility {selectedFacility.Id} is not one the service account can access in CARE. Select one of its facilities, or check the Service Account Token above.");
                 return;
             }
             LoadDicomEnablers();
@@ -2709,8 +2717,209 @@ namespace Plexus_DICOM_Enabler
             }
         }
 
+        // ---- CARE service-account token ------------------------------------------------------------
+
+        private const string SavedServiceTokenMask = "********";
+
+        private ServiceTokenStatus serviceTokenStatus = ServiceTokenStatus.NotSet;
+
+        // True while the box shows SavedServiceTokenMask rather than something the user typed
+        private bool serviceTokenMaskShown;
+
+        // Set while the code (not the user) changes the box's text
+        private bool settingServiceTokenText;
+
+        private readonly Bitmap showTokenIcon = CreateEyeIcon(false);
+        private readonly Bitmap hideTokenIcon = CreateEyeIcon(true);
+
+        /// <summary>Shows whether a token is saved, without reading it into the UI, and clears any entry.</summary>
+        private void ShowServiceTokenStatus()
+        {
+            serviceTokenStatus = ucls_ServiceToken.GetStatus(objDAL, out string statusError);
+            if (serviceTokenStatus == ServiceTokenStatus.Unreadable)
+                cls_AppLog.Warning("CONFIG", "CARE service token: " + statusError);
+            else if (serviceTokenStatus == ServiceTokenStatus.Error)
+                cls_AppLog.Error("CONFIG", "CARE service token: " + statusError);
+
+            if (serviceTokenStatus == ServiceTokenStatus.Set)
+                ShowSavedServiceTokenMask();
+            else
+                StartServiceTokenEntry();
+        }
+
+        private const int EM_SETPASSWORDCHAR = 0x00CC;
+        private const char ServiceTokenMaskChar = '●';     // the dot MaterialTextBox draws in Password mode
+
+        private void SetServiceTokenMasked(bool masked)
+        {
+            mtxtb_ServiceToken.Password = masked;
+            if (mtxtb_ServiceToken.IsHandleCreated)
+                MaterialTextBox.SendMessage(mtxtb_ServiceToken.Handle, EM_SETPASSWORDCHAR, masked ? ServiceTokenMaskChar : 0, 0);
+            mtxtb_ServiceToken.Invalidate();
+        }
+
+        private void ShowSavedServiceTokenMask()
+        {
+            settingServiceTokenText = true;
+            try
+            {
+                serviceTokenMaskShown = true;
+                SetServiceTokenMasked(false);
+                mtxtb_ServiceToken.Text = SavedServiceTokenMask;
+                mtxtb_ServiceToken.TrailingIcon = null;     // nothing to reveal
+            }
+            finally
+            {
+                settingServiceTokenText = false;
+            }
+            mbtn_SaveServiceToken.Enabled = false;
+        }
+
+        private void StartServiceTokenEntry()
+        {
+            settingServiceTokenText = true;
+            try
+            {
+                serviceTokenMaskShown = false;
+                SetServiceTokenMasked(true);
+                mtxtb_ServiceToken.Text = string.Empty;
+                mtxtb_ServiceToken.TrailingIcon = showTokenIcon;
+            }
+            finally
+            {
+                settingServiceTokenText = false;
+            }
+            mbtn_SaveServiceToken.Enabled = false;
+        }
+
+        private void mtxtb_ServiceToken_Enter(object sender, EventArgs e)
+        {
+            if (serviceTokenMaskShown)
+                StartServiceTokenEntry();
+        }
+
+        private void mtxtb_ServiceToken_Leave(object sender, EventArgs e)
+        {
+            // Nothing entered: back to showing the saved token is kept
+            if (!serviceTokenMaskShown && serviceTokenStatus == ServiceTokenStatus.Set && mtxtb_ServiceToken.Text.Trim() == string.Empty)
+                ShowSavedServiceTokenMask();
+        }
+
+        private void mtxtb_ServiceToken_TextChanged(object sender, EventArgs e)
+        {
+            if (settingServiceTokenText)
+                return;
+            mbtn_SaveServiceToken.Enabled = !serviceTokenMaskShown && mtxtb_ServiceToken.Text.Trim() != string.Empty;
+        }
+
+        /// <summary>The eye: shows or hides what has been typed or pasted. The saved token is never shown.</summary>
+        private void mtxtb_ServiceToken_TrailingIconClick(object sender, EventArgs e)
+        {
+            if (serviceTokenMaskShown)
+                return;
+            SetServiceTokenMasked(!mtxtb_ServiceToken.Password);
+            mtxtb_ServiceToken.TrailingIcon = mtxtb_ServiceToken.Password ? showTokenIcon : hideTokenIcon;
+        }
+
+        private void mtxtb_ServiceToken_KeyDown(object sender, KeyEventArgs e)
+        {
+            // No copying the token out
+            if ((e.Control && (e.KeyCode == Keys.C || e.KeyCode == Keys.X || e.KeyCode == Keys.Insert)) ||
+                (e.Shift && e.KeyCode == Keys.Delete))
+            {
+                e.SuppressKeyPress = true;
+                return;
+            }
+
+            // Paste as plain text on one line: the box is a RichTextBox, which would otherwise paste
+            // formatting or images, and a copied token often ends with a line break
+            if ((e.Control && e.KeyCode == Keys.V) || (e.Shift && e.KeyCode == Keys.Insert))
+            {
+                e.SuppressKeyPress = true;
+                if (serviceTokenMaskShown)
+                    StartServiceTokenEntry();
+                string pasted = Clipboard.ContainsText() ? Clipboard.GetText() : string.Empty;
+                mtxtb_ServiceToken.SelectedText = pasted.Replace("\r", string.Empty).Replace("\n", string.Empty).Trim();
+            }
+        }
+
+        private void mbtn_SaveServiceToken_Click(object sender, EventArgs e)
+        {
+            if (serviceTokenMaskShown)
+                return;
+            if (!ucls_ServiceToken.TryNormalize(mtxtb_ServiceToken.Text, out string token, out string inputError))
+            {
+                MessageBox.Show(this, inputError, "Check Service Account Token", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                mtxtb_ServiceToken.Focus();
+                return;
+            }
+
+            bool replacing = serviceTokenStatus == ServiceTokenStatus.Set || serviceTokenStatus == ServiceTokenStatus.Unreadable;
+            string description = ucls_ServiceToken.Describe(token);
+            var lines = new List<string>
+            {
+                replacing ? "The service account token saved now is replaced by the one entered."
+                          : "The service account token entered is saved.",
+                "New token: " + description,
+                "It is stored encrypted for this machine and cannot be viewed again from here.",
+                "The services use it from their next CARE call; nothing is restarted.",
+            };
+            if (cls_ConfirmDialog.Show(this, "Service Account Token - confirm",
+                    replacing ? "Replace the saved service account token?" : "Save the service account token?",
+                    lines, ("Save", DialogResult.Yes), ("Cancel", DialogResult.Cancel)) != DialogResult.Yes)
+                return;
+
+            mbtn_SaveServiceToken.Enabled = false;
+            this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
+            bool saved;
+            string saveError;
+            try
+            {
+                saved = ucls_ServiceToken.TrySave(objDAL, token, out saveError);
+            }
+            finally
+            {
+                token = null;
+                this.Cursor = System.Windows.Forms.Cursors.Default;
+            }
+
+            if (!saved)
+            {
+                cls_AppLog.Error("CONFIG", "CARE service token not saved: " + saveError);
+                MessageBox.Show(this, "The service account token was not saved: " + saveError,
+                                "Error Saving Service Account Token", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                mbtn_SaveServiceToken.Enabled = true;
+                return;
+            }
+
+            cls_AppLog.Info("CONFIG", $"CARE service token {(replacing ? "replaced" : "set")} in the Configuration tab ({description})");
+            ShowServiceTokenStatus();
+            MessageBox.Show(this, $"Service account token saved ({description}).", "Service Account Token",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+            // The facilities and DICOM Enablers are loaded with the token, so load them again with the new one
+            LoadFacilities();
+        }
+
         // The text box recolours its icons to the theme, so only the shape drawn here matters
         private const int IconSize = 24;
+
+        /// <summary>An eye; crossed out (hide) when the token is shown, plain (show) when it is masked.</summary>
+        private static Bitmap CreateEyeIcon(bool crossed)
+        {
+            Bitmap icon = new Bitmap(IconSize, IconSize);
+            using (Graphics g = Graphics.FromImage(icon))
+            using (Pen pen = new Pen(Color.Black, 2))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.DrawArc(pen, 2, 6, 20, 16, 200, 140);     // upper lid
+                g.DrawArc(pen, 2, 2, 20, 16, 20, 140);      // lower lid
+                g.DrawEllipse(pen, 9, 9, 6, 6);             // pupil
+                if (crossed)
+                    g.DrawLine(pen, 4, 20, 20, 4);
+            }
+            return icon;
+        }
 
         private static Bitmap CreateCalendarIcon()
         {

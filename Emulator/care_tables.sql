@@ -246,8 +246,8 @@ CREATE TABLE IF NOT EXISTS `care_sync_upload` (
 -- value baked in at build time, or the built-in default) so the stored values are shown and can be
 -- changed; it is stored only if the user confirms. A value still blank means the service uses that default. facility_id has no default:
 -- the user must enter it, and the services are not started until it is set. The static API key stays in
--- App.config. care_service_token is not shown in the Configuration tab: Initializer.bat asks for this
--- facility's CARE service-account token and stores it here encrypted with Windows DPAPI for this machine
+-- App.config. care_service_token is never shown in the Configuration tab (only a mask once it is set): Initializer.bat
+-- or the Configuration tab's Service Account Token field takes this facility's CARE service-account token and stores it here encrypted with Windows DPAPI for this machine
 -- ("dpapi:<base64>"), so it cannot be decrypted from a copy of the database on another machine.
 CREATE TABLE IF NOT EXISTS `care_config` (
   `config_key` varchar(100) NOT NULL,
