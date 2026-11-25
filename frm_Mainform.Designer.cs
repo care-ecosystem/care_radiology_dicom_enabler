@@ -1388,7 +1388,7 @@ namespace Plexus_DICOM_Enabler
             this.lbl_ServiceToken.MouseState = MaterialSkin.MouseState.HOVER;
             this.lbl_ServiceToken.Name = "lbl_ServiceToken";
             this.lbl_ServiceToken.TabIndex = 14;
-            this.lbl_ServiceToken.Text = "Service Account Token *";
+            this.lbl_ServiceToken.Text = "Service Account *";
             //
             // mtxtb_ServiceToken
             //
@@ -1403,7 +1403,6 @@ namespace Plexus_DICOM_Enabler
             this.mtxtb_ServiceToken.MouseState = MaterialSkin.MouseState.OUT;
             this.mtxtb_ServiceToken.Multiline = false;
             this.mtxtb_ServiceToken.Name = "mtxtb_ServiceToken";
-            this.mtxtb_ServiceToken.Password = true;
             this.mtxtb_ServiceToken.Size = new System.Drawing.Size(520, 50);
             this.mtxtb_ServiceToken.TabIndex = 15;
             this.mtxtb_ServiceToken.Text = "";

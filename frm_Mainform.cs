@@ -43,6 +43,9 @@ namespace Plexus_DICOM_Enabler
             if (mtxtb_ServiceToken.ContextMenuStrip is TextBoxContextMenuStrip tokenMenu)
                 tokenMenu.Opening += (s, e) => { tokenMenu.Copy.Enabled = false; tokenMenu.Cut.Enabled = false; };
 
+            mtxtb_ServiceToken.HandleCreated += (s, e) =>
+                mtxtb_ServiceToken.BeginInvoke((Action)(() => SetServiceTokenMasked(mtxtb_ServiceToken.Password)));
+
             mcb_Facility.DropDown += (s, e) => mcb_Facility.DropDownWidth = mcb_Facility.Width;
             mcb_DicomEnabler.DropDown += (s, e) => mcb_DicomEnabler.DropDownWidth = mcb_DicomEnabler.Width;
 
@@ -2744,13 +2747,24 @@ namespace Plexus_DICOM_Enabler
                 StartServiceTokenEntry();
         }
 
+        private const int EM_SETPASSWORDCHAR = 0x00CC;
+        private const char ServiceTokenMaskChar = '●';     // the dot MaterialTextBox draws in Password mode
+
+        private void SetServiceTokenMasked(bool masked)
+        {
+            mtxtb_ServiceToken.Password = masked;
+            if (mtxtb_ServiceToken.IsHandleCreated)
+                MaterialTextBox.SendMessage(mtxtb_ServiceToken.Handle, EM_SETPASSWORDCHAR, masked ? ServiceTokenMaskChar : 0, 0);
+            mtxtb_ServiceToken.Invalidate();
+        }
+
         private void ShowSavedServiceTokenMask()
         {
             settingServiceTokenText = true;
             try
             {
                 serviceTokenMaskShown = true;
-                mtxtb_ServiceToken.Password = false;
+                SetServiceTokenMasked(false);
                 mtxtb_ServiceToken.Text = SavedServiceTokenMask;
                 mtxtb_ServiceToken.TrailingIcon = null;     // nothing to reveal
             }
@@ -2767,7 +2781,7 @@ namespace Plexus_DICOM_Enabler
             try
             {
                 serviceTokenMaskShown = false;
-                mtxtb_ServiceToken.Password = true;
+                SetServiceTokenMasked(true);
                 mtxtb_ServiceToken.Text = string.Empty;
                 mtxtb_ServiceToken.TrailingIcon = showTokenIcon;
             }
@@ -2803,7 +2817,7 @@ namespace Plexus_DICOM_Enabler
         {
             if (serviceTokenMaskShown)
                 return;
-            mtxtb_ServiceToken.Password = !mtxtb_ServiceToken.Password;
+            SetServiceTokenMasked(!mtxtb_ServiceToken.Password);
             mtxtb_ServiceToken.TrailingIcon = mtxtb_ServiceToken.Password ? showTokenIcon : hideTokenIcon;
         }
 
