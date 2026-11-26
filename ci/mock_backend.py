@@ -48,7 +48,7 @@ WORKLIST_RESPONSE = json.dumps({
 })
 
 
-STUDY_STATUSES = ("IN_PROGRESS", "COMPLETED", "CANCELLED")
+STUDY_STATUSES = ("in_progress", "completed", "cancelled")
 
 
 class MockHandler(BaseHTTPRequestHandler):

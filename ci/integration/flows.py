@@ -16,7 +16,7 @@ def encoded_size(ds):
 
 
 def wait_for_scan_status(cfg, logs, entry, status, timeout, service="scu"):
-    """Wait for the Store SCU (or, for IN_PROGRESS / CANCELLED on MPPS, the MWL service) to send
+    """Wait for the Store SCU (or, for in_progress / cancelled on MPPS, the MWL service) to send
     study_status for entry's service request and assert CARE accepted it."""
     sent = logs.wait_for(
         service, rf"Scan status (sent to CARE|failed|could not connect to CARE): {re.escape(status)}\b.*?service_request {re.escape(entry['id'])}",
@@ -27,8 +27,8 @@ def wait_for_scan_status(cfg, logs, entry, status, timeout, service="scu"):
 
 def store_and_verify_upload(cfg, api, dicom, logs, record, entry, target_bytes, upload_timeout, started_by_mpps=False):
     """C-STORE an image for entry's worklist item, then follow it through the Store SCP, the Store
-    SCU's IN_PROGRESS, upload to CARE, study link and COMPLETED. Shared by the small and large
-    file tests, which each use their own service request. started_by_mpps: IN_PROGRESS was already
+    SCU's in_progress, upload to CARE, study link and completed. Shared by the small and large
+    file tests, which each use their own service request. started_by_mpps: in_progress was already
     sent by the MWL service on MPPS IN PROGRESS, so the Store SCU must not send it again."""
     item = entry["worklist_item"]
     ds = build_ct_image(item, target_bytes=target_bytes)
