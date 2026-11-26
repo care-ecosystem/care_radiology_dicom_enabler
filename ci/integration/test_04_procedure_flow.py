@@ -1,10 +1,10 @@
 """Procedure flow: MPPS started -> small DICOM upload -> MPPS completed (primary SR)
 
 The happy path a modality drives for one service request from the device worklist:
-  1. MPPS N-CREATE IN PROGRESS  -> accepted; the MWL service sends IN_PROGRESS to CARE
+  1. MPPS N-CREATE IN PROGRESS  -> accepted; the MWL service sends in_progress to CARE
   2. C-STORE a small image      -> Store SCP saves it into SCP/
   3. Store SCU picks it up       -> uploads to CARE (linked to the SR by accession) without sending
-                                    IN_PROGRESS again, then sends COMPLETED once the study is done
+                                    in_progress again, then sends completed once the study is done
   4. MPPS N-SET COMPLETED        -> accepted; the MWL service sends no status to CARE
 """
 import re
@@ -16,7 +16,7 @@ from flows import store_and_verify_upload, wait_for_scan_status
 
 
 def test_mpps_in_progress(cfg, api, dicom, ctx, logs, record):
-    """MPPS N-CREATE (IN PROGRESS) is accepted and matched to the SR, and the MWL service sends IN_PROGRESS"""
+    """MPPS N-CREATE (IN PROGRESS) is accepted and matched to the SR, and the MWL service sends in_progress"""
     need(ctx, "worklist_ok")
     entry = sr(ctx, "primary")
     item = entry["worklist_item"]
@@ -34,7 +34,7 @@ def test_mpps_in_progress(cfg, api, dicom, ctx, logs, record):
 
 
 def test_store_small_file_and_upload_to_care(cfg, api, dicom, ctx, logs, record):
-    """Small DICOM file is stored, pushed to CARE after the MPPS IN_PROGRESS and before COMPLETED, and linked to the service request"""
+    """Small DICOM file is stored, pushed to CARE after the MPPS IN PROGRESS and before completed is sent, and linked to the service request"""
     entry = sr(ctx, "primary")
     need(entry, "mpps_uid")
     ds = store_and_verify_upload(cfg, api, dicom, logs, record, entry, target_bytes=8 * 1024,
@@ -42,7 +42,7 @@ def test_store_small_file_and_upload_to_care(cfg, api, dicom, ctx, logs, record)
     entry["study_uid"] = ds.StudyInstanceUID
     entry["series_uid"] = ds.SeriesInstanceUID
     entry["sop_uid"] = ds.SOPInstanceUID
-    wait_for_radiology_status(api, cfg, entry["id"], "COMPLETED", record)
+    wait_for_radiology_status(api, cfg, entry["id"], cfg.status_completed, record)
 
 
 def test_mpps_completed(cfg, api, dicom, ctx, logs, record):

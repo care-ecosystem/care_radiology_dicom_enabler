@@ -1453,8 +1453,8 @@ namespace Plexus.Common.Database
 
 
         /// <summary>
-        /// The facility's care_worklist rows with a scan_status (START_PENDING: IN_PROGRESS not sent yet;
-        /// STARTED: IN_PROGRESS sent, COMPLETED not yet; CANCEL_PENDING: CANCELLED not sent yet), with their service request id and when a
+        /// The facility's care_worklist rows with a scan_status (START_PENDING: in_progress not sent yet;
+        /// STARTED: in_progress sent, completed not yet; CANCEL_PENDING: cancelled not sent yet), with their service request id and when a
         /// file with the accession number was last sent to CARE (the latest care_sync_upload
         /// last_retry_time, or scan_started_at when there is none), and how many of its care_sync_upload
         /// rows are SUCCESS and FAILED.

@@ -14,8 +14,8 @@ namespace Worklist_SCP.Model
 {
 
     /// <summary>
-    /// An implementation of IMppsSource. For the CARE backend it sends IN_PROGRESS to CARE when the
-    /// modality starts a procedure and CANCELLED when it discontinues it; COMPLETED is sent by the SCU
+    /// An implementation of IMppsSource. For the CARE backend it sends in_progress to CARE when the
+    /// modality starts a procedure and cancelled when it discontinues it; completed is sent by the SCU
     /// service once the study's images are uploaded. It does not store the MPPS messages
     /// </summary>
     class MppsHandler : IMppsSource
@@ -59,7 +59,7 @@ namespace Worklist_SCP.Model
 
 
         /// <summary>
-        /// Sends IN_PROGRESS for the work item's service request when the modality starts the procedure.
+        /// Sends in_progress for the work item's service request when the modality starts the procedure.
         /// Once sent, care_worklist.scan_status is STARTED and the SCU service does not send it again
         /// before the upload. When it cannot be sent scan_status is set to START_PENDING, so the SCU
         /// service sends it like one that could not be sent before an upload. Not sent for a procedure
@@ -72,7 +72,7 @@ namespace Worklist_SCP.Model
         }
 
         /// <summary>
-        /// Sends CANCELLED for the work item's service request when the modality discontinues the procedure.
+        /// Sends cancelled for the work item's service request when the modality discontinues the procedure.
         /// Once sent, care_worklist.scan_status is CANCELLED and the SCU service never sends COMPLETED for it.
         /// When it cannot be sent scan_status is set to CANCEL_PENDING and the SCU service retries it every
         /// cycle. Not sent once COMPLETED was sent, as CARE leaves a completed imaging study unchanged.
