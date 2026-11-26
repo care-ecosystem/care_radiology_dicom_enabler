@@ -1,9 +1,9 @@
 """MPPS status transitions: discontinued path and refused transitions
 
 Covers the other ways an MPPS can move, and that the enabler refuses messages that do not fit
-the procedure's state. MPPS IN PROGRESS makes the MWL service send IN_PROGRESS and MPPS DISCONTINUED
-CANCELLED; MPPS COMPLETED sends nothing - the Store SCU sends COMPLETED once the study's images are uploaded:
-  IN PROGRESS -> DISCONTINUED             accepted, IN_PROGRESS then CANCELLED sent, no COMPLETED
+the procedure's state. MPPS IN PROGRESS makes the MWL service send in_progress and MPPS DISCONTINUED
+cancelled; MPPS COMPLETED sends nothing - the Store SCU sends completed once the study's images are uploaded:
+  IN PROGRESS -> DISCONTINUED             accepted, in_progress then cancelled sent, no completed
   DISCONTINUED -> COMPLETED               refused (no procedure in progress), no status sent
   N-CREATE for an unknown procedure step  refused
   N-SET for an unknown SOP Instance       refused
@@ -22,7 +22,7 @@ INVALID_ATTRIBUTE_VALUE = 0x0106
 
 
 def test_in_progress_then_discontinued(cfg, api, dicom, ctx, logs, record):
-    """IN PROGRESS -> DISCONTINUED: both accepted, with IN_PROGRESS then CANCELLED sent and no COMPLETED"""
+    """IN PROGRESS -> DISCONTINUED: both accepted, with in_progress then cancelled sent and no completed"""
     need(ctx, "worklist_ok")
     entry = sr(ctx, "discontinue")
     record["service_request_id"] = entry["id"]

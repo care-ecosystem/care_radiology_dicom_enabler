@@ -686,7 +686,7 @@ namespace Plexus_SCU_Service
         private const string ScanStatusCompleted = ucls_CareScanStatus.StatusCompleted;
         private const string ScanStatusCancelled = ucls_CareScanStatus.StatusCancelled;
 
-        // Sends IN_PROGRESS for the accession number's service request before the first upload of a file
+        // Sends in_progress for the accession number's service request before the first upload of a file
         // with it, unless the MWL service already sent it when the modality sent MPPS IN PROGRESS, or the
         // procedure was cancelled (MPPS DISCONTINUED) - the file is still uploaded then.
         // Once sent, care_worklist.scan_status is STARTED and it is not sent again. When it cannot
@@ -718,7 +718,7 @@ namespace Plexus_SCU_Service
                 SaveScanStatus(accessionNumber, "START_PENDING");
         }
 
-        // Sends IN_PROGRESS for each of the facility's accession numbers whose IN_PROGRESS could not be
+        // Sends in_progress for each of the facility's accession numbers whose in_progress could not be
         // sent on MPPS IN PROGRESS or before its upload (scan_status START_PENDING). When it cannot be sent it is tried again
         // next cycle, and while CARE cannot be reached it is not tried until it is reachable again.
         private void SendPendingScanStartedStatuses(string facilityId, string statusURL, string authorization)
@@ -726,7 +726,7 @@ namespace Plexus_SCU_Service
             SendPendingScanStatuses(facilityId, statusURL, authorization, "START_PENDING", ScanStatusStarted, "STARTED");
         }
 
-        // Sends CANCELLED for each of the facility's accession numbers whose CANCELLED could not be sent
+        // Sends cancelled for each of the facility's accession numbers whose cancelled could not be sent
         // when the modality sent MPPS DISCONTINUED (scan_status CANCEL_PENDING), retried like IN_PROGRESS.
         private void SendPendingScanCancelledStatuses(string facilityId, string statusURL, string authorization)
         {
@@ -767,7 +767,7 @@ namespace Plexus_SCU_Service
             }
         }
 
-        // Sends COMPLETED for each of the facility's accession numbers whose IN_PROGRESS was sent,
+        // Sends completed for each of the facility's accession numbers whose in_progress was sent,
         // once none of its files are left in the SCP folder (pendingAccessionNumbers) and none was sent
         // to CARE for scan_completed_wait_seconds; MPPS COMPLETED from the modality does not send it.
         // It is held back while any of its instances is FAILED in care_sync_upload (a file moved
@@ -801,7 +801,7 @@ namespace Plexus_SCU_Service
                         continue;
                     if (scan.LastUploadTime != null && DateTime.Now < scan.LastUploadTime.Value.AddSeconds(waitSeconds))
                         continue;
-                    // IN_PROGRESS sent on MPPS IN PROGRESS, before any of the study's images arrived
+                    // in_progress sent on MPPS IN PROGRESS, before any of the study's images arrived
                     if (scan.FailedUploads == 0 && scan.SuccessfulUploads == 0)
                     {
                         if (scanCompletedHeldLogged.Add(scan.AccessionNumber))

@@ -46,7 +46,7 @@ name: Build CARE DICOM Enabler
 #     CARE_WORKLIST_REFRESH_START     default 30  (seconds after start before the first worklist fetch)
 #     CARE_WORKLIST_REFRESH_INTERVAL  default 30  (seconds between worklist fetches)
 #     CARE_SCAN_COMPLETED_WAIT_SECONDS default 60 (seconds after a study's last upload,
-#                                     with none of its files left, before COMPLETED is sent to CARE)
+#                                     with none of its files left, before completed is sent to CARE)
 #
 #   Manual runs: the form is pre-filled with the workflow defaults and a
 #   non-blank form value is used as-is (it beats the environment variable).
@@ -299,7 +299,7 @@ jobs:
       # pointing at whatever is committed, which is the shared
       # staging server:
       #
-      #   CARE_MWL_Service  careBaseUrl    -> worklist C-FIND, IN_PROGRESS / CANCELLED on MPPS
+      #   CARE_MWL_Service  careBaseUrl    -> worklist C-FIND, in_progress / cancelled on MPPS
       #                     careToken
       #   CARE_SCU_Service  careBackendURL -> DICOM upload, scan status
       #                     staticAPIKey
@@ -394,7 +394,7 @@ jobs:
             careBackendURL    = $serverUrl
             staticAPIKey      = $apiToken
             maxUploadRetries  = $maxRetries
-            # Wait before COMPLETED is sent to CARE. care_config scan_completed_wait_seconds,
+            # Wait before completed is sent to CARE. care_config scan_completed_wait_seconds,
             # when set on a machine, still takes precedence over this baked value.
             scanCompletedWaitSeconds = $scanCompletedWait
             careFromDate      = $fromDate

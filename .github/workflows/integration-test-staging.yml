@@ -10,7 +10,7 @@ name: Integration Test - CARE Server
 #                 accession numbers assigned by care_radiology
 #   Worklist      C-FIND returns exactly the SRs that target the configured device
 #   MPPS          N-CREATE / N-SET: started -> completed, started -> discontinued, and refused
-#                 transitions; IN_PROGRESS / COMPLETED / CANCELLED accepted by CARE
+#                 transitions; in_progress / completed / cancelled accepted by CARE
 #   Files         small and large DICOM: C-STORE -> Store SCP -> Store SCU upload -> linked to SR;
 #                 malformed dataset, non-DICOM file and non-DICOM upload rejected
 #
@@ -167,7 +167,7 @@ jobs:
           Write-Output "Patient      : $env:CARE_PATIENT_ID"
           Write-Output "DICOM Enabler: $env:CARE_DICOM_ENABLER_ID"
           Write-Output "Modality     : $env:CARE_MODALITY"
-          Write-Output "Scan statuses: IN_PROGRESS / COMPLETED / CANCELLED (completed after $env:SCAN_COMPLETED_WAIT_SECONDS s)"
+          Write-Output "Scan statuses: in_progress / completed / cancelled (completed after $env:SCAN_COMPLETED_WAIT_SECONDS s)"
           Write-Output "Ports        : MWL $env:MWL_PORT, Store $env:STORE_PORT"
 
       # CARE compares the worklist from/to (naive timestamps the MWL service sends from the

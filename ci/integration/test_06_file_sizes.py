@@ -20,4 +20,4 @@ def test_large_file_stored_uploaded_and_linked(cfg, api, dicom, ctx, logs, recor
                             target_bytes=cfg.large_file_mb * 1024 * 1024, upload_timeout=upload_timeout)
     size = record["file_size_bytes"]
     assert size >= cfg.large_file_mb * 1024 * 1024 * 0.95, f"Generated file is only {size} bytes"
-    wait_for_radiology_status(api, cfg, entry["id"], "COMPLETED", record)
+    wait_for_radiology_status(api, cfg, entry["id"], cfg.status_completed, record)

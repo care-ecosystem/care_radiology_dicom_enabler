@@ -8,23 +8,23 @@ namespace Plexus.Common.Database
 {
     /// <summary>
     /// Sends study_status for a service request to the CARE scan status API. Shared by CARE_MWL_Service
-    /// (IN_PROGRESS when the modality sends MPPS IN PROGRESS, CANCELLED on MPPS DISCONTINUED) and
-    /// CARE_SCU_Service (IN_PROGRESS before the first upload when MPPS did not send it, COMPLETED once
-    /// the study is uploaded, and the retries of IN_PROGRESS and CANCELLED that could not be sent).
+    /// (in_progress when the modality sends MPPS IN PROGRESS, cancelled on MPPS DISCONTINUED) and
+    /// CARE_SCU_Service (in_progress before the first upload when MPPS did not send it, completed once
+    /// the study is uploaded, and the retries of in_progress and cancelled that could not be sent).
     /// </summary>
     public static class ucls_CareScanStatus
     {
-        // The MWL service sends IN_PROGRESS and CANCELLED while the modality waits for its N-CREATE / N-SET
+        // The MWL service sends in_progress and cancelled while the modality waits for its N-CREATE / N-SET
         // response, so a CARE that does not answer must not hold the modality for HttpClient's default 100 seconds
         private static readonly HttpClient httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
 
         /// <summary>
         /// study_status values the CARE scan status API accepts. CARE sets the imaging study to the value
-        /// (an imaging study already COMPLETED or CANCELLED is left unchanged) and tags the service request itself.
+        /// (an imaging study already completed or cancelled is left unchanged) and tags the service request itself.
         /// </summary>
-        public const string StatusInProgress = "IN_PROGRESS";
-        public const string StatusCompleted = "COMPLETED";
-        public const string StatusCancelled = "CANCELLED";
+        public const string StatusInProgress = "in_progress";
+        public const string StatusCompleted = "completed";
+        public const string StatusCancelled = "cancelled";
 
         /// <summary>
         /// The facility's scan status API URL: statusPath (App.config statusURL) under baseUrl, with
