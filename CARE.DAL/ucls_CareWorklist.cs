@@ -50,9 +50,19 @@ namespace Plexus.Common.Database
             string toDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             var all = new CareWorklistResponse { status = "success", results = new List<CareWorklistResult>() };
             int offset = 0;
+            int pageNumber = 0;
             while (true)
             {
-                string responseBody = GetCareWorklistDetailsAsync(baseUrl, token, fromDate, toDate, facilityId, dicomEnablerId, offset, writeToLog).GetAwaiter().GetResult();
+                pageNumber++;
+                string responseBody;
+                try
+                {
+                    responseBody = GetCareWorklistDetailsAsync(baseUrl, token, fromDate, toDate, facilityId, dicomEnablerId, offset, writeToLog).GetAwaiter().GetResult();
+                }
+                catch (CareApiException ex) when (pageNumber > 1)
+                {
+                    throw new CareApiException($"Worklist fetch - page {pageNumber} failed: {ex.Message}", ex);
+                }
                 CareWorklistResponse page = JsonConvert.DeserializeObject<CareWorklistResponse>(responseBody);
                 if (!IsSuccess(page))
                     return page;
@@ -63,6 +73,9 @@ namespace Plexus.Common.Database
                     all.results.AddRange(page.results);
 
                 offset += pageCount;
+                int totalPages = Math.Max(pageNumber, (page.count + PageSize - 1) / PageSize);
+                string server = pageNumber == 1 ? $" from {baseUrl?.Trim().TrimEnd('/')}" : string.Empty;
+                ucls_CareApiError.ReleaseSummary(writeToLog, $"Worklist fetch{server} - page {pageNumber} of {totalPages}: {pageCount} item(s) received ({offset} of {page.count})");
                 // An empty page ends the loop even if count says more, so a count that changed
                 // between calls cannot keep it requesting pages forever
                 if (pageCount == 0 || offset >= page.count)
@@ -188,7 +201,7 @@ namespace Plexus.Common.Database
             try
             {
                 if (allDevices)
-                    writeToLog("Fetching the whole facility's CARE worklist (all devices, no device filter: worklist_all_devices is on)", true);
+                    ucls_CareApiError.Detail(writeToLog, "Fetching the whole facility's CARE worklist (all devices, no device filter: worklist_all_devices is on)");
                 CareWorklistResponse careResponse = FetchWorklist(baseUrl, token, fromDate, facilityId, dicomEnablerId, allDevices, writeToLog);
                 if (!IsSuccess(careResponse))
                 {
@@ -199,19 +212,22 @@ namespace Plexus.Common.Database
                 List<CareWorklistRecord> careRecords = new List<CareWorklistRecord>();
                 // An accession number identifies one service request; care_worklist keeps one row per accession number
                 var keptByAccession = new Dictionary<string, CareServiceRequest>(StringComparer.OrdinalIgnoreCase);
+                var skipped = new List<string>();
                 foreach (CareWorklistResult item in careResponse.results ?? new List<CareWorklistResult>())
                 {
                     CareServiceRequest sr = item?.service_request;
                     string accessionNumber = GetAccessionNumber(item);
                     if (accessionNumber == null)
                     {
-                        writeToLog($"Worklist entry skipped: service request {sr?.id} ({sr?.name}) has no accession_number in CARE", false);
+                        skipped.Add($"service request {sr?.id} ({sr?.name}) has no accession_number");
+                        ucls_CareApiError.Detail(writeToLog, $"Worklist entry skipped: service request {sr?.id} ({sr?.name}) has no accession_number in CARE");
                         continue;
                     }
                     if (keptByAccession.TryGetValue(accessionNumber, out CareServiceRequest kept))
                     {
-                        writeToLog($"Duplicate accession_number {accessionNumber} in the CARE worklist: service request {sr?.id} ({sr?.name}) skipped, " +
-                                   $"{kept?.id} ({kept?.name}) kept. Each service request needs its own accession number in CARE.", false);
+                        skipped.Add($"service request {sr?.id} ({sr?.name}) has the same accession_number {accessionNumber} as {kept?.id}");
+                        ucls_CareApiError.Detail(writeToLog, $"Duplicate accession_number {accessionNumber} in the CARE worklist: service request {sr?.id} ({sr?.name}) skipped, " +
+                                   $"{kept?.id} ({kept?.name}) kept. Each service request needs its own accession number in CARE.");
                         continue;
                     }
                     keptByAccession[accessionNumber] = sr;
@@ -226,12 +242,26 @@ namespace Plexus.Common.Database
                     writeToLog(errorString, false);
                     return false;
                 }
-                writeToLog($"care_worklist synced: {insertedCount} new row(s) inserted, {completedCount} row(s) marked COMPLETED, {careRecords.Count} item(s) in the CARE response (count={careResponse.count})", true);
+                if (skipped.Count > 0)
+                    writeToLog($"{skipped.Count} CARE worklist order(s) not added to the worklist: {skipped[0]}" +
+                               (skipped.Count > 1 ? $" (and {skipped.Count - 1} more)" : string.Empty) +
+                               ". Each service request needs its own accession number in CARE.", false);
+                string synced = $"care_worklist synced: {insertedCount} new row(s) inserted, {completedCount} row(s) marked COMPLETED, {careRecords.Count} item(s) in the CARE response (count={careResponse.count})";
+
+                if (insertedCount > 0 || completedCount > 0)
+                    writeToLog(synced, true);
+                else
+                    ucls_CareApiError.Detail(writeToLog, synced);
                 return true;
+            }
+            catch (CareApiException ex)
+            {
+                writeToLog(ex.Message, false);
+                return false;
             }
             catch (Exception ex)
             {
-                writeToLog("Refreshing care_worklist from the CARE worklist API failed with exception " + ex.Message, false);
+                writeToLog("Refreshing care_worklist from the CARE worklist API failed: " + ex.Message, false);
                 return false;
             }
         }
@@ -256,7 +286,7 @@ namespace Plexus.Common.Database
                     requestUrl += "&created_date_after=" + Uri.EscapeDataString(fromDate.Trim());
                 requestUrl += "&created_date_before=" + Uri.EscapeDataString(toDate);
 
-                writeToLog("CARE Worklist URL: " + requestUrl, true);
+                ucls_CareApiError.Detail(writeToLog, "CARE Worklist URL: " + requestUrl);
 
                 using (HttpClient client = new HttpClient())
                 {
@@ -273,28 +303,20 @@ namespace Plexus.Common.Database
 
                     if (!response.IsSuccessStatusCode)
                     {
-                        writeToLog(
-                            $"CARE Worklist API returned {(int)response.StatusCode} ({response.ReasonPhrase}). Response body: {Truncate(responseBody, 1000)}", false);
-
-                        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
-                            response.StatusCode == System.Net.HttpStatusCode.Forbidden)
-                        {
-                            writeToLog(
-                                $"Authorization rejected by CARE. Token in use: {DescribeToken(token)}. Verify it is this facility's service-account token in CARE (compare the fingerprint Initializer.bat showed); a 403 can also mean the service account lacks permission for this API.", false);
-                        }
-
-                        response.EnsureSuccessStatusCode();
+                        ucls_CareApiError.Detail(writeToLog, $"CARE Worklist API response body: {Truncate(responseBody, 1000)}");
+                        string reason = ucls_CareApiError.Describe("CARE worklist API", response.StatusCode, response.ReasonPhrase, responseBody);
+                        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                            reason += $". Token in use: {DescribeToken(token)} (compare the fingerprint Initializer.bat showed)";
+                        throw new CareApiException(reason);
                     }
                 }
 
-                writeToLog("CARE Worklist API call successful. Returning the value", true);
+                ucls_CareApiError.Detail(writeToLog, "CARE Worklist API call successful");
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!responseReceived && (ex is HttpRequestException || ex is TaskCanceledException))
             {
-                // The exception itself is logged by RefreshCareWorklist. No response at all: CARE could not be reached
-                if (!responseReceived && (ex is HttpRequestException || ex is TaskCanceledException))
-                    writeToLog("Could not connect to the CARE Worklist API. " + ucls_NetworkCheck.Describe(), false);
-                throw;
+                string reason = ex is TaskCanceledException ? "no answer in time" : (ex.InnerException?.Message ?? ex.Message);
+                throw new CareApiException($"Could not connect to the CARE worklist API ({reason}). {ucls_NetworkCheck.Describe()}", ex);
             }
 
             return responseBody;

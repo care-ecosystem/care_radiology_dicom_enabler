@@ -179,14 +179,14 @@ namespace Plexus_DICOM_Enabler.Forms
                 if (changed && write)
                 {
                     configDoc.Save(cfgPath);
-                    foreach (string key in DicomEndpointKeys.Where(changes.ContainsKey))
-                        cls_AppLog.Info("SCP SETTINGS", "From the DICOM Enabler's endpoints in CARE - " + changes[key]);
+                    cls_AppLog.Info("SCP SETTINGS", "From the DICOM Enabler's endpoints in CARE - " +
+                                                    string.Join("; ", DicomEndpointKeys.Where(changes.ContainsKey).Select(key => changes[key])));
                 }
                 return true;
             }
             catch (Exception ex)
             {
-                errorString = (write ? "Writing the DICOM Enabler's endpoints to" : "Reading") + " cfg/common.cfg failed: " + ex.Message;
+                errorString = (write ? "Saving the DICOM Enabler's endpoints as the Modality SCP / Store SCP settings" : "Reading the Modality SCP / Store SCP settings") + " failed: " + ex.Message;
                 cls_AppLog.Error("SCP SETTINGS", errorString);
                 return false;
             }

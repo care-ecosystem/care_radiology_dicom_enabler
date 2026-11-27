@@ -39,9 +39,7 @@ namespace Plexus_MWL_Service
         {
             InitializeComponent();
             CanShutdown = true;
-            _fileLogger = new LoggerConfiguration()
-                .WriteTo.Sink(DailyFolderSink.For("ModalitySCP.txt"), Serilog.Events.LogEventLevel.Information)
-                .CreateLogger();
+            _fileLogger = DailyFolderSink.CreateLogger("ModalitySCP.txt");
             // Pre-shutdown (OnCustomCommand) gives time to unassign the DICOM Enabler when Windows shuts down;
             // OnShutdown is the fallback when it is not available
             if (!ServicePreshutdown.Accept(this, out string preshutdownError))
@@ -53,21 +51,22 @@ namespace Plexus_MWL_Service
             try
             {
                 string applicationPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
-                _fileLogger.Information("MWL Service OnStart. ApplicationPath: " + applicationPath);
+                _fileLogger.Debug("MWL Service OnStart. ApplicationPath: " + applicationPath);
                 string serviceName = ServicePreshutdown.SetTimeout(PreshutdownTimeout, out string timeoutError);
                 if (serviceName != null)
-                    _fileLogger.Information($"[SHUTDOWN] Windows waits up to {PreshutdownTimeout.TotalSeconds:0}s at pre-shutdown for {serviceName}");
+                    _fileLogger.Debug($"[SHUTDOWN] Windows waits up to {PreshutdownTimeout.TotalSeconds:0}s at pre-shutdown for {serviceName}");
                 else
                     _fileLogger.Warning("[SHUTDOWN] The pre-shutdown timeout could not be set (Windows' default is used): " + timeoutError);
                 // The Configuration tab restarts the service with the changed settings as start parameters
-                foreach (string change in args)
-                    _fileLogger.Information($"Restarted after a Configuration tab change: {change}");
+                if (args != null && args.Length > 0)
+                    _fileLogger.Debug($"Restarted after a Configuration tab change: {string.Join("; ", args)}");
                 int backend = Convert.ToInt32(ConfigurationManager.AppSettings["backend"].ToString());
                 string mwlPort = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/mwlport");
                 string mwlAet = cls_PlexusConfig.ReadDetailsFromXML(applicationPath, @"/configurations/mwlaetitle");
-                _fileLogger.Information($"Starting MWL DICOM server on port {mwlPort}, AET={mwlAet}, backend={backend}");
+                _fileLogger.Debug($"Starting MWL DICOM server on port {mwlPort}, AET={mwlAet}, backend={backend}");
                 WorklistServer.Start(Convert.ToInt32(mwlPort), mwlAet, backend);
-                _fileLogger.Information("WorklistServer.Start completed.");
+                _fileLogger.Information($"MWL SCP service started on port {mwlPort}, AE={mwlAet}" +
+                    (args.Length > 0 ? " (restarted after a Configuration tab change)" : string.Empty));
                 _assignCancel?.Dispose();
                 _assignCancel = new System.Threading.CancellationTokenSource();
                 System.Threading.CancellationToken assignToken = _assignCancel.Token;
@@ -75,7 +74,9 @@ namespace Plexus_MWL_Service
             }
             catch (Exception ex)
             {
-                _fileLogger.Error("Starting MWL SCP Service failed: " + ex.ToString());
+                _fileLogger.Error("MWL SCP service failed to start: " + ex.GetBaseException().Message +
+                                  ". Check that no other program uses the Modality SCP port (Emulator/PortScan.bat lists them) and the port in the Configuration tab");
+                _fileLogger.Debug(ex.ToString());
             }
         }
 
@@ -84,11 +85,11 @@ namespace Plexus_MWL_Service
             try
             {
                 WorklistServer.Stop();
-                _fileLogger.Information("MWL SCP Service stopped successfully.");
+                _fileLogger.Information("MWL SCP service stopped");
             }
             catch (Exception ex)
             {
-                _fileLogger.Error("MWL SCP Service stop failed: " + ex.Message);
+                _fileLogger.Error("MWL SCP service stop failed: " + ex.Message + ". Stop it in Windows Services if it is still running");
             }
             if (_windowsShuttingDown)
             {

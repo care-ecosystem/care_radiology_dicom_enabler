@@ -39,13 +39,11 @@ namespace Worklist_SCP.Model
 
         private void LogInfo(string message)
         {
-            _logger.Info("{message}", message);
-            _fileLogger?.Information("{Message:l}", message);
+            _fileLogger?.Debug("{Message:l}", message);
         }
 
         private void LogWarn(string message)
         {
-            _logger.Warn("{message}", message);
             _fileLogger?.Warning("{Message:l}", message);
         }
 
@@ -126,9 +124,9 @@ namespace Worklist_SCP.Model
 
                 bool sent = false;
                 if (!string.IsNullOrEmpty(errorString) || string.IsNullOrWhiteSpace(facilityId))
-                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: no Facility ID - {(string.IsNullOrEmpty(errorString) ? resolvedFrom : errorString)}. The SCU service will send it.");
+                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: {(string.IsNullOrEmpty(errorString) ? resolvedFrom : errorString)}. The SCU service will send it.");
                 else if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(statusPath))
-                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: careBaseUrl or statusURL is not set in App.config. The SCU service will send it.");
+                    LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: the CARE server url is not set. The SCU service will send it.");
                 else if (!ucls_ServiceToken.TryGetAuthorizationHeader(dal, out token, out tokenError))
                     LogWarn($"[MPPS] Not sending {studyStatus} for AccessionNumber={accessionNumber}: {tokenError.TrimEnd('.')}. The SCU service will send it.");
                 else
@@ -165,7 +163,7 @@ namespace Worklist_SCP.Model
             {
                 // the procedureStepId provided cannot be found any more, so the data is invalid or the
                 // modality tries to start a procedure that has been deleted/changed on the ris side...
-                LogWarn($"[MPPS] SetInProgress: no worklist item matched ProcedureStepID={procedureStepId}");
+                LogInfo($"[MPPS] SetInProgress: no worklist item matched ProcedureStepID={procedureStepId}");
                 return false;
             }
 
@@ -188,7 +186,7 @@ namespace Worklist_SCP.Model
             if (!PendingProcedures.ContainsKey(sopInstanceUID))
             {
                 // there is no pending procedure with this sopInstanceUID!
-                LogWarn($"[MPPS] SetDiscontinued: no procedure in progress for SOPInstanceUID={sopInstanceUID}");
+                LogInfo($"[MPPS] SetDiscontinued: no procedure in progress for SOPInstanceUID={sopInstanceUID}");
                 return false;
             }
             var workItem = PendingProcedures[sopInstanceUID];
@@ -211,7 +209,7 @@ namespace Worklist_SCP.Model
             if (!PendingProcedures.ContainsKey(sopInstanceUID))
             {
                 // there is no pending procedure with this sopInstanceUID!
-                LogWarn($"[MPPS] SetCompleted: no procedure in progress for SOPInstanceUID={sopInstanceUID}");
+                LogInfo($"[MPPS] SetCompleted: no procedure in progress for SOPInstanceUID={sopInstanceUID}");
                 return false;
             }
             var workItem = PendingProcedures[sopInstanceUID];

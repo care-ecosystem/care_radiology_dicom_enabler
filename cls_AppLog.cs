@@ -25,6 +25,17 @@ namespace Plexus_DICOM_Enabler
         private static Logger logger;
         private static DateTime loggerDate;
 
+        /// <summary>
+        /// Detail for diagnosing a problem (URLs, request and response details, each step). Written by a
+        /// Debug build only; a Release build keeps the App Log to a summary line per action.
+        /// </summary>
+        public static void Debug(string area, string message)
+        {
+#if DEBUG
+            Write(LogEventLevel.Debug, area, message);
+#endif
+        }
+
         public static void Info(string area, string message) => Write(LogEventLevel.Information, area, message);
 
         public static void Warning(string area, string message) => Write(LogEventLevel.Warning, area, message);

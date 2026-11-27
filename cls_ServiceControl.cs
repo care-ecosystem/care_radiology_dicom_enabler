@@ -88,9 +88,12 @@ namespace Plexus_DICOM_Enabler
                         if (service.Status != ServiceControllerStatus.StopPending)
                             service.Stop();
                         service.WaitForStatus(ServiceControllerStatus.Stopped, StopTimeout);
-                        cls_AppLog.Info(Area, name + " stopped");
+                        cls_AppLog.Debug(Area, name + " stopped");
                     }
                 }
+                // One line for all the services stopped; each one as it stops only in a Debug build
+                if (requested.Count > 0)
+                    cls_AppLog.Info(Area, "Stopped: " + string.Join(", ", requested));
                 return requested;
             }
             catch (Exception ex)
@@ -152,6 +155,7 @@ namespace Plexus_DICOM_Enabler
         /// <summary>Starts each of serviceNames. Returns false with error listing the ones that did not start.</summary>
         public static bool StartServices(IEnumerable<string> serviceNames, out string error)
         {
+            var started = new List<string>();
             var failed = new List<string>();
             foreach (string name in serviceNames ?? Enumerable.Empty<string>())
             {
@@ -162,7 +166,8 @@ namespace Plexus_DICOM_Enabler
                         if (service.Status != ServiceControllerStatus.Running && service.Status != ServiceControllerStatus.StartPending)
                             service.Start();
                         service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(60));
-                        cls_AppLog.Info(Area, name + " started");
+                        cls_AppLog.Debug(Area, name + " started");
+                        started.Add(name);
                     }
                 }
                 catch (Exception ex)
@@ -170,6 +175,8 @@ namespace Plexus_DICOM_Enabler
                     failed.Add($"{name} ({ex.Message})");
                 }
             }
+            if (started.Count > 0)
+                cls_AppLog.Info(Area, "Started: " + string.Join(", ", started));
             error = failed.Count == 0 ? null : "Not started: " + string.Join("; ", failed) + ". Start them from Server Manager.";
             if (error != null)
                 cls_AppLog.Error(Area, error);

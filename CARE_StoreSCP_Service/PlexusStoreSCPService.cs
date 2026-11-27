@@ -39,9 +39,7 @@ namespace Plexus_StoreSCP_Service
         private Serilog.ILogger GetFileLogger()
         {
             //WriteToLog(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location),true);
-            return new LoggerConfiguration()
-                .WriteTo.Sink(DailyFolderSink.For("StoreSCP.txt"), Serilog.Events.LogEventLevel.Information)
-                .CreateLogger();
+            return DailyFolderSink.CreateLogger("StoreSCP.txt");
         }
 
         protected override void OnStart(string[] args)
@@ -60,15 +58,17 @@ namespace Plexus_StoreSCP_Service
 
                 if (_server != null)
                 {
-                    WriteToLog("Store SCP Started Successfully !!!",true);
+                    WriteToLog($"Store SCP service started on port {port}, AE={Global._aeTitle}" +
+                        (args.Length > 0 ? " (restarted after a Configuration tab change)" : string.Empty), true);
                 }
                 // The Configuration tab restarts the service with the changed settings as start parameters
                 foreach (string change in args)
-                    WriteToLog($"Restarted after a Configuration tab change: {change}", true);
+                    _fileLogger.Debug($"Restarted after a Configuration tab change: {change}");
                 }
             catch (Exception ex)
             {
-                WriteToLog("Error Starting Store SCP Service with exception : " + ex.Message,false);
+                WriteToLog("Store SCP service failed to start: " + ex.GetBaseException().Message +
+                           ". Check that no other program uses the Store SCP port (Emulator/PortScan.bat lists them) and the port in the Configuration tab", false);
             }
         }
 
@@ -87,7 +87,7 @@ namespace Plexus_StoreSCP_Service
                 string folder = objDAL.GetConfigValue("scp_folder", defaultFolder, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
                     WriteToLog($"{errorString} - saving images to {defaultFolder}", false);
-                WriteToLog($"Saving received images to {folder}", true);
+                _fileLogger.Debug($"Saving received images to {folder}");
                 return folder;
             }
             catch (Exception ex)
@@ -103,7 +103,7 @@ namespace Plexus_StoreSCP_Service
 
         protected override void OnStop()
         {
-            WriteToLog("Store SCP Stopped Successfully !!!",true);
+            WriteToLog("Store SCP service stopped",true);
         }
 
         /// <summary>

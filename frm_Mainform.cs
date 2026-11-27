@@ -424,7 +424,7 @@ namespace Plexus_DICOM_Enabler
             new System.Text.RegularExpressions.Regex(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{2}:\d{2} \[(\w{3})\]");
 
         /// <summary>
-        /// Appends complete log lines, showing Error and Fatal entries in red and Warning entries in orange.
+        /// Appends complete log lines, showing Error and Fatal entries in red, Warning entries in orange and Debug detail in gray.
         /// Lines that do not start a new entry, such as an exception's stack trace, keep the color of the
         /// entry they belong to.
         /// </summary>
@@ -464,6 +464,9 @@ namespace Plexus_DICOM_Enabler
                     return Color.Red;
                 case "WRN":
                     return Color.DarkOrange;
+                case "DBG":
+                case "VRB":
+                    return Color.Gray;
                 default:
                     return Color.Empty;
             }
@@ -1007,7 +1010,7 @@ namespace Plexus_DICOM_Enabler
                                           .ToList();
                 if (enablerChanged)
                 {
-                    string newEnablerText = newEnablerId == string.Empty ? "none" : $"{selectedDicomEnabler?.Name ?? newEnablerId} ({newEnablerId})";
+                    string newEnablerText = newEnablerId == string.Empty ? "none" : $"{selectedDicomEnabler?.Name ?? newEnablerId}";
                     confirmLines.Add($"DICOM Enabler: {DescribeEnabler(oldEnablerId)} -> {newEnablerText}");
                     if (newEnablerId != string.Empty)
                         confirmLines.Add("  The new DICOM Enabler is assigned to this enabler in CARE and saved to care_devices, and its DICOM endpoints become the Modality SCP / Store SCP settings. " +
@@ -1035,7 +1038,7 @@ namespace Plexus_DICOM_Enabler
                     if (enablerChanged)
                         cls_AppLog.Info("DICOM ENABLER", newEnablerId == string.Empty
                             ? $"DICOM Enabler cleared in the Configuration tab (was {DescribeEnabler(oldEnablerId)})"
-                            : $"DICOM Enabler {selectedDicomEnabler?.Name ?? newEnablerId} ({newEnablerId}) selected in the Configuration tab" +
+                            : $"DICOM Enabler {selectedDicomEnabler?.Name ?? newEnablerId} selected in the Configuration tab" +
                               (oldEnablerId == string.Empty ? string.Empty : $", replacing {DescribeEnabler(oldEnablerId)}"));
 
                     if (enablerChanged && newEnablerId != string.Empty)
@@ -1097,12 +1100,19 @@ namespace Plexus_DICOM_Enabler
                             notes.AppendLine("The SCP settings could not be updated from it: " + endpointError);
                     }
 
+                    cls_AppLog.Info("CONFIG", changes.Count == 0
+                        ? "Configuration saved: no setting changed"
+                        : $"Configuration saved: {string.Join(", ", changes.Keys)} changed");
                     foreach (var change in changes)
-                        cls_AppLog.Info("CONFIG", change.Value);
+                        cls_AppLog.Debug("CONFIG", change.Value);
 
                     string restartSummary = RestartServicesForChanges(changes);
-                    foreach (string line in restartSummary.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries))
-                        cls_AppLog.Info("SERVICES", line);
+                    string[] restartLines = restartSummary.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+                    // A failed restart leaves the service on the old settings, so it is a warning
+                    if (restartLines.Any(line => line.Contains("restart failed")))
+                        cls_AppLog.Warning("SERVICES", string.Join("; ", restartLines.Select(line => line.Trim())));
+                    else if (restartLines.Length > 0)
+                        cls_AppLog.Info("SERVICES", string.Join("; ", restartLines.Select(line => line.Trim())));
                     string summary = (notes.ToString().TrimEnd() + Environment.NewLine + Environment.NewLine + restartSummary).Trim();
                     this.Cursor = System.Windows.Forms.Cursors.Default;
                     MessageBox.Show(this, "Configuration saved Successfully!!" + Environment.NewLine + Environment.NewLine + summary,
@@ -1126,7 +1136,8 @@ namespace Plexus_DICOM_Enabler
             }
             catch (Exception ex)
             {
-                cls_AppLog.Error("CONFIG", "Saving the configuration failed with exception " + ex);
+                cls_AppLog.Error("CONFIG", "Saving the configuration failed with exception " + ex.Message);
+                cls_AppLog.Debug("CONFIG", ex.ToString());
                 MessageBox.Show(this, "Error Saving Configuration with expection : " + ex.Message,
                                      "Error Saving Configuration", MessageBoxButtons.OK,
                                      MessageBoxIcon.Error);
@@ -1201,7 +1212,7 @@ namespace Plexus_DICOM_Enabler
                 return;
             }
 
-            cls_AppLog.Info(SwitchArea, $"Switching from the facility's whole worklist to DICOM Enabler {newName} ({newEnablerId}); current DICOM Enabler: {oldText}");
+            cls_AppLog.Info(SwitchArea, $"Switching from the facility's whole worklist to DICOM Enabler {newName}; current DICOM Enabler: {oldText}");
             mbtn_SaveConfig.Enabled = false;
             this.Cursor = System.Windows.Forms.Cursors.WaitCursor;
             var serviceNames = new[] { MwlServiceName, StoreScpServiceName, StoreScuServiceName };
@@ -1246,7 +1257,8 @@ namespace Plexus_DICOM_Enabler
             }
             catch (Exception ex)
             {
-                cls_AppLog.Error(SwitchArea, "Switching to the DICOM Enabler's worklist failed with exception " + ex);
+                cls_AppLog.Error(SwitchArea, "Switching to the DICOM Enabler's worklist failed with exception " + ex.Message);
+                cls_AppLog.Debug(SwitchArea, ex.ToString());
                 ShowSwitchError("Switching to the DICOM Enabler's worklist failed with exception " + ex.Message);
             }
             finally
@@ -1295,7 +1307,7 @@ namespace Plexus_DICOM_Enabler
             string nl = Environment.NewLine;
             while (true)
             {
-                cls_AppLog.Info(SwitchArea, step + "...");
+                cls_AppLog.Debug(SwitchArea, step + "...");
                 string error;
                 try
                 {
@@ -1307,7 +1319,7 @@ namespace Plexus_DICOM_Enabler
                 }
                 if (error == null)
                 {
-                    cls_AppLog.Info(SwitchArea, step + ": done");
+                    cls_AppLog.Debug(SwitchArea, step + ": done");
                     return true;
                 }
                 cls_AppLog.Error(SwitchArea, $"{step}: {error}");
@@ -1345,7 +1357,7 @@ namespace Plexus_DICOM_Enabler
                     return "The configuration could not be read: " + errorString;
                 if (enablerId == string.Empty)
                 {
-                    cls_AppLog.Info(SwitchArea, "No DICOM Enabler was saved, so none is set to unassigned in CARE");
+                    cls_AppLog.Debug(SwitchArea, "No DICOM Enabler was saved, so none is set to unassigned in CARE");
                     return null;
                 }
 
@@ -1357,13 +1369,13 @@ namespace Plexus_DICOM_Enabler
                 string unassigned = ucls_CareModalities.AssignmentUnassigned;
                 var targets = new List<(string Id, string Name)>();
                 if (!string.Equals(enabler?.AssignmentStatus, unassigned, StringComparison.OrdinalIgnoreCase))
-                    targets.Add((enablerId, "DICOM Enabler " + (enabler?.DeviceName ?? enablerId)));
+                    targets.Add((enablerId, ucls_CareModalities.DescribeDicomEnabler(enabler?.DeviceName, enablerId)));
                 targets.AddRange(devices.Where(d => !string.IsNullOrWhiteSpace(d.DeviceId) && !string.Equals(d.AssignmentStatus, unassigned, StringComparison.OrdinalIgnoreCase))
-                                        .Select(d => (d.DeviceId, "device " + (d.DeviceName ?? d.DeviceId))));
+                                        .Select(d => (d.DeviceId, "device " + ucls_CareModalities.DescribeDevice(d.DeviceName, d.AeTitle, d.DeviceId))));
                 int alreadyUnassigned = 1 + devices.Count - targets.Count;
                 if (targets.Count == 0)
                 {
-                    cls_AppLog.Info(SwitchArea, $"DICOM Enabler {enabler?.DeviceName ?? enablerId} and its {devices.Count} device(s) are already unassigned in CARE (set when the MWL service stopped)");
+                    cls_AppLog.Debug(SwitchArea, $"DICOM Enabler {enabler?.DeviceName ?? enablerId} and its {devices.Count} device(s) are already unassigned in CARE (set when the MWL service stopped)");
                     return null;
                 }
 
@@ -1373,10 +1385,10 @@ namespace Plexus_DICOM_Enabler
                 var failed = new List<string>();
                 foreach (var (id, name) in targets)
                 {
-                    if (ucls_CareModalities.TryUpdateAssignmentStatus(modalitiesURL, apiKey, id, unassigned, cls_AppLog.For("DICOM ENABLER"), out string error))
+                    if (ucls_CareModalities.TryUpdateAssignmentStatus(modalitiesURL, apiKey, id, unassigned, cls_AppLog.For("DICOM ENABLER"), out string error, deviceLabel: name))
                     {
                         done.Add(id);
-                        cls_AppLog.Info(SwitchArea, $"{name} ({id}) assignment_status: assigned -> unassigned");
+                        cls_AppLog.Debug(SwitchArea, $"{name} ({id}) assignment_status: assigned -> unassigned");
                     }
                     else
                     {
@@ -1429,7 +1441,7 @@ namespace Plexus_DICOM_Enabler
                 string errorString = string.Empty;
                 if (!dal.DeleteCareDevicesOfEnabler(oldEnablerId, ref removed, ref errorString))
                     return errorString;
-                cls_AppLog.Info(SwitchArea, $"Removed {removed} care_devices row(s) of the previous DICOM Enabler ({oldEnablerId})");
+                cls_AppLog.Debug(SwitchArea, $"Removed {removed} care_devices row(s) of the previous DICOM Enabler ({oldEnablerId})");
                 return null;
             }
             finally
@@ -1447,8 +1459,9 @@ namespace Plexus_DICOM_Enabler
                 string errorString = string.Empty;
                 if (!dal.SaveConfig(values, ref errorString))
                     return errorString;
+                cls_AppLog.Info("CONFIG", $"Configuration saved for the switch: {values.Count} setting(s)");
                 foreach (var value in values)
-                    cls_AppLog.Info("CONFIG", $"{value.Key}: {DisplayConfigValue(value.Value)}");
+                    cls_AppLog.Debug("CONFIG", $"{value.Key}: {DisplayConfigValue(value.Value)}");
                 return null;
             }
             finally
@@ -1540,7 +1553,7 @@ namespace Plexus_DICOM_Enabler
             if (string.IsNullOrEmpty(enablerId))
                 return "none";
             string name = string.Equals(savedEnabler?.DeviceId, enablerId, StringComparison.OrdinalIgnoreCase) ? savedEnabler.DeviceName : null;
-            return string.IsNullOrWhiteSpace(name) ? enablerId : $"{name.Trim()} ({enablerId})";
+            return string.IsNullOrWhiteSpace(name) ? enablerId : name.Trim();
         }
 
         private void ShowSaveError(string message)
@@ -1570,13 +1583,14 @@ namespace Plexus_DICOM_Enabler
             // The Modality SCP and Store SCP settings come only from these endpoints, so it is not assigned without them
             if (!ucls_CareModalities.ValidateDicomEndpoints(enabler.modality_scp, enabler.store_scp, out error))
                 return Tuple.Create(false, enabler, error + " Set its DICOM endpoints in CARE and select it again.");
-            cls_AppLog.Info("DICOM ENABLER", $"Details of {enabler?.device_name} ({enablerId}) from CARE: " +
+            cls_AppLog.Debug("DICOM ENABLER", $"Details of {enabler?.device_name} ({enablerId}) from CARE: " +
                 $"Modality Worklist SCP {enabler?.modality_scp?.ae_title}:{enabler?.modality_scp?.port}, " +
                 $"Store SCP {enabler?.store_scp?.ae_title}:{enabler?.store_scp?.port}, IP {enabler?.ip ?? "N/A"}, location {enabler?.location?.name ?? "N/A"}");
             if (!ucls_CareModalities.TryUpdateAssignmentStatus(modalitiesURL, apiKey, enablerId, ucls_CareModalities.AssignmentAssigned,
-                                                               LogDicomEnablerLoad, out error))
+                                                               LogDicomEnablerLoad, out error,
+                                                               deviceLabel: ucls_CareModalities.DescribeDicomEnabler(enabler.device_name, enablerId)))
                 return Tuple.Create(false, enabler, "The DICOM Enabler could not be assigned in CARE: " + error);
-            cls_AppLog.Info("DICOM ENABLER", $"{enabler?.device_name} ({enablerId}) assignment_status: unassigned -> assigned");
+            cls_AppLog.Info("DICOM ENABLER", $"{ucls_CareModalities.DescribeDicomEnabler(enabler?.device_name, enablerId)} assigned in CARE (unassigned -> assigned)");
             // Retrieved before it was assigned: saved with the status CARE now has
             enabler.assignment_status = ucls_CareModalities.AssignmentAssigned;
             return Tuple.Create(true, enabler, (string)null);
@@ -1591,13 +1605,25 @@ namespace Plexus_DICOM_Enabler
             if (!TryGetModalitiesApi(facilityId, out string modalitiesURL, out string apiKey, out string error))
                 return $"{what} could not be unassigned in CARE: {error}";
             string unassignError = null;
+            string enablerName = null;
+            var dal = new ucls_DAL(Global._applicationPath);
+            try
+            {
+                string nameError = string.Empty;
+                enablerName = dal.GetCareDevice(enablerId, ref nameError)?.DeviceName;
+            }
+            finally
+            {
+                dal.Dispose();
+            }
+            string label = ucls_CareModalities.DescribeDicomEnabler(enablerName, enablerId);
             bool ok = await System.Threading.Tasks.Task.Run(() => ucls_CareModalities.TryUpdateAssignmentStatus(
-                modalitiesURL, apiKey, enablerId, ucls_CareModalities.AssignmentUnassigned, LogDicomEnablerLoad, out unassignError));
+                modalitiesURL, apiKey, enablerId, ucls_CareModalities.AssignmentUnassigned, LogDicomEnablerLoad, out unassignError, deviceLabel: label));
             string result = ok
-                ? $"{what} ({enablerId}) is unassigned in CARE."
-                : $"{what} ({enablerId}) could not be unassigned in CARE: {unassignError}. Unassign it in CARE.";
+                ? $"{what} ({enablerName ?? enablerId}) is unassigned in CARE."
+                : $"{what} ({enablerName ?? enablerId}) could not be unassigned in CARE: {unassignError}. Unassign it in CARE.";
             if (ok)
-                cls_AppLog.Info("DICOM ENABLER", $"{what} ({enablerId}) assignment_status: assigned -> unassigned");
+                cls_AppLog.Info("DICOM ENABLER", $"{what} ({enablerName ?? enablerId}) unassigned in CARE (assigned -> unassigned)");
             else
                 cls_AppLog.Warning("DICOM ENABLER", result);
             return result;
@@ -1693,7 +1719,7 @@ namespace Plexus_DICOM_Enabler
                 notLoadedKind = BannerKind.Warning;
             }
             else if (baseUrl == string.Empty)
-                notLoadedReason = "careBackendURL is not set in App.config, so the DICOM Enablers cannot be loaded.";
+                notLoadedReason = "The CARE server url is not set, so the DICOM Enablers cannot be loaded.";
             else if (!ucls_ServiceToken.TryGetAuthorizationHeader(Global._applicationPath, out authorization, out tokenError))
                 notLoadedReason = "The DICOM Enablers cannot be loaded: " + tokenError;
             if (notLoadedReason != null)
@@ -1721,7 +1747,7 @@ namespace Plexus_DICOM_Enabler
             catch (Exception ex)
             {
                 result = Tuple.Create(false, (CareModalitiesResponse)null, "Loading failed with exception " + ex.Message);
-                cls_AppLog.Error("MODALITIES", "Loading the DICOM Enablers failed with exception " + ex.Message);
+                cls_AppLog.Error("MODALITIES", "Loading the DICOM Enablers failed with exception " + ex.Message + ". Press Refresh to try again; if it keeps failing, check the network and the CARE server url");
             }
 
             // The form was closed, or a newer load (Refresh, tab reopened) replaced this one
@@ -1884,7 +1910,7 @@ namespace Plexus_DICOM_Enabler
             string notLoadedReason = null;
             string authorization = null;
             if (baseUrl == string.Empty)
-                notLoadedReason = "careBackendURL is not set in App.config, so the facilities cannot be loaded.";
+                notLoadedReason = "The CARE server url is not set, so the facilities cannot be loaded.";
             else if (!ucls_ServiceToken.TryGetAuthorizationHeader(Global._applicationPath, out authorization, out string tokenError))
                 notLoadedReason = "The facilities cannot be loaded: " + tokenError;
             if (notLoadedReason != null)
@@ -1912,7 +1938,7 @@ namespace Plexus_DICOM_Enabler
             catch (Exception ex)
             {
                 result = Tuple.Create(false, (List<CareFacility>)null, "Loading failed with exception " + ex.Message);
-                cls_AppLog.Error("FACILITIES", "Loading the facilities failed with exception " + ex.Message);
+                cls_AppLog.Error("FACILITIES", "Loading the facilities failed with exception " + ex.Message + ". Press Refresh to try again; if it keeps failing, check the network and the CARE server url");
             }
 
             // The form was closed, or a newer load (Refresh, tab reopened) replaced this one
@@ -2090,7 +2116,7 @@ namespace Plexus_DICOM_Enabler
             if (facilityId == string.Empty || enablerId == string.Empty)
             {
                 lbl_DevicesStatus.Text = facilityId == string.Empty
-                    ? "Enter and save the Facility Id in the Configuration tab to see its devices."
+                    ? "Select the facility in the Configuration tab and save to see its devices."
                     : "Select and save a DICOM Enabler in the Configuration tab to see the devices connected to it.";
                 return;
             }
@@ -2232,8 +2258,11 @@ namespace Plexus_DICOM_Enabler
                         spn_DevicesSync.Stop();
                 }
                 string restartSummary = scpChanges.Count > 0 ? RestartServicesForChanges(scpChanges) : string.Empty;
-                foreach (string line in restartSummary.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries))
-                    cls_AppLog.Info("SERVICES", line);
+                string[] restartLines = restartSummary.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+                if (restartLines.Any(line => line.Contains("restart failed")))
+                    cls_AppLog.Warning("SERVICES", string.Join("; ", restartLines.Select(line => line.Trim())));
+                else if (restartLines.Length > 0)
+                    cls_AppLog.Info("SERVICES", string.Join("; ", restartLines.Select(line => line.Trim())));
 
                 LoadDevices();
                 if (!applied)
@@ -2252,7 +2281,7 @@ namespace Plexus_DICOM_Enabler
             }
             catch (Exception ex)
             {
-                cls_AppLog.Error("SYNC", "Sync with CARE failed with exception " + ex.Message);
+                cls_AppLog.Error("SYNC", "Sync with CARE failed with exception " + ex.Message + ". Press Sync to try again; if it keeps failing, check the network and the CARE server url");
                 if (!IsDisposed && syncVersion == devicesSyncVersion)
                 {
                     spn_DevicesSync.Stop();
@@ -2397,7 +2426,11 @@ namespace Plexus_DICOM_Enabler
             string errorString = string.Empty;
             DeviceWorklistCounts counts = objDAL.GetDeviceWorklistCounts(deviceId, today, ref errorString);
             if (counts == null)
-                cls_AppLog.Error("DEVICES", $"Could not read the worklist counts of device {deviceId}: {errorString}");
+            {
+                string nameError = string.Empty;
+                CareDeviceRecord device = objDAL.GetCareDevice(deviceId, ref nameError);
+                cls_AppLog.Error("DEVICES", $"Could not read today's worklist counts of device {ucls_CareModalities.DescribeDevice(device?.DeviceName, device?.AeTitle, deviceId)}: {errorString}");
+            }
             string Count(Func<DeviceWorklistCounts, int> value) => counts == null ? ucls_CareModalities.NotAvailable : value(counts).ToString();
             return new List<string[]>
             {

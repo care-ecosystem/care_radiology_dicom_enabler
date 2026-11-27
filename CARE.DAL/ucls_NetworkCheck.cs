@@ -44,20 +44,20 @@ namespace Plexus.Common.Database
 
                 if (gateways.Count == 0)
                 {
-                    description = "Local network issue (no network adapter with a default gateway is up)";
+                    description = "Local network issue (no network adapter with a default gateway is up): check this PC's network cable or Wi-Fi";
                     return true;
                 }
                 if (!gateways.Any(gateway => PingSucceeds(gateway.ToString())))
                 {
-                    description = $"Local network issue (default gateway {string.Join(", ", gateways)} does not answer a ping)";
+                    description = $"Local network issue (default gateway {string.Join(", ", gateways)} does not answer a ping): check this PC's network connection and the router";
                     return true;
                 }
                 if (!PingSucceeds("google.com"))
                 {
-                    description = "Internet issue (google.com does not answer a ping)";
+                    description = "Internet issue (google.com does not answer a ping): check the internet connection of this site";
                     return true;
                 }
-                description = "CARE server unreachable (local network and internet are up)";
+                description = "CARE server unreachable (local network and internet are up): check the CARE server url and whether the CARE server is down";
                 return false;
             }
             catch (Exception ex)

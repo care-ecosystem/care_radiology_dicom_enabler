@@ -102,7 +102,7 @@ namespace Plexus.Common.Database
                 return false;
             }
 
-            writeToLog($"CARE Modalities API returned {all.results.Count} device(s) (count={all.count})", true);
+            ucls_CareApiError.Detail(writeToLog, $"CARE Modalities API returned {all.results.Count} device(s) (count={all.count})");
             modalities = all;
             return true;
         }
@@ -136,7 +136,7 @@ namespace Plexus.Common.Database
             if (page.results == null)
                 page.results = new List<CareModality>();
             page.results.RemoveAll(m => m == null);
-            writeToLog($"CARE Modalities API returned {page.results.Count} device(s) from offset {Math.Max(0, offset)} (count={page.count})", true);
+            ucls_CareApiError.Detail(writeToLog, $"CARE Modalities API returned {page.results.Count} device(s) from offset {Math.Max(0, offset)} (count={page.count})");
             return true;
         }
 
@@ -205,7 +205,8 @@ namespace Plexus.Common.Database
             catch (JsonException ex)
             {
                 error = "CARE Modalities API returned a response that could not be read: " + ex.Message;
-                writeToLog($"{error}. Response body: {ucls_CareWorklist.Truncate(responseBody, 1000)}", false);
+                writeToLog(error, false);
+                ucls_CareApiError.Detail(writeToLog, "Response body: " + ucls_CareWorklist.Truncate(responseBody, 1000));
                 return false;
             }
             if (page == null)
@@ -242,7 +243,8 @@ namespace Plexus.Common.Database
             {
                 modality = null;
                 error = "CARE Modalities API returned details that could not be read: " + ex.Message;
-                writeToLog($"{error}. Response body: {ucls_CareWorklist.Truncate(responseBody, 1000)}", false);
+                writeToLog(error, false);
+                ucls_CareApiError.Detail(writeToLog, "Response body: " + ucls_CareWorklist.Truncate(responseBody, 1000));
                 return false;
             }
             if (modality == null)
@@ -251,7 +253,7 @@ namespace Plexus.Common.Database
                 writeToLog(error, false);
                 return false;
             }
-            writeToLog($"CARE Modalities API returned the details of {modality.device_type ?? "device"} {deviceId} ({modality.device_name})", true);
+            ucls_CareApiError.Detail(writeToLog, $"CARE Modalities API returned the details of {modality.device_type ?? "device"} {deviceId} ({modality.device_name})");
             return true;
         }
 
@@ -344,7 +346,8 @@ namespace Plexus.Common.Database
         /// </summary>
         public static bool TryUpdateAssignmentStatus(string modalitiesURL, string token, string deviceId, string assignmentStatus,
                                                      Action<string, bool> writeToLog, out string error, TimeSpan? timeout = null,
-                                                     System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken))
+                                                     System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken),
+                                                     string deviceLabel = null)
         {
             if (!ValidateDeviceId(deviceId, writeToLog, out error))
                 return false;
@@ -358,10 +361,10 @@ namespace Plexus.Common.Database
             string requestUrl = BuildDeviceURL(modalitiesURL, deviceId, "status/");
             string payload = JsonConvert.SerializeObject(new { assignment_status = assignmentStatus });
             var patch = new HttpMethod("PATCH");
-            if (!TrySend(patch, requestUrl, token, payload, writeToLog, out _, out error, timeout, cancellationToken))
+            if (!TrySend(patch, requestUrl, token, payload, writeToLog, out _, out error, timeout, cancellationToken, target: deviceLabel))
                 return false;
 
-            writeToLog($"CARE Modalities API set assignment_status of {deviceId} to {assignmentStatus}", true);
+            ucls_CareApiError.Detail(writeToLog, $"CARE Modalities API set assignment_status of {deviceId} to {assignmentStatus}");
             return true;
         }
 
@@ -394,21 +397,23 @@ namespace Plexus.Common.Database
             }
             if (facilityId == string.Empty || enablerId == string.Empty)
             {
-                summary = $"DICOM Enabler not set to {assignmentStatus} in CARE: no Facility Id or DICOM Enabler is saved";
+                summary = $"DICOM Enabler not set to {assignmentStatus} in CARE: no facility or DICOM Enabler is selected in the Configuration tab";
                 writeToLog(summary, true);
                 return true;
             }
+            string enablerLabel = DescribeDicomEnabler(dal.GetCareDevice(enablerId, ref errorString)?.DeviceName, enablerId);
+            errorString = string.Empty;
             if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token))
             {
-                summary = $"DICOM Enabler {enablerId} not set to {assignmentStatus} in CARE: the CARE URL or API key is not set in App.config";
+                summary = $"{enablerLabel} not set to {assignmentStatus} in CARE: the CARE server url or service-account token is not set. Check the CARE server url and the token under Configuration > CARE Settings";
                 writeToLog(summary, false);
                 return false;
             }
             string modalitiesURL = BuildModalitiesURL(baseUrl, modalitiesPath, facilityId);
 
-            if (!TryUpdateAssignmentStatus(modalitiesURL, token, enablerId, assignmentStatus, writeToLog, out string error, requestTimeout, cancellationToken))
+            if (!TryUpdateAssignmentStatus(modalitiesURL, token, enablerId, assignmentStatus, writeToLog, out string error, requestTimeout, cancellationToken, enablerLabel))
             {
-                summary = $"DICOM Enabler {enablerId} and its devices not set to {assignmentStatus} in CARE: {error}";
+                summary = $"{enablerLabel} and its devices not set to {assignmentStatus} in CARE: {error}";
                 writeToLog(summary, false);
                 return false;
             }
@@ -429,10 +434,11 @@ namespace Plexus.Common.Database
                     failed.Add("the remaining device(s): out of time (Windows is shutting down)");
                     break;
                 }
-                if (TryUpdateAssignmentStatus(modalitiesURL, token, device.DeviceId, assignmentStatus, writeToLog, out error, requestTimeout, cancellationToken))
+                if (TryUpdateAssignmentStatus(modalitiesURL, token, device.DeviceId, assignmentStatus, writeToLog, out error, requestTimeout, cancellationToken,
+                                              DescribeDevice(device.DeviceName, device.AeTitle, device.DeviceId)))
                     done.Add(device.DeviceId);
                 else
-                    failed.Add($"device {device.DeviceName ?? device.DeviceId}: {error}");
+                    failed.Add($"device {DescribeDevice(device.DeviceName, device.AeTitle, device.DeviceId)}: {error}");
             }
 
             int updated = 0;
@@ -440,7 +446,7 @@ namespace Plexus.Common.Database
             if (!dal.SetCareDevicesAssignmentStatus(done, assignmentStatus, ref updated, ref errorString))
                 failed.Add("care_devices could not be updated: " + errorString);
 
-            summary = $"DICOM Enabler {enablerId} and {done.Count - 1} of {devices.Count} device(s) set to {assignmentStatus} in CARE" +
+            summary = $"{enablerLabel} and {done.Count - 1} of {devices.Count} device(s) set to {assignmentStatus} in CARE" +
                       (failed.Count == 0 ? string.Empty : "; not done for " + string.Join("; ", failed));
             writeToLog(summary, failed.Count == 0);
             return failed.Count == 0;
@@ -457,6 +463,22 @@ namespace Plexus.Common.Database
         }
 
         /// <summary>The host (and port) of a URL, for messages; the text itself when it is not a URL.</summary>
+        /// <summary>
+        /// A DICOM device for the logs: its name and the AE title it is scheduled with, e.g. "CT Room 1 (AE CT01)";
+        /// names alone can repeat, so the AE title tells them apart. Falls back to the device id without a name.
+        /// </summary>
+        public static string DescribeDevice(string deviceName, string aeTitle, string deviceId)
+        {
+            string name = string.IsNullOrWhiteSpace(deviceName) ? deviceId : deviceName.Trim();
+            return string.IsNullOrWhiteSpace(aeTitle) ? name : $"{name} (AE {aeTitle.Trim()})";
+        }
+
+        /// <summary>A DICOM Enabler for the logs, e.g. "DICOM Enabler Radiology Block".</summary>
+        public static string DescribeDicomEnabler(string enablerName, string enablerId)
+        {
+            return "DICOM Enabler " + (string.IsNullOrWhiteSpace(enablerName) ? enablerId : enablerName.Trim());
+        }
+
         private static string DescribeHost(string url)
         {
             return Uri.TryCreate(url ?? string.Empty, UriKind.Absolute, out Uri uri) ? uri.Authority : url;
@@ -484,17 +506,17 @@ namespace Plexus.Common.Database
         internal static bool TrySend(HttpMethod method, string requestUrl, string token, string jsonBody, Action<string, bool> writeToLog,
                                     out string responseBody, out string error, TimeSpan? timeout = null,
                                     System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken),
-                                    string apiName = ModalitiesApiName)
+                                    string apiName = ModalitiesApiName, string target = null)
         {
             responseBody = null;
             error = null;
             if (cancellationToken.IsCancellationRequested)
             {
-                error = $"{method} {requestUrl} not sent: cancelled";
+                error = $"{method} {ucls_CareApiError.DescribeEndpoint(requestUrl)} not sent: cancelled";
                 writeToLog(error, false);
                 return false;
             }
-            writeToLog($"{apiName}: {method} {requestUrl}", true);
+            ucls_CareApiError.Detail(writeToLog, $"{apiName}: {method} {requestUrl}");
 
             HttpResponseMessage response;
             try
@@ -513,7 +535,7 @@ namespace Plexus.Common.Database
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                error = $"{method} {requestUrl} cancelled before CARE answered";
+                error = $"{method} {ucls_CareApiError.DescribeEndpoint(requestUrl)} cancelled before CARE answered";
                 writeToLog(error, false);
                 return false;
             }
@@ -536,31 +558,25 @@ namespace Plexus.Common.Database
             }
 
             if (response.IsSuccessStatusCode)
-                return true;
-
-            error = $"{apiName} returned {(int)response.StatusCode} ({response.ReasonPhrase})";
-            string detail = DescribeErrorBody(responseBody);
-            if (!string.IsNullOrEmpty(detail))
-                error += ": " + detail;
-            writeToLog($"{error}. Response body: {ucls_CareWorklist.Truncate(responseBody, 1000)}", false);
-            // What to check, for the banners that show this error
-            int status = (int)response.StatusCode;
-            if (status == 401 || status == 403)
-                error += ". CARE rejected the service token: check that it is this facility's service-account token and is still active, then run Initializer.bat to enter it again.";
-            else if (status == 404)
-                error += apiName == ModalitiesApiName
-                    ? ". Check careBackendURL / modalitiesURL in App.config and the Facility Id."
-                    : ". Check careBackendURL in App.config.";
-            else if (status >= 500)
-                error += ". CARE server error; try again later.";
-
-            // A 401/403 is nearly always a wrong, revoked or other-facility service token
-            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
-                response.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {
-                writeToLog(
-                    $"Authorization rejected by CARE. Token in use: {ucls_CareWorklist.DescribeToken(token)}. Verify it is this facility's service-account token in CARE (compare the fingerprint Initializer.bat showed); a 403 can also mean the service account lacks permission for this API.", false);
+                string fields = ucls_CareApiError.DescribePayload(jsonBody);
+                ucls_CareApiError.ReleaseSummary(writeToLog, $"{apiName}: {method} {ucls_CareApiError.DescribeEndpoint(requestUrl)}" +
+                                                             (fields.Length == 0 ? string.Empty : $" ({fields})") +
+                                                             (string.IsNullOrWhiteSpace(target) ? string.Empty : $" for {target}") +
+                                                             $" - {(int)response.StatusCode} OK");
+                return true;
             }
+
+            ucls_CareApiError.Detail(writeToLog, $"{method} {requestUrl} response body: {ucls_CareWorklist.Truncate(responseBody, 1000)}");
+            error = ucls_CareApiError.Describe(apiName, response.StatusCode, response.ReasonPhrase, responseBody);
+
+            bool tokenRejected = response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+                                 (response.StatusCode == System.Net.HttpStatusCode.Forbidden &&
+                                  (responseBody ?? string.Empty).IndexOf("permission", StringComparison.OrdinalIgnoreCase) < 0);
+            if (tokenRejected)
+                writeToLog($"{error}. Token in use: {ucls_CareWorklist.DescribeToken(token)}.", false);
+            else
+                writeToLog(error, false);
             return false;
         }
 
@@ -618,44 +634,6 @@ namespace Plexus.Common.Database
         private static string Capitalize(string text)
         {
             return string.IsNullOrWhiteSpace(text) ? text : char.ToUpperInvariant(text.Trim()[0]) + text.Trim().Substring(1);
-        }
-
-        /// <summary>
-        /// The readable part of a CARE error body: the msg of each entry in errors (a string, or an object of
-        /// field: message, as for a 400), or detail (as for a 401). Null when the body has neither.
-        /// </summary>
-        private static string DescribeErrorBody(string responseBody)
-        {
-            try
-            {
-                JObject body = JObject.Parse(responseBody);
-                var messages = new List<string>();
-                if (body["errors"] is JArray errors)
-                {
-                    foreach (JToken entry in errors)
-                    {
-                        JToken msg = entry?["msg"];
-                        if (msg is JObject fields)
-                            messages.AddRange(fields.Properties().Select(p => $"{p.Name}: {FlattenMessage(p.Value)}"));
-                        else if (msg != null)
-                            messages.Add(FlattenMessage(msg));
-                    }
-                }
-                if (messages.Count == 0 && body["detail"] != null)
-                    messages.Add(FlattenMessage(body["detail"]));
-                return messages.Count == 0 ? null : string.Join("; ", messages);
-            }
-            catch (JsonException)
-            {
-                return null;
-            }
-        }
-
-        private static string FlattenMessage(JToken message)
-        {
-            if (message is JArray list)
-                return string.Join(" ", list.Select(FlattenMessage));
-            return message.Type == JTokenType.String ? (string)message : message.ToString(Formatting.None);
         }
     }
 

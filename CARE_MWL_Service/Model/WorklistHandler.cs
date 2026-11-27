@@ -139,7 +139,8 @@ namespace Worklist_SCP.Model
                 }
                 catch (Exception ex)
                 {
-                    log?.Invoke(LogEventLevel.Error, $"Worklist item NOT SENT: {ex.Message}. Item: {Describe(result)}");
+                    log?.Invoke(LogEventLevel.Error, $"AccessionNumber={result.AccessionNumber} not sent: {ex.Message}");
+                    log?.Invoke(LogEventLevel.Debug, $"Worklist item NOT SENT: {ex.Message}. Item: {Describe(result)}");
                     continue;
                 }
 
