@@ -24,6 +24,13 @@ namespace Plexus_MWL_Service.logs
         private static Logger logger;
         private static DateTime loggerDate;
 
+        public static void Debug(string area, string message)
+        {
+#if DEBUG
+            Write(LogEventLevel.Debug, area, message);
+#endif
+        }
+
         public static void Info(string area, string message) => Write(LogEventLevel.Information, area, message);
 
         public static void Warning(string area, string message) => Write(LogEventLevel.Warning, area, message);

@@ -32,6 +32,8 @@ namespace Worklist_SCP
         // Serializes worklist refreshes; _refreshRequested is 1 while a refresh is still owed
         private static readonly object _refreshLock = new object();
         private static int _refreshRequested;
+        private static string _lastRefreshFailure;
+        private static int _refreshIntervalSeconds;
 
 
         protected WorklistServer()
@@ -78,7 +80,8 @@ namespace Worklist_SCP
                 // worklist_refresh_interval_seconds, and the current list of items is cached in CurrentWorklistItems.
                 int refreshStartSeconds = GetSecondsSetting("worklist_refresh_start_seconds", "worklistRefreshStartSeconds", 5, 0);
                 int refreshIntervalSeconds = GetSecondsSetting("worklist_refresh_interval_seconds", "worklistRefreshIntervalSeconds", 30, 1);
-                RefreshLogger.Information($"[REFRESH] Worklist refresh starts after {refreshStartSeconds}s, then every {refreshIntervalSeconds}s");
+                _refreshIntervalSeconds = refreshIntervalSeconds;
+                RefreshLogger.Debug($"[REFRESH] Worklist refresh starts after {refreshStartSeconds}s, then every {refreshIntervalSeconds}s");
                 _itemsLoaderTimer = new System.Threading.Timer((state) => RequestRefresh(backend),
                     null, TimeSpan.FromSeconds(refreshStartSeconds), TimeSpan.FromSeconds(refreshIntervalSeconds));
 
@@ -91,7 +94,7 @@ namespace Worklist_SCP
                         _careReachableEvent = ucls_NetworkCheck.OpenCareReachableEvent();
                         _careReachableWait = ThreadPool.RegisterWaitForSingleObject(_careReachableEvent, (state, timedOut) =>
                         {
-                            RefreshLogger.Information("[REFRESH] CARE is reachable again (from the SCU service) - refreshing the worklist now");
+                            RefreshLogger.Debug("[REFRESH] CARE is reachable again (from the SCU service) - refreshing the worklist now");
                             _itemsLoaderTimer?.Change(TimeSpan.Zero, TimeSpan.FromSeconds(refreshIntervalSeconds));
                         }, null, Timeout.Infinite, false);
                     }
@@ -152,24 +155,57 @@ namespace Worklist_SCP
                 case 2:
                     // This refresh has no DICOM association; the Facility ID comes from the
                     // Configuration tab, the same one every calling AE uses.
-                    string refreshFacilityId = ResolveFacilityIdForRefresh();
+                    string refreshFacilityId = ResolveFacilityIdForRefresh(out string facilityProblem);
                     if (string.IsNullOrWhiteSpace(refreshFacilityId))
                     {
                         // Facility ID is mandatory. Skipping beats issuing an unfiltered
                         // request, which would overwrite the facility-scoped cache with items
                         // from every facility and mislead MPPS correlation.
-                        RefreshLogger.Warning("[REFRESH] Skipping periodic CARE worklist fetch - no Facility ID resolved");
+                        ReportRefreshFailure(facilityProblem);
                         break;
                     }
                     // Keeps care_worklist in line with CARE (new orders, completed ones); the
                     // cached items are then read back from care_worklist, as C-FIND does. When the
                     // refresh fails care_worklist is unchanged, so the cache is left as it is.
                     var itemsSource = CreateItemsSourceService;
-                    if (itemsSource.RefreshCareWorklistFromApi(refreshFacilityId))
+                    if (itemsSource.RefreshCareWorklistFromApi(refreshFacilityId, out string failure))
+                    {
+                        ReportRefreshRecovered();
                         WorklistServer.CurrentWorklistItems = itemsSource.GetCareWorklistItemsFromDB(refreshFacilityId);
+                    }
+                    else
+                    {
+                        ReportRefreshFailure(failure);
+                    }
                     break;
 
             }
+        }
+
+        /// <summary>
+        /// Writes why the periodic refresh failed as an error the first time and when the reason changes;
+        /// the same failure on the next refreshes is Debug detail, so an outage is not written every
+        /// few seconds.
+        /// </summary>
+        private static void ReportRefreshFailure(string reason)
+        {
+            string message = $"[REFRESH] Worklist refresh from CARE failed: {reason} - the modalities get the worklist already saved; retried every {_refreshIntervalSeconds}s";
+            if (reason == _lastRefreshFailure)
+            {
+                RefreshLogger.Debug(message);
+                return;
+            }
+            _lastRefreshFailure = reason;
+            RefreshLogger.Error(message);
+        }
+
+        /// <summary>Writes once that the periodic refresh works again after it failed.</summary>
+        private static void ReportRefreshRecovered()
+        {
+            if (_lastRefreshFailure == null)
+                return;
+            _lastRefreshFailure = null;
+            RefreshLogger.Information("[REFRESH] Worklist refresh from CARE is working again");
         }
 
         /// <summary>
@@ -195,7 +231,7 @@ namespace Worklist_SCP
         public static string GetConfigSetting(string configKey, string appSettingKey)
         {
             string fallback = appSettingKey == null ? string.Empty : ConfigurationManager.AppSettings[appSettingKey] ?? string.Empty;
-            string fallbackName = appSettingKey == null ? "the default" : "App.config " + appSettingKey;
+            string fallbackName = "the default";
             ucls_DAL dal = null;
             try
             {
@@ -242,9 +278,7 @@ namespace Worklist_SCP
             {
                 if (_refreshLogger == null)
                 {
-                    _refreshLogger = new LoggerConfiguration()
-                        .WriteTo.Sink(DailyFolderSink.For("ModalitySCP.txt"), Serilog.Events.LogEventLevel.Information)
-                        .CreateLogger();
+                    _refreshLogger = DailyFolderSink.CreateLogger("ModalitySCP.txt");
                 }
                 return _refreshLogger;
             }
@@ -252,12 +286,13 @@ namespace Worklist_SCP
 
         /// <summary>
         /// Resolves the Facility ID for the periodic refresh from the Configuration tab. Returns empty
-        /// when none is set or it cannot be read.
+        /// when none is set or it cannot be read, with problem saying why (logged by the caller).
         /// </summary>
-        private static string ResolveFacilityIdForRefresh()
+        private static string ResolveFacilityIdForRefresh(out string problem)
         {
             string errorString = string.Empty;
             string resolvedFrom = string.Empty;
+            problem = null;
             try
             {
                 if (_refreshDal == null)
@@ -268,19 +303,19 @@ namespace Worklist_SCP
                 string facilityId = _refreshDal.GetFacilityId(string.Empty, ref resolvedFrom, ref errorString);
                 if (errorString != string.Empty)
                 {
-                    RefreshLogger.Error($"[FACILITY][REFRESH] Lookup failed: {errorString}");
+                    problem = $"reading the selected facility failed: {errorString}";
                     return string.Empty;
                 }
                 if (string.IsNullOrWhiteSpace(facilityId))
                 {
-                    RefreshLogger.Warning($"[FACILITY][REFRESH] No Facility ID - {resolvedFrom}");
+                    problem = $"{resolvedFrom} - select one and save";
                     return string.Empty;
                 }
                 return facilityId;
             }
             catch (Exception ex)
             {
-                RefreshLogger.Error($"[FACILITY][REFRESH] Lookup failed with exception {ex.Message}");
+                problem = $"reading the selected facility failed with exception {ex.Message}";
                 return string.Empty;
             }
         }

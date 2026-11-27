@@ -62,6 +62,18 @@ namespace Plexus_SCU_Service
 
         private enum UploadState { New, AlreadyUploaded, DueForRetry, WaitingForRetry }
 
+        private readonly Dictionary<string, string> loggedProblems = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        private const string CycleProblemKey = "cycle";
+
+        private const string CycleExceptionKey = "cycle-exception";
+
+        private string currentFileSummary = string.Empty;
+
+        private string worklistRefreshError = null;
+
+        private readonly Dictionary<string, KeyValuePair<int, string>> uploadedThisCycle = new Dictionary<string, KeyValuePair<int, string>>(StringComparer.Ordinal);
+
         public Plexus_SCU_Service()
         {
             InitializeComponent();
@@ -78,22 +90,23 @@ namespace Plexus_SCU_Service
                 if (objDAL == null)
                 {
                     string applicationPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
-                    WriteToLog($"Application Path: {applicationPath}", true);
+                    fileLogger.Debug($"Application Path: {applicationPath}");
                     objDAL = new ucls_DAL(applicationPath);
                 }
-                WriteToLog("Store SCU Service Started Successfully !!!", true);
                 // The Configuration tab restarts the service with the changed settings as start parameters
                 foreach (string change in args)
-                    WriteToLog($"Restarted after a Configuration tab change: {change}", true);
+                    fileLogger.Debug($"Restarted after a Configuration tab change: {change}");
                 timer.Elapsed += new ElapsedEventHandler(OnElapsedTime);
                 int pollIntervalSeconds = GetIntSetting("scu_poll_interval_seconds", null, DefaultPollIntervalSeconds);
-                WriteToLog($"Scanning the SCP folder every {pollIntervalSeconds}s", true);
+                WriteToLog($"Store SCU service started, scanning the SCP folder every {pollIntervalSeconds}s" +
+                    (args.Length > 0 ? " (restarted after a Configuration tab change)" : string.Empty), true);
                 timer.Interval = pollIntervalSeconds * 1000;
                 timer.Enabled = true;
             }
             catch (Exception ex)
             {
-                WriteToLog("Store SCU failed with Exception: " + ex.Message, false);
+                WriteToLog("Store SCU service failed to start: " + ex.GetBaseException().Message +
+                           ". Check the Store SCU settings in the Configuration tab, then start it again", false);
             }
         }
 
@@ -109,20 +122,20 @@ namespace Plexus_SCU_Service
 
                 if (string.IsNullOrWhiteSpace(careBackendURL))
                 {
-                    WriteToLog("careBackendURL is not configured in App.config", false);
+                    ReportProblem(CycleProblemKey, "Not uploading: the CARE server url is not set");
                     return;
                 }
                 // The service-account token, decrypted for this cycle only (see ucls_ServiceToken)
                 if (!ucls_ServiceToken.TryGetAuthorizationHeader(objDAL, out string authorization, out string tokenError))
                 {
-                    WriteToLog("Not uploading: " + tokenError, false);
+                    ReportProblem(CycleProblemKey, "Not uploading: " + tokenError);
                     return;
                 }
 
                 string dcmPushPath = GetFolderSetting("scp_folder", "SCP");
                 if (!Directory.Exists(dcmPushPath))
                 {
-                    WriteToLog($"SCP folder not found: {dcmPushPath}", false);
+                    ReportProblem(CycleProblemKey, $"Not uploading: SCP folder not found: {dcmPushPath}");
                     return;
                 }
 
@@ -133,14 +146,15 @@ namespace Plexus_SCU_Service
                 string facilityId = objDAL.GetFacilityId(string.Empty, ref facilityResolvedFrom, ref facilityErrorString);
                 if (!string.IsNullOrEmpty(facilityErrorString))
                 {
-                    WriteToLog($"Not uploading: Facility ID lookup failed: {facilityErrorString}", false);
+                    ReportProblem(CycleProblemKey, $"Not uploading: {facilityErrorString}");
                     return;
                 }
                 if (string.IsNullOrWhiteSpace(facilityId))
                 {
-                    WriteToLog($"Not uploading: no Facility ID - {facilityResolvedFrom}", false);
+                    ReportProblem(CycleProblemKey, $"Not uploading: {facilityResolvedFrom} - select one and save");
                     return;
                 }
+                ResolveProblem(CycleProblemKey, "Uploading again: the problem that stopped the upload cycle is resolved");
 
                 string escapedFacilityId = Uri.EscapeDataString(facilityId.Trim());
                 string uploadURL = careBackendURL + uploadPath.Replace("{facility_id}", escapedFacilityId);
@@ -156,10 +170,11 @@ namespace Plexus_SCU_Service
 
                 if (dcmfiles.Length <= 0)
                 {
-                    WriteToLog($"Folder {dcmPushPath} has no files to upload.", true);
+                    fileLogger.Debug($"Folder {dcmPushPath} has no files to upload.");
                     SendPendingScanStartedStatuses(facilityId.Trim(), statusURL, authorization);
                     SendPendingScanCancelledStatuses(facilityId.Trim(), statusURL, authorization);
                     SendScanCompletedStatuses(facilityId.Trim(), statusURL, authorization, dcmPushPath, dcmfiles, new HashSet<string>());
+                    ResolveProblem(CycleExceptionKey, "Upload cycle working again");
                     return;
                 }
 
@@ -177,6 +192,7 @@ namespace Plexus_SCU_Service
                 foreach (string dcmfile in dcmfiles)
                 {
                     if (string.IsNullOrWhiteSpace(dcmfile)) continue;
+                    currentFileSummary = $"File={Path.GetFileName(dcmfile)}";
                     DicomDataset dataset = null;
                     DicomFileMetaInformation fileMeta = null;
                     try
@@ -200,20 +216,23 @@ namespace Plexus_SCU_Service
                                     unreadableFilePending = true;
                                     continue;
                                 }
-                                WriteToLog($"Could not read the Study, Series and SOP Instance UIDs from {dcmfile}: {readError}", false);
                                 // dataset is set when the file was read but a UID is missing; a file that could not be read at all names no device
-                                WriteToLog(dataset != null
+                                if (dataset != null)
+                                    currentFileSummary = DescribeFile(dcmfile, dataset, fileMeta);
+                                fileLogger.Debug(dataset != null
                                     ? $"{dcmfile} was sent by modality device: {RemoteDeviceInfo.Describe(dataset, fileMeta)}"
-                                    : $"{dcmfile} could not be read as DICOM, so the modality device that sent it is not known", false);
+                                    : $"{dcmfile} could not be read as DICOM, so the modality device that sent it is not known");
                                 FailUnreadableInstance(dcmfile, dataset, $"Could not read the Study, Series and SOP Instance UIDs: {readError}");
                                 continue;
                             }
 
+                            currentFileSummary = DescribeFile(dcmfile, dataset, fileMeta);
                             UploadState state = GetUploadState(dcmfile, instanceKey, retryDelayMinutes, out int retryCount);
                             if (state == UploadState.AlreadyUploaded)
                             {
                                 string duplicateLog = "Not uploaded: the same instance was already uploaded to CARE";
-                                WriteToLog($"{dcmfile}: {duplicateLog} - sent again by modality device: {RemoteDeviceInfo.Describe(dataset, fileMeta)}", false);
+                                fileLogger.Debug($"{dcmfile}: {duplicateLog} - sent again by modality device: {RemoteDeviceInfo.Describe(dataset, fileMeta)}");
+                                fileLogger.Warning($"[UPLOAD] {currentFileSummary} - {duplicateLog} (the device sent it again); moved to FailedSCP");
                                 MoveToFailedSCP(dcmfile, dataset.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, string.Empty),
                                     dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty), 0, duplicateLog);
                                 continue;
@@ -242,14 +261,14 @@ namespace Plexus_SCU_Service
                         // waiting for its retry time logs just the "waiting" line below
                         if (!foundLogged)
                         {
-                            WriteToLog($"Found {dcmfiles.Length} file(s) to upload from {dcmPushPath}", true);
+                            fileLogger.Debug($"Found {dcmfiles.Length} file(s) to upload from {dcmPushPath}");
                             foundLogged = true;
                         }
 
                         // Only .dcm / .dicom files are uploaded; any other file is moved straight to the failed folder
                         if (!isDicomFile)
                         {
-                            WriteToLog($"Not a .dcm or .dicom file - not uploaded: {dcmfile}", false);
+                            WriteToLog($"[UPLOAD] {currentFileSummary} - Failed: not a .dcm or .dicom file; moved to FailedSCP", false);
                             MoveToFailedSCP(dcmfile, string.Empty, string.Empty, 0, "Not a .dcm or .dicom file");
                             continue;
                         }
@@ -264,25 +283,29 @@ namespace Plexus_SCU_Service
                     }
                 }
 
+
                 if (waitingCount > 0)
                 {
+                    // Every cycle while files wait: the outage itself was logged once when it started
                     if (careOutage != null)
-                        WriteToLog($"{careOutage} - {waitingCount} file(s) waiting to be uploaded/retried once CARE is reachable", false);
+                        fileLogger.Debug($"{careOutage} - {waitingCount} file(s) waiting to be uploaded/retried once CARE is reachable");
                     else
-                        WriteToLog($"{waitingCount} file(s) waiting for their next retry time", true);
+                        fileLogger.Debug($"{waitingCount} file(s) waiting for their next retry time");
                 }
 
                 SendPendingScanStartedStatuses(facilityId.Trim(), statusURL, authorization);
                 SendPendingScanCancelledStatuses(facilityId.Trim(), statusURL, authorization);
                 if (!unreadableFilePending)
                     SendScanCompletedStatuses(facilityId.Trim(), statusURL, authorization, dcmPushPath, dcmfiles, pendingAccessionNumbers);
+                ResolveProblem(CycleExceptionKey, "Upload cycle working again");
             }
             catch (Exception ex)
             {
-                WriteToLog("Upload cycle failed with error: " + ex.Message, false);
+                ReportProblem(CycleExceptionKey, "Upload cycle failed with error: " + ex.Message);
             }
             finally
             {
+                WriteUploadedThisCycle();
                 timer.Enabled = true;
             }
         }
@@ -295,9 +318,9 @@ namespace Plexus_SCU_Service
             string accessionNumber = string.Empty;
             try
             {
-                WriteToLog($"Preparing upload for: {dcmfile}", true);
+                fileLogger.Debug($"Preparing upload for: {dcmfile}");
                 // The Store SCP saves each image with the calling modality's AE title in its file meta header
-                WriteToLog($"Image sent by modality device: {RemoteDeviceInfo.Describe(dataset, fileMeta)}", true);
+                fileLogger.Debug($"Image sent by modality device: {RemoteDeviceInfo.Describe(dataset, fileMeta)}");
 
                 studyInstanceId = dataset.GetString(DicomTag.StudyInstanceUID);
                 string patientId = dataset.GetSingleValueOrDefault(DicomTag.PatientID, string.Empty);
@@ -315,11 +338,12 @@ namespace Plexus_SCU_Service
                 // API and looked up again.
                 if (!IsAccessionNoInCareWorklist(accessionNumber))
                 {
-                    WriteToLog($"AccessionNumber={accessionNumber} not found in care_worklist - refreshing it from the CARE worklist API", true);
+                    fileLogger.Debug($"AccessionNumber={accessionNumber} not found in care_worklist - refreshing it from the CARE worklist API");
                     if (!RefreshCareWorklistOncePerCycle())
                     {
                         // The worklist could not be fetched, so it is not known whether the accession number is in it
-                        string refreshFailureLog = $"AccessionNumber={accessionNumber} is not in care_worklist and the CARE worklist API could not be reached to refresh it - not uploaded";
+                        string refreshFailureLog = $"AccessionNumber={accessionNumber} is not in care_worklist and refreshing it from the CARE worklist API failed" +
+                            (string.IsNullOrEmpty(worklistRefreshError) ? string.Empty : $" ({worklistRefreshError})");
                         if (careReachableThisCycle == false)
                             RecordOutageFailure(dcmfile, instanceKey, studyInstanceId, accessionNumber, refreshFailureLog, retryDelayMinutes, failedRetryCount);
                         else
@@ -329,7 +353,7 @@ namespace Plexus_SCU_Service
                     if (!IsAccessionNoInCareWorklist(accessionNumber))
                     {
                         FailWithoutRetry(dcmfile, instanceKey, studyInstanceId, accessionNumber,
-                            $"AccessionNumber={accessionNumber} not found in care_worklist after refreshing it from the CARE worklist API - not uploaded");
+                            $"AccessionNumber={accessionNumber} is not in the CARE worklist (no service request has it, or it is not scheduled on this DICOM Enabler's devices)");
                         return;
                     }
                 }
@@ -348,7 +372,7 @@ namespace Plexus_SCU_Service
                     request.Headers.Add("Authorization", authorization);
                     request.Content = content;
 
-                    WriteToLog($"Uploading to {uploadURL} (DICOM PatientID={patientId}, StudyUID={studyInstanceId}, AccessionNumber={accessionNumber})", true);
+                    fileLogger.Debug($"Uploading to {uploadURL} (DICOM PatientID={patientId}, StudyUID={studyInstanceId}, AccessionNumber={accessionNumber})");
 
                     HttpResponseMessage response;
                     try
@@ -359,7 +383,7 @@ namespace Plexus_SCU_Service
                     {
                         // CARE could not be reached: find out whether the local network, the internet or the CARE server is down
                         ucls_NetworkCheck.HasNetworkIssue(out string networkCheck);
-                        WriteToLog($"Could not connect to CARE - upload of {dcmfile} failed: {ex.Message}. {networkCheck}", false);
+                        fileLogger.Debug($"Could not connect to CARE - upload of {dcmfile} failed: {ex.Message}. {networkCheck}");
                         StartCareOutage(networkCheck);
                         RecordOutageFailure(dcmfile, instanceKey, studyInstanceId, accessionNumber, $"Could not connect to CARE: {ex.Message}. {networkCheck}", retryDelayMinutes, failedRetryCount);
                         return;
@@ -368,7 +392,7 @@ namespace Plexus_SCU_Service
 
                     if (response.IsSuccessStatusCode)
                     {
-                        WriteToLog($"Upload succeeded ({(int)response.StatusCode}) for {dcmfile}", true);
+                        fileLogger.Debug($"Upload succeeded ({(int)response.StatusCode}) for {dcmfile}");
                         UpdateStudyStatusDB(3, studyInstanceId, dcmfile);
                         SaveStudyUploadDB(instanceKey, studyInstanceId, accessionNumber, dcmfile, "SUCCESS", null, out _);
 
@@ -376,19 +400,26 @@ namespace Plexus_SCU_Service
                         // service_request_id it found none and uploaded the study unlinked, which cannot be
                         // archived through the API
                         string serviceRequestId = ParseServiceRequestIdFromResponse(responseBody);
-                        if (string.IsNullOrWhiteSpace(serviceRequestId))
-                            WriteToLog($"Uploaded {dcmfile} unlinked: CARE found no service request with AccessionNumber={accessionNumber} for this patient", false);
+                        if (serviceRequestId == null)
+                        {
+                        }
+                        else if (serviceRequestId.Length == 0)
+                            fileLogger.Error($"[UPLOAD] {currentFileSummary} - Uploaded to CARE but not linked to an order: CARE found no service request with AccessionNumber={accessionNumber} for this patient. " +
+                                             "Check that the patient was selected from the worklist on the modality and the Accession Number was not changed; link the study to the order in CARE");
                         else
-                            WriteToLog($"Uploaded study linked to service_request {serviceRequestId} (AccessionNumber={accessionNumber})", true);
+                            CountUploaded(serviceRequestId);
 
                         File.Delete(dcmfile);
-                        WriteToLog($"Deleted local file: {dcmfile}", true);
+                        fileLogger.Debug($"Deleted local file: {dcmfile}");
                     }
                     else
                     {
-                        WriteToLog($"Upload failed ({(int)response.StatusCode}) for {dcmfile}: {responseBody}", false);
+                        fileLogger.Debug($"Upload failed ({(int)response.StatusCode}) for {dcmfile}: {responseBody}");
 
-                        string failureLog = $"HTTP {(int)response.StatusCode} ({response.ReasonPhrase}): {responseBody}";
+                        // The CARE backend's own reason (errors[].msg / detail) for the log line; care_sync_upload
+                        // and FailedSCP\error.log keep the whole response body too, as before
+                        string failureLog = ucls_CareApiError.Describe("CARE upload API", response.StatusCode, response.ReasonPhrase, responseBody) +
+                            " | Response: " + (string.IsNullOrWhiteSpace(responseBody) ? "(empty)" : responseBody.Trim());
                         // 502, 503 and 504 come from a proxy in front of CARE while CARE itself is down
                         if (ucls_NetworkCheck.IsCareUnavailableStatus(response.StatusCode))
                         {
@@ -405,7 +436,7 @@ namespace Plexus_SCU_Service
             }
             catch (Exception ex)
             {
-                WriteToLog($"Upload exception for {dcmfile}: {ex.Message}", false);
+                fileLogger.Debug($"Upload exception for {dcmfile}: {ex.Message}");
                 RecordUploadFailure(dcmfile, instanceKey, studyInstanceId, accessionNumber, "Exception: " + ex.Message, retryDelayMinutes);
             }
         }
@@ -420,16 +451,19 @@ namespace Plexus_SCU_Service
             SaveStudyUploadDB(instanceKey, studyInstanceId, accessionNumber, dcmfile, "FAILED", failureLog, out int retryCount);
 
             if (retryCount >= maxRetries)
+            {
+                WriteToLog($"[UPLOAD] {currentFileSummary} - Failed: {LogReason(failureLog)}; moved to FailedSCP after {retryCount} retries", false);
                 MoveToFailedSCP(dcmfile, studyInstanceId, accessionNumber, retryCount, failureLog);
+            }
             else
-                WriteToLog($"Keeping {dcmfile} for retry {retryCount + 1} of {maxRetries} after {DateTime.Now.Add(GetRetryDelay(retryDelayMinutes, retryCount)):dd-MM-yyyy HH:mm:ss}", true);
+                WriteToLog($"[UPLOAD] {currentFileSummary} - Failed: {LogReason(failureLog)}; retry {retryCount + 1} of {maxRetries} after {DateTime.Now.Add(GetRetryDelay(retryDelayMinutes, retryCount)):dd-MM-yyyy HH:mm:ss}", false);
         }
 
         // Saves the failed attempt to care_sync_upload and moves the file straight to FailedSCP, for
         // failures that a retry cannot fix.
         private void FailWithoutRetry(string dcmfile, string instanceKey, string studyInstanceId, string accessionNumber, string failureLog)
         {
-            WriteToLog($"{failureLog} - moving {dcmfile} to FailedSCP without retrying", false);
+            WriteToLog($"[UPLOAD] {currentFileSummary} - Failed: {LogReason(failureLog)}; moved to FailedSCP (a retry cannot fix it)", false);
             UpdateStudyStatusDB(-10, studyInstanceId, dcmfile);
             SaveStudyUploadDB(instanceKey, studyInstanceId, accessionNumber, dcmfile, "FAILED", failureLog, out int retryCount);
             MoveToFailedSCP(dcmfile, studyInstanceId, accessionNumber, retryCount, failureLog);
@@ -471,6 +505,7 @@ namespace Plexus_SCU_Service
         // still holds back COMPLETED for its accession number once it has left the SCP folder.
         private void FailUnreadableInstance(string dcmfile, DicomDataset dataset, string failureLog)
         {
+            WriteToLog($"[UPLOAD] {currentFileSummary} - Failed: {failureLog}; moved to FailedSCP", false);
             string studyUid = string.Empty;
             string accessionNumber = string.Empty;
             int retryCount = 0;
@@ -487,7 +522,7 @@ namespace Plexus_SCU_Service
                 }
                 catch (Exception ex)
                 {
-                    WriteToLog($"Could not record the failed upload of {dcmfile} in care_sync_upload: {ex.Message}", false);
+                    WriteToLog($"[UPLOAD] {FileLabel(dcmfile)} - the failed upload could not be recorded in the database: {ex.Message}", false);
                 }
             }
             MoveToFailedSCP(dcmfile, studyUid, accessionNumber, retryCount, failureLog);
@@ -505,7 +540,7 @@ namespace Plexus_SCU_Service
             bool found = objDAL.GetUploadRetryState(instanceKey, ref status, ref retryCount, ref lastRetryTime, ref errorString);
             if (!string.IsNullOrEmpty(errorString))
             {
-                WriteToLog($"{errorString} - uploading {dcmfile} now", false);
+                WriteToLog($"[UPLOAD] {FileLabel(dcmfile)} - its earlier upload attempts could not be read from the database ({errorString}); uploading it now", false);
                 return UploadState.New;
             }
             if (!found)
@@ -561,8 +596,9 @@ namespace Plexus_SCU_Service
             string errorString = string.Empty;
             objDAL.UpdateUploadRetryTime(instanceKey, log, ref errorString);
             if (!string.IsNullOrEmpty(errorString))
-                WriteToLog($"care_sync_upload update failed for {dcmfile}: {errorString}", false);
-            WriteToLog($"{dcmfile}: {log}", false);
+                WriteToLog($"[UPLOAD] {FileLabel(dcmfile)} - saving its next retry time in the database failed: {errorString}", false);
+            // The outage was logged once when it started, and its end is logged when CARE is reachable again
+            fileLogger.Debug($"{dcmfile}: {log}");
         }
 
         // Records an upload that failed because CARE could not be reached. A new file gets its first
@@ -585,9 +621,14 @@ namespace Plexus_SCU_Service
         {
             string value = GetConfigSetting(configKey, appSettingKey);
             if (int.TryParse(value, out int parsed) && parsed > 0)
+            {
+                ResolveProblem("setting|" + configKey);
                 return parsed;
+            }
             if (!string.IsNullOrWhiteSpace(value))
-                WriteToLog($"{configKey}='{value}' is not a positive number — using {defaultValue}", false);
+                ReportProblem("setting|" + configKey, $"{configKey}='{value}' is not a positive number — using {defaultValue}");
+            else
+                ResolveProblem("setting|" + configKey);
             return defaultValue;
         }
 
@@ -599,7 +640,9 @@ namespace Plexus_SCU_Service
             string errorString = string.Empty;
             string value = objDAL.GetConfigValue(configKey, fallback, ref errorString);
             if (!string.IsNullOrEmpty(errorString))
-                WriteToLog($"{errorString} — using {(appSettingKey == null ? "the default" : "App.config " + appSettingKey)}", false);
+                ReportProblem("config|" + configKey, $"{errorString} — using the default");
+            else
+                ResolveProblem("config|" + configKey);
             return value;
         }
 
@@ -620,11 +663,11 @@ namespace Plexus_SCU_Service
             {
                 objDAL.SaveStudyUpload(instanceKey, studyInstanceId, accessionNumber, Path.GetFileName(dcmfile), status, log, ref retryCount, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
-                    WriteToLog($"care_sync_upload update failed for {dcmfile}: {errorString}", false);
+                    WriteToLog($"[UPLOAD] {FileLabel(dcmfile)} - saving the upload state ({status}) in the database failed: {errorString}", false);
             }
             catch (Exception ex)
             {
-                WriteToLog($"care_sync_upload update exception for {dcmfile}: {ex.Message}", false);
+                WriteToLog($"[UPLOAD] {FileLabel(dcmfile)} - saving the upload state ({status}) in the database failed with exception {ex.Message}", false);
             }
         }
 
@@ -648,7 +691,7 @@ namespace Plexus_SCU_Service
                 if (Path.GetFileName(destination) != fileName)
                 {
                     renamedNote = $" | Renamed to: {Path.GetFileName(destination)} (a file named {fileName} is already in {failedFolder})";
-                    WriteToLog($"{fileName} is already in {failedFolder} - saving {dcmfile} as {Path.GetFileName(destination)}", false);
+                    fileLogger.Debug($"{fileName} is already in {failedFolder} - saving {dcmfile} as {Path.GetFileName(destination)}");
                 }
                 File.Move(dcmfile, destination);
 
@@ -656,15 +699,17 @@ namespace Plexus_SCU_Service
                                $"Retries: {retryCount} | Response: {failureLog}{Environment.NewLine}";
                 File.AppendAllText(Path.Combine(failedFolder, "error.log"), entry);
 
-                WriteToLog($"Moved {dcmfile} to {destination} ({retryCount} retries)", false);
+                // The caller logged the [UPLOAD] line with the reason
+                fileLogger.Debug($"Moved {dcmfile} to {destination} ({retryCount} retries)");
             }
             catch (Exception ex)
             {
-                WriteToLog($"Moving {dcmfile} to FailedSCP failed: {ex.Message}", false);
+                WriteToLog($"[UPLOAD] {FileLabel(dcmfile)} - moving the file to the FailedSCP folder failed: {ex.Message}. Check that the folder exists and the service can write to it", false);
             }
         }
 
-        // Returns service_request_id from the upload response, or empty when CARE uploaded the study unlinked
+        // Returns service_request_id from the upload response, empty when CARE uploaded the study unlinked,
+        // or null (logged) when the response could not be read
         private string ParseServiceRequestIdFromResponse(string responseBody)
         {
             try
@@ -677,7 +722,9 @@ namespace Plexus_SCU_Service
             }
             catch (Exception ex)
             {
-                WriteToLog($"Failed to parse service_request_id from upload response: {ex.Message}", false);
+                WriteToLog($"[UPLOAD] {currentFileSummary} - Uploaded to CARE, but CARE's answer could not be read ({ex.Message}), so it is not known whether it was linked to an order. Check the study in CARE", false);
+                fileLogger.Debug("Upload response: " + responseBody);
+                return null;
             }
             return string.Empty;
         }
@@ -701,14 +748,14 @@ namespace Plexus_SCU_Service
             objDAL.GetScanState(accessionNumber, ref serviceRequestId, ref scanStatus, ref errorString);
             if (!string.IsNullOrEmpty(errorString))
             {
-                WriteToLog($"Not sending {ScanStatusStarted} for AccessionNumber={accessionNumber}: {errorString}", false);
+                WriteToLog($"[SCAN STATUS] AccessionNumber={accessionNumber} - {ScanStatusStarted} not sent: the order could not be read from the database: {errorString}", false);
                 return;
             }
             if (scanStatus == "STARTED" || scanStatus == "COMPLETED" || scanStatus == "CANCEL_PENDING" || scanStatus == "CANCELLED")
                 return;
             if (string.IsNullOrWhiteSpace(serviceRequestId))
             {
-                WriteToLog($"Not sending {ScanStatusStarted} for AccessionNumber={accessionNumber}: no service request id in care_worklist", false);
+                ReportProblem($"scan|{accessionNumber}|{ScanStatusStarted}", $"[SCAN STATUS] Not sending {ScanStatusStarted} for AccessionNumber={accessionNumber}: no service request id in care_worklist");
                 return;
             }
 
@@ -745,7 +792,7 @@ namespace Plexus_SCU_Service
                 List<ScanInProgress> scans = objDAL.GetScansWithStatus(facilityId, pendingScanStatus, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
                 {
-                    WriteToLog($"Not retrying {studyStatus}: {errorString}", false);
+                    ReportProblem("scan-pending|" + studyStatus, $"[SCAN STATUS] Not retrying {studyStatus}: {errorString}");
                     return;
                 }
 
@@ -753,7 +800,7 @@ namespace Plexus_SCU_Service
                 {
                     if (string.IsNullOrWhiteSpace(scan.ServiceRequestId))
                     {
-                        WriteToLog($"Not sending {studyStatus} for AccessionNumber={scan.AccessionNumber}: no service request id in care_worklist", false);
+                        ReportProblem($"scan|{scan.AccessionNumber}|{studyStatus}", $"[SCAN STATUS] Not sending {studyStatus} for AccessionNumber={scan.AccessionNumber}: no service request id in care_worklist");
                         continue;
                     }
 
@@ -763,7 +810,7 @@ namespace Plexus_SCU_Service
             }
             catch (Exception ex)
             {
-                WriteToLog($"Retrying {studyStatus} failed with exception {ex.Message}", false);
+                ReportProblem("scan-pending|" + studyStatus, $"[SCAN STATUS] Retrying {studyStatus} failed with exception {ex.Message}");
             }
         }
 
@@ -787,7 +834,7 @@ namespace Plexus_SCU_Service
                 List<ScanInProgress> scans = objDAL.GetScansWithStatus(facilityId, "STARTED", ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
                 {
-                    WriteToLog($"Not sending {ScanStatusCompleted}: {errorString}", false);
+                    ReportProblem("scan-pending|" + ScanStatusCompleted, $"[SCAN STATUS] Not sending {ScanStatusCompleted}: {errorString}");
                     return;
                 }
                 if (scans.Count == 0)
@@ -805,20 +852,20 @@ namespace Plexus_SCU_Service
                     if (scan.FailedUploads == 0 && scan.SuccessfulUploads == 0)
                     {
                         if (scanCompletedHeldLogged.Add(scan.AccessionNumber))
-                            WriteToLog($"Not sending {ScanStatusCompleted} for AccessionNumber={scan.AccessionNumber}: no instance uploaded yet - waiting for its images", true);
+                            fileLogger.Debug($"Not sending {ScanStatusCompleted} for AccessionNumber={scan.AccessionNumber}: no instance uploaded yet - waiting for its images");
                         continue;
                     }
                     if (scan.FailedUploads > 0)
                     {
                         if (scanCompletedHeldLogged.Add(scan.AccessionNumber))
-                            WriteToLog($"Not sending {ScanStatusCompleted} for AccessionNumber={scan.AccessionNumber}: " +
-                                       $"{scan.FailedUploads} instance(s) failed to upload, {scan.SuccessfulUploads} uploaded", false);
+                            fileLogger.Warning($"[SCAN STATUS] Not sending {ScanStatusCompleted} for AccessionNumber={scan.AccessionNumber}: " +
+                                       $"{scan.FailedUploads} instance(s) failed to upload, {scan.SuccessfulUploads} uploaded");
                         continue;
                     }
                     scanCompletedHeldLogged.Remove(scan.AccessionNumber);
                     if (string.IsNullOrWhiteSpace(scan.ServiceRequestId))
                     {
-                        WriteToLog($"Not sending {ScanStatusCompleted} for AccessionNumber={scan.AccessionNumber}: no service request id in care_worklist", false);
+                        ReportProblem($"scan|{scan.AccessionNumber}|{ScanStatusCompleted}", $"[SCAN STATUS] Not sending {ScanStatusCompleted} for AccessionNumber={scan.AccessionNumber}: no service request id in care_worklist");
                         continue;
                     }
 
@@ -837,7 +884,7 @@ namespace Plexus_SCU_Service
             }
             catch (Exception ex)
             {
-                WriteToLog($"Sending {ScanStatusCompleted} failed with exception {ex.Message}", false);
+                ReportProblem("scan-pending|" + ScanStatusCompleted, $"[SCAN STATUS] Sending {ScanStatusCompleted} failed with exception {ex.Message}");
             }
         }
 
@@ -863,7 +910,7 @@ namespace Plexus_SCU_Service
                 }
                 catch (Exception ex)
                 {
-                    WriteToLog($"Not sending {ScanStatusCompleted} this cycle: {dcmfile} arrived during the cycle and cannot be read yet ({ex.Message})", true);
+                    fileLogger.Debug($"Not sending {ScanStatusCompleted} this cycle: {dcmfile} arrived during the cycle and cannot be read yet ({ex.Message})");
                     return false;
                 }
             }
@@ -873,7 +920,19 @@ namespace Plexus_SCU_Service
         // PATCHes study_status for a service request to the CARE scan status API. Returns whether CARE accepted it.
         private bool SendScanStatus(string statusURL, string authorization, string serviceRequestId, string accessionNumber, string studyStatus)
         {
-            return ucls_CareScanStatus.Send(statusURL, authorization, serviceRequestId, accessionNumber, studyStatus, WriteToLog);
+            // A pending status is retried every cycle: CARE refusing it is logged when it starts or its reason changes
+            string problemKey = $"scan|{accessionNumber}|{studyStatus}";
+            bool sent = ucls_CareScanStatus.Send(statusURL, authorization, serviceRequestId, accessionNumber, studyStatus,
+                (message, isInfo) =>
+                {
+                    if (isInfo)
+                        WriteToLog("[SCAN STATUS] " + message, true);
+                    else
+                        ReportProblem(problemKey, "[SCAN STATUS] " + message);
+                });
+            if (sent)
+                loggedProblems.Remove(problemKey);
+            return sent;
         }
 
         private void SaveScanStatus(string accessionNumber, string scanStatus)
@@ -881,7 +940,7 @@ namespace Plexus_SCU_Service
             string errorString = string.Empty;
             objDAL.SetScanStatus(accessionNumber, scanStatus, ref errorString);
             if (!string.IsNullOrEmpty(errorString))
-                WriteToLog($"care_worklist scan_status update failed for AccessionNumber={accessionNumber}: {errorString}", false);
+                WriteToLog($"[SCAN STATUS] AccessionNumber={accessionNumber} - saving the scan status ({scanStatus}) in the database failed: {errorString}", false);
         }
 
         // Refreshes care_worklist from the CARE worklist API at most once per upload cycle. Returns
@@ -909,7 +968,7 @@ namespace Plexus_SCU_Service
             string errorString = string.Empty;
             bool found = objDAL.IsAccessionNoInCareWorklist(accessionNumber, ref errorString);
             if (!string.IsNullOrEmpty(errorString))
-                WriteToLog($"care_worklist lookup failed for AccessionNumber={accessionNumber}: {errorString}", false);
+                WriteToLog($"[UPLOAD] AccessionNumber={accessionNumber} - looking up the order in the database failed: {errorString}", false);
             return found;
         }
 
@@ -919,6 +978,7 @@ namespace Plexus_SCU_Service
         // rows missing from the response COMPLETED. Returns false when care_worklist was not refreshed.
         private bool RefreshCareWorklist()
         {
+            worklistRefreshError = null;
             string errorString = string.Empty;
             string resolvedFrom = string.Empty;
             try
@@ -926,18 +986,18 @@ namespace Plexus_SCU_Service
                 string facilityId = objDAL.GetFacilityId(string.Empty, ref resolvedFrom, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
                 {
-                    WriteToLog($"Not refreshing care_worklist: Facility ID lookup failed: {errorString}", false);
+                    worklistRefreshError = errorString;
                     return false;
                 }
                 if (string.IsNullOrWhiteSpace(facilityId))
                 {
-                    WriteToLog($"Not refreshing care_worklist: no Facility ID - {resolvedFrom}", false);
+                    worklistRefreshError = $"{resolvedFrom} - select one and save";
                     return false;
                 }
 
                 if (!ucls_ServiceToken.TryGetAuthorizationHeader(objDAL, out string authorization, out string tokenError))
                 {
-                    WriteToLog("Not refreshing care_worklist: " + tokenError, false);
+                    worklistRefreshError = tokenError;
                     return false;
                 }
 
@@ -949,13 +1009,18 @@ namespace Plexus_SCU_Service
                     facilityId,
                     GetConfigSetting("dicom_enabler_id", null).Trim(),
                     ucls_CareWorklist.IsAllDevices(GetConfigSetting(ucls_CareWorklist.AllDevicesConfigKey, null)),
-                    // The worklist API's progress lines belong to the MWL log; keep only its errors here,
-                    // since they explain why an upload is kept for retry
-                    (message, isInfo) => { if (!isInfo) WriteToLog(message, false); });
+                    // The worklist API's progress lines belong to the MWL log. Its first error is the reason given
+                    // in the [UPLOAD] line of the file that needed the refresh; the rest is detail
+                    (message, isInfo) =>
+                    {
+                        if (!isInfo && worklistRefreshError == null)
+                            worklistRefreshError = message;
+                        fileLogger.Debug("[WORKLIST] " + message);
+                    });
             }
             catch (Exception ex)
             {
-                WriteToLog($"Refreshing care_worklist failed with exception {ex.Message}", false);
+                worklistRefreshError = $"exception {ex.Message}";
                 return false;
             }
         }
@@ -967,25 +1032,104 @@ namespace Plexus_SCU_Service
             {
                 objDAL.UpdateStudyStatus(studyInstanceId, studyStatus, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
-                    WriteToLog($"DB update failed for {dcmfile}: {errorString}", false);
+                    WriteToLog($"[UPLOAD] {FileLabel(dcmfile)} - saving the study status in the database failed: {errorString}", false);
                 else
-                    WriteToLog($"DB update succeeded for {dcmfile}", true);
+                    fileLogger.Debug($"DB update succeeded for {dcmfile}");
             }
             catch (Exception ex)
             {
-                WriteToLog($"DB update exception for {dcmfile}: {ex.Message}", false);
+                WriteToLog($"[UPLOAD] {FileLabel(dcmfile)} - saving the study status in the database failed with exception {ex.Message}", false);
             }
         }
 
         private Serilog.ILogger GetFileLogger()
         {
-            return new LoggerConfiguration()
-                .WriteTo.Sink(DailyFolderSink.For("StoreSCU.txt"), Serilog.Events.LogEventLevel.Information)
-                .CreateLogger();
+            return DailyFolderSink.CreateLogger("StoreSCU.txt");
         }
 
         protected override void OnStop()
         {
+            fileLogger?.Information("Store SCU service stopped");
+        }
+
+        /// <summary>
+        /// The device, order and file for a log line: the current file's summary when it is that file, otherwise
+        /// its name alone (never the full path).
+        /// </summary>
+        private string FileLabel(string dcmfile)
+        {
+            string name = Path.GetFileName(dcmfile ?? string.Empty);
+            return currentFileSummary.EndsWith("File=" + name, StringComparison.Ordinal) ? currentFileSummary : "File=" + name;
+        }
+
+        /// <summary>Counts the current file as uploaded, for the study's one line at the end of the cycle.</summary>
+        private void CountUploaded(string serviceRequestId)
+        {
+            fileLogger.Debug($"[UPLOAD] {currentFileSummary} - Uploaded to CARE (service request {serviceRequestId})");
+            // The summary without its File= part identifies the device and order
+            int fileIndex = currentFileSummary.LastIndexOf(" File=", StringComparison.Ordinal);
+            string study = fileIndex > 0 ? currentFileSummary.Substring(0, fileIndex) : currentFileSummary;
+            uploadedThisCycle.TryGetValue(study, out KeyValuePair<int, string> uploaded);
+            uploadedThisCycle[study] = new KeyValuePair<int, string>(uploaded.Key + 1, serviceRequestId);
+        }
+
+        /// <summary>One line per device and order for the files uploaded this cycle.</summary>
+        private void WriteUploadedThisCycle()
+        {
+            foreach (var study in uploadedThisCycle)
+                WriteToLog($"[UPLOAD] {study.Key} - Uploaded {study.Value.Key} image(s) to CARE, linked to the order", true);
+            uploadedThisCycle.Clear();
+        }
+
+        /// <summary>
+        /// "AE=CT01 Modality=CT AccessionNumber=ACC1 File=x.dcm": the device that sent the file (the AE title
+        /// the Store SCP saved in its file meta header) and the order it is for.
+        /// </summary>
+        private static string DescribeFile(string dcmfile, DicomDataset dataset, DicomFileMetaInformation fileMeta)
+        {
+            string aeTitle = null;
+            try
+            {
+                aeTitle = fileMeta?.SourceApplicationEntityTitle;
+            }
+            catch
+            {
+            }
+            string modality = dataset?.GetSingleValueOrDefault(DicomTag.Modality, string.Empty);
+            string accessionNumber = dataset?.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty);
+            return $"AE={(string.IsNullOrWhiteSpace(aeTitle) ? "unknown" : aeTitle.Trim())} " +
+                   $"Modality={(string.IsNullOrWhiteSpace(modality) ? "unknown" : modality.Trim())} " +
+                   $"AccessionNumber={(string.IsNullOrWhiteSpace(accessionNumber) ? "(none)" : accessionNumber.Trim())} " +
+                   $"File={Path.GetFileName(dcmfile)}";
+        }
+
+        // The reason for the log line: a failure log saved with the CARE response body is shown without it
+        private static string LogReason(string failureLog)
+        {
+            int body = failureLog?.IndexOf(" | Response: ", StringComparison.Ordinal) ?? -1;
+            return body < 0 ? failureLog : failureLog.Substring(0, body);
+        }
+
+        /// <summary>
+        /// Logs a problem that comes back every cycle as an Error when it starts or its message changes;
+        /// while it stays the same it is written as Debug only.
+        /// </summary>
+        private void ReportProblem(string key, string message)
+        {
+            if (loggedProblems.TryGetValue(key, out string previous) && previous == message)
+            {
+                fileLogger.Debug(message);
+                return;
+            }
+            loggedProblems[key] = message;
+            WriteToLog(message, false);
+        }
+
+        /// <summary>Ends a problem ReportProblem logged, writing resolvedMessage when it was logged.</summary>
+        private void ResolveProblem(string key, string resolvedMessage = null)
+        {
+            if (loggedProblems.Remove(key) && resolvedMessage != null)
+                WriteToLog(resolvedMessage, true);
         }
 
         public void WriteToLog(string logString, bool bInfo)

@@ -44,16 +44,24 @@ namespace Plexus.Common.Database
                 string payload = JsonConvert.SerializeObject(new { service_request_id = serviceRequestId, study_status = studyStatus });
                 var request = new HttpRequestMessage(new HttpMethod("PATCH"), statusURL);
                 request.Headers.Add("Authorization", token);
+                ucls_CareApiError.Detail(writeToLog, $"Scan status PATCH {statusURL}: {payload}");
                 request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
                 HttpResponseMessage response = httpClient.SendAsync(request).GetAwaiter().GetResult();
                 string responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 if (response.IsSuccessStatusCode)
                 {
-                    writeToLog($"Scan status sent to CARE: {studyStatus} for service_request {serviceRequestId} (AccessionNumber={accessionNumber})", true);
+#if DEBUG
+                    writeToLog($"Scan status sent to CARE: {studyStatus} for AccessionNumber={accessionNumber} (service_request {serviceRequestId})", true);
+#else
+                    writeToLog($"PATCH {ucls_CareApiError.DescribeEndpoint(statusURL)} ({ucls_CareApiError.DescribePayload(payload)}) " +
+                               $"for AccessionNumber={accessionNumber} - {(int)response.StatusCode} OK", true);
+#endif
                     return true;
                 }
-                writeToLog($"Scan status failed: {studyStatus} - {(int)response.StatusCode} ({response.ReasonPhrase}) for service_request {serviceRequestId} (AccessionNumber={accessionNumber}): {responseBody}", false);
+                ucls_CareApiError.Detail(writeToLog, $"Scan status API response body: {ucls_CareWorklist.Truncate(responseBody, 1000)}");
+                writeToLog($"Scan status {studyStatus} for AccessionNumber={accessionNumber} (service_request {serviceRequestId}) failed: " +
+                    ucls_CareApiError.Describe("CARE scan status API", response.StatusCode, response.ReasonPhrase, responseBody), false);
             }
             catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
             {

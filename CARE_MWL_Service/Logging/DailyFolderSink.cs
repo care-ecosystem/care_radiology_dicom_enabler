@@ -33,6 +33,21 @@ namespace Plexus_MWL_Service.logs
         private DateTime _currentDate;
         private Logger _fileLogger;
 
+
+#if DEBUG
+        public const LogEventLevel MinimumLevel = LogEventLevel.Debug;
+#else
+        public const LogEventLevel MinimumLevel = LogEventLevel.Information;
+#endif
+
+        public static Logger CreateLogger(string fileName)
+        {
+            return new LoggerConfiguration()
+                .MinimumLevel.Is(MinimumLevel)
+                .WriteTo.Sink(For(fileName))
+                .CreateLogger();
+        }
+
         /// <summary>
         /// The sink for fileName. Serilog does not allow lifecycle hooks on a shared file, so loggers that
         /// write to the same file must share one sink instead of each opening the file.

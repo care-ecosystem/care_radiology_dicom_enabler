@@ -160,11 +160,27 @@ namespace Plexus.Common.Database
             }
             catch(Exception ex)
             {
-                errorString = ex.Message;
+                errorString = ex.Message + DatabaseHint(ex);
                 return false;
             }
             return true;
 
+        }
+
+        /// <summary>What to check when MySQL cannot be opened, or empty when there is no usual cause.</summary>
+        private static string DatabaseHint(Exception ex)
+        {
+            switch ((ex as MySqlException)?.Number ?? -1)
+            {
+                case 1042: // unable to connect to any of the specified MySQL hosts
+                    return ". Check that the MySQL service is running on this machine and the server and port (connectString)";
+                case 1045: // access denied
+                    return ". MySQL refused the user or password (connectString); run Emulator/Initializer.bat as administrator to set it again";
+                case 1049: // unknown database
+                    return ". The database does not exist; run Emulator/Initializer.bat as administrator to create it";
+                default:
+                    return string.Empty;
+            }
         }
 
 
@@ -527,20 +543,20 @@ namespace Plexus.Common.Database
             {
                 facilityId = GetConfigValue("facility_id", string.Empty, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
-                    errorString = $"Getting Facility ID for AETitle {callingAET} failed: " + errorString;
+                    errorString = "Reading the selected facility failed: " + errorString;
                 else if (!string.IsNullOrWhiteSpace(facilityId))
-                    resolvedFrom = "facility_id in the Configuration tab";
+                    resolvedFrom = "the facility selected in the Configuration tab";
                 else
                 {
                     facilityId = (ConfigurationManager.AppSettings["careFacilityId"] ?? string.Empty).Trim();
                     resolvedFrom = string.IsNullOrWhiteSpace(facilityId)
-                        ? "no Facility ID entered in the Configuration tab or set in App.config careFacilityId"
-                        : "App.config careFacilityId (Configuration tab facility_id is blank)";
+                        ? "no facility is selected in the Configuration tab"
+                        : "the service's built-in facility (no facility is selected in the Configuration tab)";
                 }
             }
             catch (Exception ex)
             {
-                errorString = $"Getting Facility ID for AETitle {callingAET} failed with expection" + ex.Message;
+                errorString = "Reading the selected facility failed with exception " + ex.Message;
                 facilityId = string.Empty;
             }
             return facilityId;
@@ -938,6 +954,39 @@ namespace Plexus.Common.Database
                 closeDBConnection(ref errorString);
                 errorString = "Saving to care_devices failed with exception " + ex.Message;
                 return false;
+            }
+        }
+
+
+        /// <summary>
+        /// The modality (CT, MR, DX...) of the DICOM device in care_devices with this AE title, for the logs
+        /// of a request that carries none, such as a C-ECHO. Empty when no device has that AE title or its
+        /// modality is not set; errorString is set when care_devices cannot be read.
+        /// </summary>
+        public string GetDeviceModality(string aeTitle, ref string errorString)
+        {
+            if (string.IsNullOrWhiteSpace(aeTitle))
+                return string.Empty;
+            try
+            {
+                if (!openDBConnection(ref errorString))
+                    return string.Empty;
+                object modality;
+                using (MySqlCommand cmd = new MySqlCommand(
+                    "SELECT modality FROM care_devices WHERE ae_title = @ae_title AND modality IS NOT NULL AND modality <> '' " +
+                    "ORDER BY updated_time DESC LIMIT 1", conConnection))
+                {
+                    cmd.Parameters.AddWithValue("@ae_title", aeTitle.Trim());
+                    modality = cmd.ExecuteScalar();
+                }
+                closeDBConnection(ref errorString);
+                return modality == null || modality == DBNull.Value ? string.Empty : Convert.ToString(modality).Trim();
+            }
+            catch (Exception ex)
+            {
+                closeDBConnection(ref errorString);
+                errorString = "Reading the device modality from care_devices failed with exception " + ex.Message;
+                return string.Empty;
             }
         }
 

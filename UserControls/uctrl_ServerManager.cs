@@ -465,12 +465,12 @@ namespace Plexus_DICOM_Enabler.UserControls
                 string facilityId = objDAL.GetConfigValue("facility_id", string.Empty, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
                 {
-                    MessageBox.Show("Error reading the Facility Id : " + errorString);
+                    MessageBox.Show("Reading the selected facility failed: " + errorString);
                     return false;
                 }
                 if (string.IsNullOrWhiteSpace(facilityId))
                 {
-                    MessageBox.Show("Please enter the Facility Id in the Configuration tab and save it before starting the services.");
+                    MessageBox.Show("Please select the facility in the Configuration tab and save it before starting the services.");
                     return false;
                 }
 

@@ -19,9 +19,7 @@ namespace Plexus_MWL_Service.logs
 
         private class FoDicomLogger : Logger
         {
-            private readonly Serilog.ILogger _fileLogger = new LoggerConfiguration()
-                .WriteTo.Sink(DailyFolderSink.For("ModalitySCP.txt"), Serilog.Events.LogEventLevel.Information)
-                .CreateLogger();
+            private readonly Serilog.ILogger _fileLogger = DailyFolderSink.CreateLogger("ModalitySCP.txt");
 
             public override void Log(LogLevel level, string msg, params object[] args)
             {

@@ -22,6 +22,7 @@ namespace Plexus_Auth_Service
     public partial class PlexusAuthService : ServiceBase
     {
         public static Serilog.ILogger fileLogger = null;
+        private string lastAuthFailure;
         Timer timer = new Timer(TimeSpan.FromHours(24).TotalMilliseconds);
         public PlexusAuthService()
         {
@@ -42,14 +43,14 @@ namespace Plexus_Auth_Service
                 {
                     fileLogger = GetFileLogger();
                 }
-                WriteToLog("Auth Service Started Successfully !!!", true);
+                WriteToLog("Auth service started", true);
                 timer.Elapsed += new ElapsedEventHandler(OnElapsedTime);
                 timer.Interval = 5000; //
                 timer.Enabled = true;
             }
             catch(Exception ex)
             {
-                WriteToLog("Starting Service failed with Exception :" + ex.Message, false);
+                WriteToLog("Auth service failed to start: " + ex.GetBaseException().Message + ". Check the user details and restart the service", false);
             }
         }
 
@@ -73,10 +74,17 @@ namespace Plexus_Auth_Service
                 Serilog.Debugging.SelfLog.WriteLine("Creating the logs folder for {0} failed: {1}", logFilePath, ex);
             }
 
-            return new LoggerConfiguration().
+            // A Debug build writes every detail (Debug lines); a Release build Information and above only
+#if DEBUG
+            const Serilog.Events.LogEventLevel minimumLevel = Serilog.Events.LogEventLevel.Debug;
+#else
+            const Serilog.Events.LogEventLevel minimumLevel = Serilog.Events.LogEventLevel.Information;
+#endif
+            return new LoggerConfiguration()
+                .MinimumLevel.Is(minimumLevel).
                 WriteTo.File(logFilePath,
                 shared: true,
-                restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information,
+                restrictedToMinimumLevel: minimumLevel,
                 //rollingInterval: RollingInterval.Day,
                 rollOnFileSizeLimit: false,
                 fileSizeLimitBytes: 10240000)
@@ -86,31 +94,42 @@ namespace Plexus_Auth_Service
         private void OnElapsedTime(object source, ElapsedEventArgs e)
         {
             //WriteToFile("Service is recall at " + DateTime.Now);
-            WriteToLog("Try Authenticatin User", true);
+            WriteDebug("Try Authenticatin User");
             string errorString = string.Empty;
             if (CheckValidUser(ref errorString))
             {
-                WriteToLog("Authentication Successfull !!",true);
+                // Every check would repeat it: a Release build logs only a recovery after a failure
+                if (lastAuthFailure != null)
+                    WriteToLog("Authentication successful again (it failed before: " + lastAuthFailure + ")", true);
+                else
+                    WriteDebug("Authentication Successfull !!");
+                lastAuthFailure = null;
             }
             else
             {
                 
                 if (errorString != string.Empty)
                 {
-                    WriteToLog("Authentication failed with errorMessage : " + errorString,false);
+                    // One line: the failure and what is done about it
+                    if (lastAuthFailure != errorString)
+                        WriteToLog("Authentication failed: " + errorString +
+                                   " - Store SCP, MWL SCP and Store SCU services stopped. Check the network, the server url and the userName / password, then start the services again", false);
+                    lastAuthFailure = errorString;
 
                     // Stop Pellucid Store SCP Service
-                    WriteToLog("Stopping Plexus Store SCP Service", true);
+                    WriteDebug("Stopping Plexus Store SCP Service");
                     StopService("Plexus Store SCP Service");
-                    WriteToLog("Stopping Plexus Modality SCP Service", true);
+                    WriteDebug("Stopping Plexus Modality SCP Service");
                     StopService("Plexus MWL SCP Service");
-                    WriteToLog("Stopping StoreSCU Service", true);
+                    WriteDebug("Stopping StoreSCU Service");
                     StopService("Plexus StoreSCU Service");
 
                     
                     return;
                 }
-                WriteToLog("Invalid Username or Password.", false);
+                if (lastAuthFailure != "Invalid Username or Password.")
+                    WriteToLog("Authentication failed: invalid username or password. Check the username and password", false);
+                lastAuthFailure = "Invalid Username or Password.";
             }
         }
 
@@ -126,7 +145,7 @@ namespace Plexus_Auth_Service
             }
             catch(Exception ex)
             {
-                WriteToLog(@"Error Stropping Service "+serviceName+" with errorMessage : "+ ex.Message , false);
+                WriteToLog($"Stopping {serviceName} failed: {ex.Message}. Stop it in Windows Services", false);
             }
             
         }
@@ -143,7 +162,7 @@ namespace Plexus_Auth_Service
 
             GetUserDetailsFromConfig(ref userName, ref password,ref deviceName,ref authURL);
 
-            WriteToLog($"Username {userName} and password {password} ",true);
+            WriteDebug($"Authenticating username {userName} for device {deviceName}");
 
             try
             {
@@ -253,15 +272,21 @@ namespace Plexus_Auth_Service
             }
             catch(Exception ex)
             {
-                WriteToLog("Error loading user details from configuration with error Message :  !!" + ex.Message,false);
+                WriteToLog("Reading the user details failed: " + ex.Message + ". Check that the username, password, device name and server url are set", false);
             }
         }
 
         protected override void OnStop()
         {
-            WriteToLog("Auth Service Stopped Successfully !!!",true);
+            WriteToLog("Auth service stopped", true);
         }
 
+
+        /// <summary>Detail written to the file by a Debug build only, never to the event log.</summary>
+        private void WriteDebug(string logString)
+        {
+            fileLogger?.Debug(logString);
+        }
 
         /// <summary>
         /// Writelog in File and Event Log based on the configuration

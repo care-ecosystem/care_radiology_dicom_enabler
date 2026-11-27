@@ -19,6 +19,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Linq;
+using Serilog.Events;
 
 namespace Worklist_SCP.Model
 {
@@ -201,7 +202,7 @@ namespace Worklist_SCP.Model
                 List<CareWorklistRecord> records = objDal.GetScheduledCareWorklist(facilityId, modality, ref errorString);
                 if (errorString != string.Empty)
                 {
-                    objReadWriteLog.WriteToLog(errorString, false);
+                    objReadWriteLog.WriteThrottled(LogEventLevel.Error, "Reading the worklist from care_worklist failed: " + errorString);
                     return objWorkListItems;
                 }
 
@@ -215,20 +216,20 @@ namespace Worklist_SCP.Model
                     // An AE title is at most 16 characters: a longer one is never sent as Scheduled Station AE Title
                     var tooLong = (record.DeviceAeTitles ?? new List<string>()).Select(aet => aet.Trim()).Where(aet => aet.Length > 16).Distinct().ToList();
                     if (tooLong.Count > 0)
-                        objReadWriteLog.WriteToLog($"care_worklist: AccessionNumber={record.AccessionNumber} (service request {record.ServiceRequestId}): device AE title(s) {string.Join(", ", tooLong.Select(aet => $"\"{aet}\" ({aet.Length} characters)"))} " +
-                            "not sent as Scheduled Station AE Title (0040,0001), which allows 16 characters. Shorten the ae_title of the DICOM device in CARE.", false);
+                        objReadWriteLog.WriteThrottled(LogEventLevel.Warning, $"care_worklist: AccessionNumber={record.AccessionNumber} (service request {record.ServiceRequestId}): device AE title(s) {string.Join(", ", tooLong.Select(aet => $"\"{aet}\" ({aet.Length} characters)"))} " +
+                            "not sent as Scheduled Station AE Title (0040,0001), which allows 16 characters. Shorten the ae_title of the DICOM device in CARE.");
                 }
 
                 // Without a device AE title the item matches no C-FIND that asks for a Scheduled Station AE Title
                 var withoutAeTitle = objWorkListItems.Where(item => item.ScheduledAETs.Count == 0).Select(item => item.AccessionNumber).ToList();
                 if (withoutAeTitle.Count > 0)
-                    objReadWriteLog.WriteToLog($"care_worklist: {withoutAeTitle.Count} item(s) are scheduled on no DICOM device with an AE title in CARE, so they have no Scheduled Station AE Title: {string.Join(", ", withoutAeTitle)}. Set the ae_title of the DICOM devices in CARE.", false);
+                    objReadWriteLog.WriteThrottled(LogEventLevel.Warning, $"care_worklist: {withoutAeTitle.Count} item(s) are scheduled on no DICOM device with an AE title in CARE, so they have no Scheduled Station AE Title: {string.Join(", ", withoutAeTitle)}. Set the ae_title of the DICOM devices in CARE.");
 
-                objReadWriteLog.WriteToLog($"care_worklist: {objWorkListItems.Count} scheduled item(s) for Facility ID {facilityId}, Modality {(string.IsNullOrWhiteSpace(modality) ? "(all)" : modality)}", true);
+                objReadWriteLog.Debug($"care_worklist: {objWorkListItems.Count} scheduled item(s) for Facility ID {facilityId}, Modality {(string.IsNullOrWhiteSpace(modality) ? "(all)" : modality)}");
             }
             catch (Exception ex)
             {
-                objReadWriteLog.WriteToLog("Reading the worklist from care_worklist failed with exception " + ex.Message, false);
+                objReadWriteLog.WriteThrottled(LogEventLevel.Error, "Reading the worklist from care_worklist failed with exception " + ex.Message);
             }
             finally
             {
@@ -242,17 +243,34 @@ namespace Worklist_SCP.Model
         /// SyncCareWorklist. Every modality is fetched: the modality a device queries with is matched
         /// when it sends C-FIND (GetCareWorklistItemsFromDB). Returns false
         /// when no Facility ID is given, the call fails, CARE does not report success, or saving
-        /// fails; the reason is logged.
+        /// fails; failure is then the reason, for the caller to log (in its C-FIND summary line, or once
+        /// for the periodic refresh). The CARE API's own lines are Debug detail, except an order CARE has
+        /// that cannot be added to the worklist, which is a warning (at most once an hour).
         /// </summary>
-        public bool RefreshCareWorklistFromApi(string facilityId)
+        public bool RefreshCareWorklistFromApi(string facilityId, out string failure)
         {
             ucls_ReadWriteLog objReadWriteLog = new ucls_ReadWriteLog();
+            failure = null;
 
             if (string.IsNullOrWhiteSpace(facilityId))
             {
-                objReadWriteLog.WriteToLog("Not calling the CARE worklist API: no Facility ID resolved. Enter a Facility ID in the Configuration tab.", false);
+                failure = "no facility is selected in the Configuration tab";
                 return false;
             }
+
+            string lastError = null;
+            Action<string, bool> writeToLog = (message, isInfo) =>
+            {
+                if (isInfo)
+                {
+                    objReadWriteLog.WriteToLog("[REFRESH] " + message, true);
+                }
+                else
+                {
+                    lastError = message;
+                    objReadWriteLog.Debug("[REFRESH] " + message);
+                }
+            };
 
             // The DICOM Enabler selected in the Configuration tab: CARE returns only its worklist (the
             // requests scheduled in the rooms of its DICOM devices). Without one nothing is fetched,
@@ -266,10 +284,10 @@ namespace Worklist_SCP.Model
                 objDal = new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
                 if (!ucls_ServiceToken.TryGetAuthorizationHeader(objDal, out string authorization, out string tokenError))
                 {
-                    objReadWriteLog.WriteToLog("Not calling the CARE worklist API: " + tokenError, false);
+                    failure = tokenError;
                     return false;
                 }
-                return ucls_CareWorklist.RefreshCareWorklist(
+                bool ok = ucls_CareWorklist.RefreshCareWorklist(
                     objDal,
                     ConfigurationManager.AppSettings["careBaseUrl"] ?? string.Empty,
                     authorization,
@@ -277,11 +295,16 @@ namespace Worklist_SCP.Model
                     facilityId,
                     dicomEnablerId,
                     allDevices,
-                    objReadWriteLog.WriteToLog);
+                    writeToLog);
+                if (!ok)
+                    failure = lastError ?? "refreshing care_worklist from the CARE worklist API failed";
+                else if (lastError != null)
+                    objReadWriteLog.WriteThrottled(LogEventLevel.Error, "[REFRESH] " + lastError);
+                return ok;
             }
             catch (Exception ex)
             {
-                objReadWriteLog.WriteToLog("Refreshing care_worklist from the CARE worklist API failed with exception " + ex.Message, false);
+                failure = "refreshing care_worklist from the CARE worklist API failed with exception " + ex.Message;
                 return false;
             }
             finally
@@ -391,7 +414,7 @@ namespace Worklist_SCP.Model
 
                 JArray patientInfoArray = JArray.Parse(patientInfoResponseBody);
 
-                objReadWriteLog.WriteToLog("Retrieval for data Succcessfull ", true);
+                objReadWriteLog.Debug("Retrieval for data Succcessfull ");
 
                 if (patientInfoArray != null && patientInfoArray.Count > 0 && errorString == string.Empty)
                 {
@@ -453,7 +476,7 @@ namespace Worklist_SCP.Model
                         }
 
                     }
-                    objReadWriteLog.WriteToLog("Data Fetched from Database and populated to Dataset : ", true);
+                    objReadWriteLog.Debug("Data Fetched from Database and populated to Dataset : ");
 
                 }
                 else
@@ -464,7 +487,7 @@ namespace Worklist_SCP.Model
                     }
                     else
                     {
-                        objReadWriteLog.WriteToLog("No Record returned from Database ", true);
+                        objReadWriteLog.Debug("No Record returned from Database ");
                     }
                 }
             }
@@ -601,7 +624,7 @@ namespace Worklist_SCP.Model
             List<CareDeviceRecord> devices = objDal.GetCareDevices(dicomEnablerId, ref errorString);
             if (errorString != string.Empty)
             {
-                objReadWriteLog.WriteToLog("Study UID roots not read from care_devices, so no Study Instance UID is sent and the devices generate their own: " + errorString, false);
+                objReadWriteLog.WriteThrottled(LogEventLevel.Error, "Study UID roots not read from care_devices, so no Study Instance UID is sent and the devices generate their own: " + errorString);
                 return roots;
             }
 
@@ -614,13 +637,13 @@ namespace Worklist_SCP.Model
                     continue;
                 if (root.Length > MaxStudyUidRootLength || !StudyUidRootPattern.IsMatch(root))
                 {
-                    objReadWriteLog.WriteToLog($"care_devices: Study UID root \"{root}\" of device {device.DeviceName} (AE {aet}) is not a UID root of at most {MaxStudyUidRootLength} characters " +
-                        "(numbers without leading zeros, separated by dots), so no Study Instance UID is sent and the device generates its own. Correct its study_uid_root in CARE and Sync.", false);
+                    objReadWriteLog.WriteThrottled(LogEventLevel.Warning, $"care_devices: Study UID root \"{root}\" of device {device.DeviceName} (AE {aet}) is not a UID root of at most {MaxStudyUidRootLength} characters " +
+                        "(numbers without leading zeros, separated by dots), so no Study Instance UID is sent and the device generates its own. Correct its study_uid_root in CARE and Sync.");
                     continue;
                 }
                 if (roots.TryGetValue(aet, out string other) && other != root)
                 {
-                    objReadWriteLog.WriteToLog($"care_devices: more than one device has AE title {aet} with different Study UID roots; {other} is used.", false);
+                    objReadWriteLog.WriteThrottled(LogEventLevel.Warning, $"care_devices: more than one device has AE title {aet} with different Study UID roots; {other} is used.");
                     continue;
                 }
                 roots[aet] = root;
@@ -680,7 +703,7 @@ namespace Worklist_SCP.Model
             string room = ConfigurationManager.AppSettings["room"].ToString();
             string fromDate = ConfigurationManager.AppSettings["fromDate"].ToString();
 
-            objReadWriteLog.WriteToLog("Get Default values from Backend ", true);
+            objReadWriteLog.Debug("Get Default values from Backend ");
 
             DateTime now = DateTime.Now.AddDays(2);
             string toDate = now.ToString("yyyy-MM-dd");
@@ -695,7 +718,7 @@ namespace Worklist_SCP.Model
             {
                 {
                     // Authenticate
-                    objReadWriteLog.WriteToLog("Authenticate with Pellucid Server A", true);
+                    objReadWriteLog.Debug("Authenticate with Pellucid Server A");
                     HttpResponseMessage authResponse = await client.PostAsync(authUrl, authContent);
 
 
@@ -703,10 +726,10 @@ namespace Worklist_SCP.Model
                     string authResponseBody = await authResponse.Content.ReadAsStringAsync();
                     //JObject authJson = JObject.Parse(authResponseBody);
                     string authToken = authResponseBody; // Assuming the key is returned in a field called "key"
-                    objReadWriteLog.WriteToLog("Authentication Succesfull", true);
+                    objReadWriteLog.Debug("Authentication Succesfull");
                     // Fetch patient info
                     string patientInfoUrl = patienURL + "?MRN=&client_id=&appointmentfromdate=" + fromDate + "&appointmenttodate=" + toDate + "&currentdepartment=" + room + "&email";
-                    objReadWriteLog.WriteToLog(patientInfoUrl, true);
+                    objReadWriteLog.Debug(patientInfoUrl);
                     client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", authToken);
                     HttpResponseMessage patientInfoResponse = await client.GetAsync(patientInfoUrl);
                     patientInfoResponse.EnsureSuccessStatusCode();
@@ -715,7 +738,7 @@ namespace Worklist_SCP.Model
 
             }
 
-            objReadWriteLog.WriteToLog("Patient URL Call successfull. Returning the value", true);
+            objReadWriteLog.Debug("Patient URL Call successfull. Returning the value");
             return patientInfoResponseBody;
         }
     }

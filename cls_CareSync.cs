@@ -65,7 +65,7 @@ namespace Plexus_DICOM_Enabler
             }
             if (ScpSettingChanges.Count > 0)
             {
-                lines.Add("Modality SCP / Store SCP settings from the DICOM Enabler's endpoints - written to cfg/common.cfg (the services using them are restarted):");
+                lines.Add("Modality SCP / Store SCP settings from the DICOM Enabler's endpoints - saved (the services using them are restarted):");
                 lines.AddRange(ScpSettingChanges.Values.Select(change => "    " + change));
             }
             if (Warnings.Count > 0)
@@ -136,9 +136,9 @@ namespace Plexus_DICOM_Enabler
             error = null;
             string baseUrl = (System.Configuration.ConfigurationManager.AppSettings["careBackendURL"] ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(facilityId))
-                error = "the Facility Id is not set.";
+                error = "no facility is selected in the Configuration tab.";
             else if (baseUrl == string.Empty)
-                error = "careBackendURL is not set in App.config.";
+                error = "The CARE server url is not set.";
             else if (!ucls_ServiceToken.TryGetAuthorizationHeader(Global._applicationPath, out apiKey, out string tokenError))
                 error = tokenError;
             if (error != null)
@@ -175,7 +175,7 @@ namespace Plexus_DICOM_Enabler
                 if (!TryGetModalitiesApi(check.FacilityId, out string modalitiesURL, out string apiKey, out string apiError))
                     return Fail(check, "CARE cannot be checked: " + apiError);
 
-                cls_AppLog.Info(Area, $"Checking CARE for changes to DICOM Enabler {check.EnablerName} ({check.EnablerId}) and its devices ({why})");
+                cls_AppLog.Debug(Area, $"Checking CARE for changes to DICOM Enabler {check.EnablerName} ({check.EnablerId}) and its devices ({why})");
                 Action<string, bool> log = cls_AppLog.For("MODALITIES");
 
                 // 1. The enabler's DICOM devices
@@ -214,15 +214,15 @@ namespace Plexus_DICOM_Enabler
 
                 if (check.HasChanges)
                 {
-                    cls_AppLog.Warning(Area, $"CARE has changes not yet applied ({why}):");
-                    foreach (string line in check.Describe())
-                        cls_AppLog.Warning(Area, line.Trim());
+                    // One line, whatever the number of changes
+                    cls_AppLog.Warning(Area, $"CARE has changes not yet applied ({why}): " +
+                                             string.Join("; ", check.Describe().Select(line => line.Trim()).Where(line => line.Length > 0)));
                 }
                 else
                 {
                     cls_AppLog.Info(Area, $"No changes in CARE: {check.CareDevices.Count} device(s) and the DICOM Enabler match what is saved ({why})");
-                    foreach (string warning in check.Warnings)
-                        cls_AppLog.Warning(Area, warning);
+                    if (check.Warnings.Count > 0)
+                        cls_AppLog.Warning(Area, string.Join(" ", check.Warnings));
                 }
                 return check;
             }
@@ -258,18 +258,19 @@ namespace Plexus_DICOM_Enabler
             Action<string, bool> log = cls_AppLog.For("MODALITIES");
             string assigned = ucls_CareModalities.AssignmentAssigned;
 
+            // Named by device name and AE title in the logs, as names can repeat
             var targets = new List<(string Id, string Name)>();
             if (check.EnablerInCare)
-                targets.Add((check.EnablerId, "DICOM Enabler " + check.EnablerName));
+                targets.Add((check.EnablerId, ucls_CareModalities.DescribeDicomEnabler(check.EnablerName, check.EnablerId)));
             targets.AddRange(check.CareDevices
                 .Where(d => !string.IsNullOrWhiteSpace(d.DeviceId) && (includeNewDevices || check.SavedDeviceIds.Contains(d.DeviceId)))
-                .Select(d => (d.DeviceId, "device " + (d.DeviceName ?? d.DeviceId))));
+                .Select(d => (d.DeviceId, "device " + ucls_CareModalities.DescribeDevice(d.DeviceName, d.AeTitle, d.DeviceId))));
 
             var done = new List<string>();
             var failed = new List<string>();
             foreach (var (id, name) in targets)
             {
-                if (ucls_CareModalities.TryUpdateAssignmentStatus(modalitiesURL, apiKey, id, assigned, log, out string error))
+                if (ucls_CareModalities.TryUpdateAssignmentStatus(modalitiesURL, apiKey, id, assigned, log, out string error, deviceLabel: name))
                     done.Add(id);
                 else
                     failed.Add($"{name}: {error}");
@@ -291,7 +292,7 @@ namespace Plexus_DICOM_Enabler
                     if (dal.SetCareDevicesAssignmentStatus(done, assigned, ref updated, ref errorString))
                     {
                         if (updated > 0)
-                            cls_AppLog.Info(Area, $"care_devices: assignment_status set to {assigned} for {updated} row(s), as in CARE");
+                            cls_AppLog.Debug(Area, $"care_devices: assignment_status set to {assigned} for {updated} row(s), as in CARE");
                     }
                     else
                     {
@@ -305,12 +306,12 @@ namespace Plexus_DICOM_Enabler
                 }
             }
 
-            cls_AppLog.Info(Area, $"Set to {assigned} in CARE (last sync time updated): {done.Count} of {targets.Count} (DICOM Enabler and devices)");
+            if (failed.Count == 0)
+                cls_AppLog.Info(Area, $"Set to {assigned} in CARE (last sync time updated): {done.Count} of {targets.Count} (DICOM Enabler and devices)");
+            else
+                cls_AppLog.Error(Area, $"Set to {assigned} in CARE: {done.Count} of {targets.Count}; could not set {string.Join("; ", failed)}");
             foreach (string failure in failed)
-            {
-                cls_AppLog.Error(Area, "Could not set to assigned in CARE: " + failure);
                 check.Warnings.Add("Could not be set to assigned in CARE: " + failure);
-            }
 
             SaveStudyUidRoots(check);
         }
@@ -361,6 +362,8 @@ namespace Plexus_DICOM_Enabler
                 return true;
             var dal = new ucls_DAL(Global._applicationPath);
             var errors = new List<string>();
+            // One App Log line for everything applied; each part's detail only in a Debug build
+            var applied = new List<string>();
             try
             {
                 string errorString = string.Empty;
@@ -368,7 +371,7 @@ namespace Plexus_DICOM_Enabler
                 {
                     int saved = 0, deleted = 0;
                     if (dal.SyncCareDevices(check.EnablerId, check.CareDevices, ref saved, ref deleted, ref errorString))
-                        cls_AppLog.Info(Area, $"care_devices updated: {saved} device(s) saved, {deleted} removed ({check.DevicesAdded} new, {check.DevicesUpdated} updated)");
+                        applied.Add($"{saved} device(s) saved ({check.DevicesAdded} new, {check.DevicesUpdated} updated), {deleted} removed");
                     else
                         errors.Add(errorString);
                 }
@@ -377,7 +380,10 @@ namespace Plexus_DICOM_Enabler
                 {
                     errorString = string.Empty;
                     if (dal.SaveCareDevice(check.UpdatedEnabler, ref errorString))
-                        cls_AppLog.Info(Area, $"DICOM Enabler {check.EnablerName} updated in care_devices: {string.Join("; ", check.EnablerChanges)}");
+                    {
+                        applied.Add($"DICOM Enabler {check.EnablerName} updated");
+                        cls_AppLog.Debug(Area, $"DICOM Enabler {check.EnablerName} updated in care_devices: {string.Join("; ", check.EnablerChanges)}");
+                    }
                     else
                         errors.Add(errorString);
                 }
@@ -398,6 +404,8 @@ namespace Plexus_DICOM_Enabler
                 dal.Dispose();
             }
 
+            if (applied.Count > 0)
+                cls_AppLog.Info(Area, "Changes from CARE applied: " + string.Join("; ", applied));
             if (errors.Count == 0)
                 return true;
             error = string.Join(" ", errors);
