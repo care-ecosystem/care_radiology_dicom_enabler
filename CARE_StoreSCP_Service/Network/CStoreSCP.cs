@@ -108,9 +108,13 @@ namespace Plexus_StoreSCP_Service.Network
             if (_deviceModality != null)
                 return _deviceModality;
             string errorString = string.Empty;
+            // Its own connection: objDAL is shared by every association, and this lookup closes the
+            // connection it used, which would cut off another association's image or device query
+            ucls_DAL dal = null;
             try
             {
-                _deviceModality = objDAL.GetDeviceModality(aeTitle, ref errorString);
+                dal = new ucls_DAL(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
+                _deviceModality = dal.GetDeviceModality(aeTitle, ref errorString);
                 if (!string.IsNullOrEmpty(errorString))
                     _fileLogger.Debug($"Modality of AE {aeTitle} not read from care_devices: {errorString}");
             }
@@ -118,6 +122,10 @@ namespace Plexus_StoreSCP_Service.Network
             {
                 _fileLogger.Debug($"Modality of AE {aeTitle} not read from care_devices: {ex.Message}");
                 _deviceModality = string.Empty;
+            }
+            finally
+            {
+                dal?.Dispose();
             }
             return _deviceModality;
         }
